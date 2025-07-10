@@ -8,7 +8,7 @@ LISTEN_PORT=${LISTEN_PORT:-6868}
 RPC_LISTEN_PORT=${RPC_LISTEN_PORT:-6800}
 ARIA2_RUNTIME_DIR=${ARIA2_RUNTIME_DIR:-/opt/aria2/runtime}
 
-exec aria2c \
+exec aria2c --log=${ARIA2_RUNTIME_DIR}/aria2.log --log-level=error \
     --dir=${DOWNLOAD_DIR} \
     --bt-detach-seed-only=true \
     --bt-force-encryption=true \
