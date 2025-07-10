@@ -46,6 +46,6 @@ jobs:
       with:
         context: application/aria2/container/aria2
         file: application/aria2/container/aria2/Dockerfile
-        push: push: ${{ github.ref_type == 'tag' || (inputs.push != null && inputs.push) }}
+        push: ${{ github.ref_type == 'tag' || (inputs.push != null && inputs.push) }}
         tags: ${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' && format('{0}/{1}:{2}', env.REGISTRY, env.IMAGE_NAME, inputs.tag) || steps.meta.outputs.tags }}
         labels: "${{ steps.meta.outputs.labels }}"
