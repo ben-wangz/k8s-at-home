@@ -12,7 +12,7 @@ name: publish-image-aria2
         description: "Push the image to the registry"
         required: false
         type: boolean
-        default: false
+        default: "false"
   push:
     branches:
       - "main"
