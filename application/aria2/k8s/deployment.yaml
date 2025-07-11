@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aria2
+  labels:
+    app: aria2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aria2
+  template:
+    metadata:
+      labels:
+        app: aria2
+    spec:
+      containers:
+      - name: aria2
+        image: ghcr.io/ben-wangz/k8s-at-home-aria2:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 6800
+          name: rpc
+        - containerPort: 6868
+          name: p2p
+        volumeMounts:
+        - name: downloads
+          mountPath: /opt/aria2/downloads
+        - name: aria2-runtime
+          mountPath: /opt/aria2/runtime
+        env:
+        - name: TZ
+          value: "Asia/Shanghai"
+        - name: RPC_SECRET
+          value: "your-rpc-secret"
+        - name: DEBUG
+          value: "true"
+        livenessProbe:
+          tcpSocket:
+            port: 6800
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      - name: aria-ng
+        image: ghcr.io/ben-wangz/k8s-at-home-aria-ng:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: aria-ng
+        env:
+        - name: ARIA2_HOST
+          value: "127.0.0.1"
+        - name: ARIA2_RPC_PORT
+          value: "6800"
+        - name: TZ
+          value: "Asia/Shanghai"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: downloads
+        persistentVolumeClaim:
+          claimName: aria2-downloads-pvc
+      - name: aria2-runtime
+        emptyDir: {}

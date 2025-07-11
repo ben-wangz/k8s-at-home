@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aria-ng
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: aria2.ben.zjlab.geekcity.tech
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: aria2
+            port:
+              number: 8080
