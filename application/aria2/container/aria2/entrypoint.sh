@@ -12,8 +12,8 @@ RPC_SECRET=${RPC_SECRET:-}
 if [ -n "$RPC_SECRET" ]; then
     RPC_SECRET_OPTION="--rpc-secret=${RPC_SECRET}"
 else
-    RPC_SECRET_OPTION=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16)
-    echo "WARN: RPC_SECRET not set, use random value: ${RPC_SECRET_OPTION}"
+    RPC_SECRET_OPTION="--rpc-secret=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16)"
+    echo "WARN: RPC_SECRET not set, use random string to construct RPC_SECRET_OPTION: ${RPC_SECRET_OPTION}"
 fi
 
 if [ "$DEBUG" = true ]; then
