@@ -43,3 +43,5 @@ aria2c --log=${ARIA2_RUNTIME_DIR}/aria2.log --log-level=${LOG_LEVEL} \
     --save-session=${ARIA2_RUNTIME_DIR}/session \
     --save-session-interval=60 \
     --continue=true
+
+tail -f ${ARIA2_RUNTIME_DIR}/aria2.log
