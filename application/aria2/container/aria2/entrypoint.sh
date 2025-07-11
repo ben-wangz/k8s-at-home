@@ -31,6 +31,7 @@ aria2c --log=${ARIA2_RUNTIME_DIR}/aria2.log --log-level=${LOG_LEVEL} \
     --dht-file-path=${ARIA2_RUNTIME_DIR}/dht.dat \
     --dht-listen-port=${DHT_LISTEN_PORT} \
     --listen-port=${LISTEN_PORT} \
+    --rpc-listen-all=true \
     --enable-rpc=true \
     --rpc-listen-port=${RPC_LISTEN_PORT} \
     --rpc-save-upload-metadata=false \
