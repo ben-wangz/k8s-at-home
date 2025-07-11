@@ -13,6 +13,8 @@ if [ "$DEBUG" = true ]; then
     echo "DEBUG: Enabling debug mode"
     LOG_LEVEL=debug
     set -x
+else
+    LOG_LEVEL=info
 fi
 exec aria2c --log=${ARIA2_RUNTIME_DIR}/aria2.log --log-level=${LOG_LEVEL} \
     --dir=${DOWNLOAD_DIR} \
