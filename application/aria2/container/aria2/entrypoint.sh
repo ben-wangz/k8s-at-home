@@ -7,8 +7,14 @@ DHT_LISTEN_PORT=${DHT_LISTEN_PORT:-6868}
 LISTEN_PORT=${LISTEN_PORT:-6868}
 RPC_LISTEN_PORT=${RPC_LISTEN_PORT:-6800}
 ARIA2_RUNTIME_DIR=${ARIA2_RUNTIME_DIR:-/opt/aria2/runtime}
+DEBUG=${DEBUG:-false}
 
-exec aria2c --log=${ARIA2_RUNTIME_DIR}/aria2.log --log-level=error \
+if [ "$DEBUG" = true ]; then
+    echo "DEBUG: Enabling debug mode"
+    LOG_LEVEL=debug
+    set -x
+fi
+exec aria2c --log=${ARIA2_RUNTIME_DIR}/aria2.log --log-level=${LOG_LEVEL} \
     --dir=${DOWNLOAD_DIR} \
     --bt-detach-seed-only=true \
     --bt-force-encryption=true \

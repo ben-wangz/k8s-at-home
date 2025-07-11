@@ -16,5 +16,6 @@ while ! nc -z ${ARIA2_HOST} ${ARIA2_RPC_PORT}; do
     sleep $RETRY_INTERVAL
     RETRY_COUNT=$((RETRY_COUNT + 1))
 done
-
+echo "INFO: aria2 service is available at ${ARIA2_HOST}:${ARIA2_RPC_PORT}"
+echo "INFO: Starting nginx..."
 exec nginx -g "daemon off;"
