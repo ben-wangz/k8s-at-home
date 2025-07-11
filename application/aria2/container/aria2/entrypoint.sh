@@ -32,4 +32,6 @@ exec aria2c --log=${ARIA2_RUNTIME_DIR}/aria2.log --log-level=${LOG_LEVEL} \
     --file-allocation=none \
     --no-conf=true \
     --save-session=${ARIA2_RUNTIME_DIR}/session \
-    --save-session-interval=60
+    --save-session-interval=60 \
+    --continue=true \
+    --seed-time=0
