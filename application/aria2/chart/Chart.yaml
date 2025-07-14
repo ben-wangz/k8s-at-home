@@ -1,0 +1,12 @@
+apiVersion: v2
+name: aria2
+version: 0.1.0
+appVersion: "latest"
+description: A Helm chart for aria2 downloader with AriaNg web UI
+type: application
+keywords:
+  - aria2
+  - downloader
+maintainers:
+  - name: ben.wangz
+    email: ben.wangz@example.com

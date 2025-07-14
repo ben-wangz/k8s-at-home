@@ -1,0 +1,15 @@
+{{- if .Values.pvc.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "aria2.fullname" . }}-downloads-pvc
+  labels:
+    {{- include "aria2.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.pvc.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.pvc.storage }}
+  storageClassName: {{ .Values.pvc.storageClassName | quote }}
+{{- end }}

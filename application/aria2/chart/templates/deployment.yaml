@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "aria2.fullname" . }}
+  labels:
+    {{- include "aria2.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "aria2.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "aria2.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+      - name: aria2
+        image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: 6800
+          name: rpc
+        - containerPort: {{ .Values.service.ports.p2p }}
+          name: p2p
+        volumeMounts:
+        - name: downloads
+          mountPath: /opt/aria2/downloads
+        - name: aria2-runtime
+          mountPath: /opt/aria2/runtime
+        env:
+        {{- range $key, $value := .Values.env }}
+        - name: {{ $key }}
+          value: {{ $value | quote }}
+        {{- end }}
+        livenessProbe:
+          tcpSocket:
+            port: 6800
+          initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+      - name: aria-ng
+        image: {{ .Values.ariaNgImage.repository }}:{{ .Values.ariaNgImage.tag }}
+        imagePullPolicy: {{ .Values.ariaNgImage.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.service.ports.ariaNg }}
+          name: aria-ng
+        env:
+        - name: ARIA2_HOST
+          value: "127.0.0.1"
+        - name: ARIA2_RPC_PORT
+          value: "6800"
+        - name: TZ
+          value: {{ .Values.env.TZ | quote }}
+        livenessProbe:
+          httpGet:
+            path: /
+            port: {{ .Values.service.ports.ariaNg }}
+          initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+      volumes:
+      - name: downloads
+        persistentVolumeClaim:
+          claimName: {{ include "aria2.fullname" . }}-downloads-pvc
+      - name: aria2-runtime
+        emptyDir: {}

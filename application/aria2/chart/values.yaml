@@ -1,0 +1,52 @@
+# Default values for aria2 chart
+
+image:
+  repository: ghcr.io/ben-wangz/k8s-at-home-aria2
+  tag: latest
+  pullPolicy: Always
+
+ariaNgImage:
+  repository: ghcr.io/ben-wangz/k8s-at-home-aria-ng
+  tag: latest
+  pullPolicy: Always
+
+env:
+  TZ: Asia/Shanghai
+  RPC_SECRET: your-rpc-secret
+  DEBUG: "true"
+
+pvc:
+  enabled: true
+  storage: 10Gi
+  storageClassName: local-path
+  accessModes:
+    - ReadWriteOnce
+
+service:
+  type: ClusterIP
+  ports:
+    p2p: 6868
+    ariaNg: 8080
+
+ingress:
+  enabled: true
+  className: nginx
+  host: aria2.ben.zjlab.geekcity.tech
+  path: /
+  pathType: Prefix
+
+livenessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+resources: {}
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
