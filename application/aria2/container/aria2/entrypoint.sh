@@ -2,44 +2,48 @@
 
 set -e
 
-DOWNLOAD_DIR=${DOWNLOAD_DIR:-/opt/aria2/downloads}
 DHT_LISTEN_PORT=${DHT_LISTEN_PORT:-6868}
 LISTEN_PORT=${LISTEN_PORT:-6868}
 RPC_LISTEN_PORT=${RPC_LISTEN_PORT:-6800}
 ARIA2_RUNTIME_DIR=${ARIA2_RUNTIME_DIR:-/opt/aria2/runtime}
-DEBUG=${DEBUG:-false}
-RPC_SECRET=${RPC_SECRET:-}
-if [ -n "$RPC_SECRET" ]; then
-    RPC_SECRET_OPTION="--rpc-secret=${RPC_SECRET}"
-else
-    RPC_SECRET_OPTION="--rpc-secret=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16)"
-    echo "WARN: RPC_SECRET not set, use random string to construct RPC_SECRET_OPTION: ${RPC_SECRET_OPTION}"
-fi
 
-if [ "$DEBUG" = true ]; then
-    echo "DEBUG: Enabling debug mode"
-    LOG_LEVEL=debug
-    set -x
-else
-    LOG_LEVEL=info
+ARIA2C_NO_CONF=${ARIA2C_NO_CONF:-true}
+ARIA2C_LOG=${ARIA2C_LOG:--}
+ARIA2C_LOG_LEVEL=${ARIA2C_LOG_LEVEL:-info}
+ARIA2C_CONSOLE_LOG_LEVEL=${ARIA2C_CONSOLE_LOG_LEVEL:-info}
+ARIA2C_DIR=${ARIA2C_DIR:-/opt/aria2/downloads}
+ARIA2C_BT_DETACH_SEED_ONLY=${ARIA2C_BT_DETACH_SEED_ONLY:-true}
+ARIA2C_BT_FORCE_ENCRYPTION=${ARIA2C_BT_FORCE_ENCRYPTION:-true}
+ARIA2C_BT_REMOVE_UNSELECTED_FILE=${ARIA2C_BT_REMOVE_UNSELECTED_FILE:-true}
+ARIA2C_DHT_FILE_PATH=${ARIA2C_DHT_FILE_PATH:-/opt/aria2/runtime}
+ARIA2C_DHT_LISTEN_PORT=${ARIA2C_DHT_LISTEN_PORT:-6868}
+ARIA2C_LISTEN_PORT=${ARIA2C_LISTEN_PORT:-6868}
+ARIA2C_ENABLE_RPC=${ARIA2C_ENABLE_RPC:-true}
+ARIA2C_RPC_LISTEN_ALL=${ARIA2C_RPC_LISTEN_ALL:-true}
+ARIA2C_RPC_LISTEN_PORT=${ARIA2C_RPC_LISTEN_PORT:-6800}
+ARIA2C_RPC_SAVE_UPLOAD_METADATA=${ARIA2C_RPC_SAVE_UPLOAD_METADATA:-false}
+if [ -z "$ARIA2C_RPC_SECRET" ]; then
+    ARIA2C_RPC_SECRET=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 16)
+    echo "WARN: RPC_SECRET not set, use random string: ${ARIA2C_RPC_SECRET}"
 fi
-exec aria2c --log=- --log-level=${LOG_LEVEL} \
-    --dir=${DOWNLOAD_DIR} \
-    --bt-detach-seed-only=true \
-    --bt-force-encryption=true \
-    --bt-remove-unselected-file=true \
-    --dht-file-path=${ARIA2_RUNTIME_DIR}/dht.dat \
-    --dht-listen-port=${DHT_LISTEN_PORT} \
-    --listen-port=${LISTEN_PORT} \
-    --rpc-listen-all=true \
-    --enable-rpc=true \
-    --rpc-listen-port=${RPC_LISTEN_PORT} \
-    --rpc-save-upload-metadata=false \
-    ${RPC_SECRET_OPTION} \
-    --console-log-level=error \
-    --disable-ipv6=true \
-    --file-allocation=none \
-    --no-conf=true \
-    --save-session=${ARIA2_RUNTIME_DIR}/session \
-    --save-session-interval=60 \
-    --continue=true
+ARIA2C_DISABLE_IPV6=${ARIA2C_DISABLE_IPV6:-true}
+ARIA2C_FILE_ALLOCATION=${ARIA2C_FILE_ALLOCATION:-none}
+ARIA2C_SAVE_SESSION=${ARIA2C_SAVE_SESSION:-true}
+ARIA2C_SAVE_SESSION_INTERVAL=${ARIA2C_SAVE_SESSION_INTERVAL:-60}
+ARIA2C_CONTINUE=${ARIA2C_CONTINUE:-true}
+
+ARIA2C_ARGUMENTS=""
+ARIA2C_ARGUMENTS_PRINTABLE=""
+for ENV_VAR_WITH_PREFIX in $(env | cut -d= -f1 | grep '^ARIA2C_'); do
+    ARG_NAME="--$(echo ${ENV_VAR_WITH_PREFIX#ARIA2C_} | tr '[:upper:]' '[:lower:]' | tr '_' '-')"
+    eval "ARG_VALUE=\$$ENV_VAR_WITH_PREFIX"
+    ARIA2C_ARGUMENTS="${ARIA2C_ARGUMENTS} ${ARG_NAME}=${ARG_VALUE}"
+    if [ "--rpc-secret" == "${ARG_NAME}" ]; then
+        ARIA2C_ARGUMENTS_PRINTABLE="${ARIA2C_ARGUMENTS_PRINTABLE} ${ARG_NAME}=********"
+    else
+        ARIA2C_ARGUMENTS_PRINTABLE="${ARIA2C_ARGUMENTS_PRINTABLE} ${ARG_NAME}=${ARG_VALUE}"
+    fi
+done
+
+echo "ARIA2C_ARGUMENTS: ${ARIA2C_ARGUMENTS_PRINTABLE}"
+exec aria2c ${ARIA2C_ARGUMENTS}
