@@ -23,7 +23,7 @@ if [ "$DEBUG" = true ]; then
 else
     LOG_LEVEL=info
 fi
-aria2c --log=${ARIA2_RUNTIME_DIR}/aria2.log --log-level=${LOG_LEVEL} \
+exec aria2c --log=- --log-level=${LOG_LEVEL} \
     --dir=${DOWNLOAD_DIR} \
     --bt-detach-seed-only=true \
     --bt-force-encryption=true \
@@ -36,7 +36,6 @@ aria2c --log=${ARIA2_RUNTIME_DIR}/aria2.log --log-level=${LOG_LEVEL} \
     --rpc-listen-port=${RPC_LISTEN_PORT} \
     --rpc-save-upload-metadata=false \
     ${RPC_SECRET_OPTION} \
-    --daemon=true \
     --console-log-level=error \
     --disable-ipv6=true \
     --file-allocation=none \
@@ -44,5 +43,3 @@ aria2c --log=${ARIA2_RUNTIME_DIR}/aria2.log --log-level=${LOG_LEVEL} \
     --save-session=${ARIA2_RUNTIME_DIR}/session \
     --save-session-interval=60 \
     --continue=true
-
-tail -f ${ARIA2_RUNTIME_DIR}/aria2.log
