@@ -1,65 +1,162 @@
-apiVersion: apps/v1
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
 kind: Deployment
 metadata:
-  name: {{ include "aria2.fullname" . }}
-  labels:
-    {{- include "aria2.labels" . | nindent 4 }}
+  name: {{ include "common.names.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
 spec:
   replicas: 1
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  {{- if .Values.updateStrategy }}
+  strategy: {{- toYaml .Values.updateStrategy | nindent 4 }}
+  {{- end }}
   selector:
-    matchLabels:
-      {{- include "aria2.selectorLabels" . | nindent 6 }}
+    matchLabels: {{- include "common.labels.matchLabels" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 6 }}
   template:
     metadata:
-      labels:
-        {{- include "aria2.selectorLabels" . | nindent 8 }}
+      labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 8 }}
+      annotations:
+        {{- if .Values.podAnnotations }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.podAnnotations "context" $) | nindent 8 }}
+        {{- end }}
     spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets: {{- include "common.tplvalues.render" ( dict "value" .Values.imagePullSecrets "context" $ ) | nindent 6 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      affinity: {{- include "common.tplvalues.render" ( dict "value" .Values.affinity "context" $ ) | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAffinity: {{- include "common.affinities.pods" ( dict "type" .Values.podAffinityPreset "customLabels" .Values.podLabels "context" $ ) | nindent 10 }}
+        podAntiAffinity: {{- include "common.affinities.pods" ( dict "type" .Values.podAntiAffinityPreset "customLabels" .Values.podLabels "context" $ ) | nindent 10 }}
+        nodeAffinity: {{- include "common.affinities.nodes" ( dict "type" .Values.nodeAffinityPreset.type "key" .Values.nodeAffinityPreset.key "values" .Values.nodeAffinityPreset.values ) | nindent 10 }}
+      {{- end }}
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" ( dict "value" .Values.nodeSelector "context" $ ) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" ( dict "value" .Values.tolerations "context" $ ) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.podSecurityContext.enabled }}
+      securityContext: {{- include "common.compatibility.renderSecurityContext" ( dict "secContext" .Values.podSecurityContext "context" $ ) | nindent 8 }}
+      {{- end }}
       containers:
       - name: aria2
-        image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
-        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        image: {{ include "common.images.image" (dict "imageRoot" .Values.aria2.image "global" .Values.global) }}
+        imagePullPolicy: {{ .Values.aria2.image.pullPolicy }}
         ports:
-        - containerPort: 6800
+        - containerPort: {{ .Values.aria2.ports.rpc }}
           name: rpc
         - containerPort: {{ .Values.service.ports.p2p }}
           name: p2p
         volumeMounts:
+          {{- include "common.tplvalues.render" (dict "value" .Values.aria2.extraVolumeMounts "context" $) | nindent 10 }}
         - name: downloads
           mountPath: /opt/aria2/downloads
         - name: aria2-runtime
           mountPath: /opt/aria2/runtime
         env:
-        {{- range $key, $value := .Values.env }}
-        - name: {{ $key }}
-          value: {{ $value | quote }}
+          - name: TZ
+            value: {{ .Values.aria2.timezone | quote }}
+          {{- if .Values.aria2.rpcSecret }}
+          - name: ARIA2C_RPC_SECRET
+            value: {{ .Values.aria2.rpcSecret | quote }}
+          {{- end }}
+          {{- if .Values.extraEnvVars }}
+          {{- include "common.tplvalues.render" (dict "value" .Values.aria2.extraEnvVars "context" $) | nindent 10 }}
+          {{- end }}
+        {{- if .Values.aria2.extraEnvVarsSecret }}
+        envFrom:
+          - secretRef:
+              name: {{ .Values.aria2.extraEnvVarsSecret }}
         {{- end }}
+        {{- if .Values.aria2.resources }}
+        resources: {{- toYaml .Values.aria2.resources | nindent 10 }}
+        {{- else if ne .Values.aria2.resourcesPreset "none" }}
+        resources: {{- include "common.resources.preset" (dict "type" .Values.aria2.resourcesPreset) | nindent 10 }}
+        {{- end }}
+        {{- if .Values.aria2.customLivenessProbe }}
+        livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.aria2.customLivenessProbe "context" $) | nindent 10 }}
+        {{- else }}
         livenessProbe:
           tcpSocket:
-            port: 6800
-          initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
-          periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            port: {{ .Values.aria2.ports.rpc }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        {{- end }}
+        {{- if .Values.aria2.customReadinessProbe }}
+        readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.aria2.customReadinessProbe "context" $) | nindent 10 }}
+        {{- else }}
+        readinessProbe:
+          tcpSocket:
+            port: {{ .Values.aria2.ports.rpc }}
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        {{- end }}
+        {{- if .Values.aria2.customStartupProbe }}
+        startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.aria2.customStartupProbe "context" $) | nindent 10 }}
+        {{- else }}
+        startupProbe:
+          tcpSocket:
+            port: {{ .Values.aria2.ports.rpc }}
+          initialDelaySeconds: 60
+          periodSeconds: 15
+        {{- end }}
       - name: aria-ng
-        image: {{ .Values.ariaNgImage.repository }}:{{ .Values.ariaNgImage.tag }}
-        imagePullPolicy: {{ .Values.ariaNgImage.pullPolicy }}
+        image: {{ .Values.ariaNg.image.repository }}:{{ .Values.ariaNg.image.tag }}
+        imagePullPolicy: {{ .Values.ariaNg.image.pullPolicy }}
         ports:
-        - containerPort: {{ .Values.service.ports.ariaNg }}
+        - containerPort: {{ .Values.ariaNg.ports.http }}
           name: aria-ng
         env:
-        - name: ARIA2_HOST
-          value: "127.0.0.1"
-        - name: ARIA2_RPC_PORT
-          value: "6800"
-        - name: TZ
-          value: {{ .Values.env.TZ | quote }}
+          - name: TZ
+            value: {{ .Values.ariaNg.timezone | quote }}
+          - name: ARIA2_HOST
+            value: {{ .Values.ariaNg.rpcHost | quote }}
+          - name: ARIA2_RPC_PORT
+            value: {{ .Values.ariaNg.rpcPort | quote }}
+        {{- if .Values.ariaNg.resources }}
+        resources: {{- toYaml .Values.ariaNg.resources | nindent 10 }}
+        {{- else if ne .Values.ariaNg.resourcesPreset "none" }}
+        resources: {{- include "common.resources.preset" (dict "type" .Values.ariaNg.resourcesPreset) | nindent 10 }}
+        {{- end }}
+        {{- if .Values.ariaNg.customLivenessProbe }}
+        livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.ariaNg.customLivenessProbe "context" $) | nindent 10 }}
+        {{- else }}
         livenessProbe:
           httpGet:
             path: /
-            port: {{ .Values.service.ports.ariaNg }}
-          initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
-          periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            port: {{ .Values.ariaNg.ports.http }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        {{- end }}
+        {{- if .Values.ariaNg.customReadinessProbe }}
+        readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.ariaNg.customReadinessProbe "context" $) | nindent 10 }}
+        {{- else }}
+        readinessProbe:
+          httpGet:
+            path: /
+            port: {{ .Values.ariaNg.ports.http }}
+          initialDelaySeconds: 15
+          periodSeconds: 5
+        {{- end }}
+        {{- if .Values.ariaNg.customStartupProbe }}
+        startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.ariaNg.customStartupProbe "context" $) | nindent 10 }}
+        {{- else }}
+        startupProbe:
+          httpGet:
+            path: /
+            port: {{ .Values.ariaNg.ports.http }}
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        {{- end }}
       volumes:
       - name: downloads
         persistentVolumeClaim:
-          claimName: {{ include "aria2.fullname" . }}-downloads-pvc
+          claimName: {{ include "aria2.pvc.fullname" . }}
       - name: aria2-runtime
         emptyDir: {}
+        {{- include "common.tplvalues.render" (dict "value" .Values.aria2.extraVolumes "context" $) | nindent 6 }}

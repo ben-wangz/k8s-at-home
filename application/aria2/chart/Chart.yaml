@@ -7,6 +7,15 @@ type: application
 keywords:
   - aria2
   - downloader
+dependencies:
+- name: common
+  repository: oci://registry-1.docker.io/bitnamicharts
+  tags:
+  - bitnami-common
+  version: 2.x.x
+home: https://github.com/ben-wangz/k8s-at-home
+sources:
+- https://github.com/ben-wangz/k8s-at-home/tree/main/application/aria2
 maintainers:
   - name: ben.wangz
-    email: ben.wangz@example.com
+    email: ben.wangz@foxmail.com

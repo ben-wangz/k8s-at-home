@@ -1,52 +1,86 @@
-# Default values for aria2 chart
-
-image:
-  repository: ghcr.io/ben-wangz/k8s-at-home-aria2
-  tag: latest
-  pullPolicy: Always
-
-ariaNgImage:
-  repository: ghcr.io/ben-wangz/k8s-at-home-aria-ng
-  tag: latest
-  pullPolicy: Always
-
-env:
-  TZ: Asia/Shanghai
-  RPC_SECRET: your-rpc-secret
-  DEBUG: "true"
-
-pvc:
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+revisionHistoryLimit: 10
+updateStrategy: {}
+imagePullSecrets: []
+affinity: {}
+podAffinityPreset: ""
+podAntiAffinityPreset: "soft"
+nodeAffinityPreset:
+  type: "none"
+  key: ""
+  values: []
+podSecurityContext:
   enabled: true
-  storage: 10Gi
-  storageClassName: local-path
+  fsGroupChangePolicy: Always
+  supplementalGroups: []
+  fsGroup: 1001
+nodeSelector: {}
+tolerations: []
+aria2:
+  image:
+    repository: ghcr.io/ben-wangz/k8s-at-home-aria2
+    tag: latest
+    pullPolicy: Always
+  ports:
+    rpc: 6800
+    p2p: 6868
+  timezone: "Asia/Shanghai"
+  rpcSecret: "your-rpc-secret"
+  extraEnvVars: {}
+  extraEnvVarsSecret: ""
+  extraVolumes: []
+  extraVolumeMounts: []
+  resourcesPreset: "medium"
+  customLivenessProbe: {}
+  customReadinessProbe: {}
+  customStartupProbe: {}
+ariaNg:
+  image:
+    repository: ghcr.io/ben-wangz/k8s-at-home-aria-ng
+    tag: latest
+    pullPolicy: Always
+  ports:
+    http: 8080
+  timezone: "Asia/Shanghai"
+  rpcHost: "127.0.0.1"
+  rpcPort: "6800"
+  resourcesPreset: "small"
+  customLivenessProbe: {}
+  customReadinessProbe: {}
+  customStartupProbe: {}
+persistence:
+  enabled: true
+  storageClass: ""
+  existingClaim: ""
   accessModes:
     - ReadWriteOnce
-
+  size: 10Gi
+  subPath: ""
+  annotations: {}
+  selector: {}
+  dataSource: {}
 service:
   type: ClusterIP
   ports:
     p2p: 6868
     ariaNg: 8080
-
+  annotations: {}
+  clusterIP: ""
+  sessionAffinity: ""
+  sessionAffinityConfig: {}
+  externalTrafficPolicy: ""
+  loadBalancerSourceRanges: []
+  loadBalancerIP: ""
+  loadBalancerClass: ""
+  extraPorts: []
 ingress:
   enabled: true
-  className: nginx
-  host: aria2.ben.zjlab.geekcity.tech
+  annotations: {}
+  ingressClassName: nginx
+  hostname: aria2.ben.zjlab.geekcity.tech
   path: /
   pathType: Prefix
-
-livenessProbe:
-  initialDelaySeconds: 30
-  periodSeconds: 10
-
-resources: {}
-  # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
-  # requests:
-  #   cpu: 100m
-  #   memory: 128Mi
-
-nodeSelector: {}
-tolerations: []
-affinity: {}
+  tls: false
