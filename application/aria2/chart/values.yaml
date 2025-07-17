@@ -19,6 +19,7 @@ podSecurityContext:
   fsGroup: 1001
 nodeSelector: {}
 tolerations: []
+extraVolumes: []
 aria2:
   image:
     repository: ghcr.io/ben-wangz/k8s-at-home-aria2
@@ -31,7 +32,6 @@ aria2:
   rpcSecret: "your-rpc-secret"
   extraEnvVars: {}
   extraEnvVarsSecret: ""
-  extraVolumes: []
   extraVolumeMounts: []
   resourcesPreset: "medium"
   customLivenessProbe: {}
@@ -84,3 +84,6 @@ ingress:
   path: /
   pathType: Prefix
   tls: false
+test:
+  service:
+    annotations: {}

@@ -1,0 +1,58 @@
+{{- if .Values.service.enabled }}  
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "aria2.service.fullname" . }}-service-test
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+  annotations:
+    {{- if or .Values.service.annotations .Values.commonAnnotations }}
+    {{- $annotations := include "common.tplvalues.merge" ( dict "values" ( list .Values.test.service.annotations .Values.commonAnnotations ) "context" . ) }}
+    {{- include "common.tplvalues.render" ( dict "value" $annotations "context" $) | nindent 4 }}
+    {{- end }}
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 6 }}
+    spec:
+      containers:
+        - name: test
+          image: docker.io/curlimages/curl:7.88.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SERVICE_FULLNAME
+              value: {{ include "aria2.service.fullname" . | quote }}
+            - name: TEST_RETRY_COUNT
+              value: "3"
+            - name: TEST_RETRY_INTERVAL
+              value: "5"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              # Test p2p port (6868)
+              p2p_status=1
+              for i in $(seq 1 $TEST_RETRY_COUNT); do
+                nc -z -w 5 $SERVICE_FULLNAME 6868 && p2p_status=0 && break
+                sleep $TEST_RETRY_INTERVAL
+              done
+              
+              # Test ariaNg port (8080)
+              aria_ng_status=1
+              for i in $(seq 1 $TEST_RETRY_COUNT); do
+                nc -z -w 5 $SERVICE_FULLNAME 8080 && aria_ng_status=0 && break
+                sleep $TEST_RETRY_INTERVAL
+              done
+              
+              if [ $p2p_status -ne 0 ] || [ $aria_ng_status -ne 0 ]; then
+                echo "Port test failed: p2p=$p2p_status, ariaNg=$aria_ng_status"
+                exit 1
+              else
+                echo "All ports connectivity test passed"
+                exit 0
+              fi
+      restartPolicy: Never
+{{- end }}

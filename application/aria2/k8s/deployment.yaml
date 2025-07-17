@@ -31,10 +31,8 @@ spec:
         env:
         - name: TZ
           value: "Asia/Shanghai"
-        - name: RPC_SECRET
+        - name: ARIA2C_RPC_SECRET
           value: "your-rpc-secret"
-        - name: DEBUG
-          value: "true"
         livenessProbe:
           tcpSocket:
             port: 6800

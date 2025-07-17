@@ -53,25 +53,27 @@ spec:
         - containerPort: {{ .Values.service.ports.p2p }}
           name: p2p
         volumeMounts:
-          {{- include "common.tplvalues.render" (dict "value" .Values.aria2.extraVolumeMounts "context" $) | nindent 10 }}
         - name: downloads
           mountPath: /opt/aria2/downloads
         - name: aria2-runtime
           mountPath: /opt/aria2/runtime
+        {{- if .Values.aria2.extraVolumeMounts }}
+          {{- include "common.tplvalues.render" (dict "value" .Values.aria2.extraVolumeMounts "context" $) | nindent 8 }}
+        {{- end }}
         env:
-          - name: TZ
-            value: {{ .Values.aria2.timezone | quote }}
-          {{- if .Values.aria2.rpcSecret }}
-          - name: ARIA2C_RPC_SECRET
-            value: {{ .Values.aria2.rpcSecret | quote }}
-          {{- end }}
-          {{- if .Values.extraEnvVars }}
-          {{- include "common.tplvalues.render" (dict "value" .Values.aria2.extraEnvVars "context" $) | nindent 10 }}
-          {{- end }}
+        - name: TZ
+          value: {{ .Values.aria2.timezone | quote }}
+        {{- if .Values.aria2.rpcSecret }}
+        - name: ARIA2C_RPC_SECRET
+          value: {{ .Values.aria2.rpcSecret | quote }}
+        {{- end }}
+        {{- if .Values.extraEnvVars }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.aria2.extraEnvVars "context" $) | nindent 10 }}
+        {{- end }}
         {{- if .Values.aria2.extraEnvVarsSecret }}
         envFrom:
-          - secretRef:
-              name: {{ .Values.aria2.extraEnvVarsSecret }}
+        - secretRef:
+            name: {{ .Values.aria2.extraEnvVarsSecret }}
         {{- end }}
         {{- if .Values.aria2.resources }}
         resources: {{- toYaml .Values.aria2.resources | nindent 10 }}
@@ -112,12 +114,12 @@ spec:
         - containerPort: {{ .Values.ariaNg.ports.http }}
           name: aria-ng
         env:
-          - name: TZ
-            value: {{ .Values.ariaNg.timezone | quote }}
-          - name: ARIA2_HOST
-            value: {{ .Values.ariaNg.rpcHost | quote }}
-          - name: ARIA2_RPC_PORT
-            value: {{ .Values.ariaNg.rpcPort | quote }}
+        - name: TZ
+          value: {{ .Values.ariaNg.timezone | quote }}
+        - name: ARIA2_HOST
+          value: {{ .Values.ariaNg.rpcHost | quote }}
+        - name: ARIA2_RPC_PORT
+          value: {{ .Values.ariaNg.rpcPort | quote }}
         {{- if .Values.ariaNg.resources }}
         resources: {{- toYaml .Values.ariaNg.resources | nindent 10 }}
         {{- else if ne .Values.ariaNg.resourcesPreset "none" }}
@@ -159,4 +161,6 @@ spec:
           claimName: {{ include "aria2.pvc.fullname" . }}
       - name: aria2-runtime
         emptyDir: {}
-        {{- include "common.tplvalues.render" (dict "value" .Values.aria2.extraVolumes "context" $) | nindent 6 }}
+      {{- if .Values.extraVolumes }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 6 }}
+      {{- end }}

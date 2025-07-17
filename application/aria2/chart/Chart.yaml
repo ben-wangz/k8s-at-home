@@ -1,6 +1,6 @@
 apiVersion: v2
 name: aria2
-version: 0.1.0
+version: 1.0.0
 appVersion: "latest"
 description: A Helm chart for aria2 downloader with AriaNg web UI
 type: application
@@ -17,5 +17,5 @@ home: https://github.com/ben-wangz/k8s-at-home
 sources:
 - https://github.com/ben-wangz/k8s-at-home/tree/main/application/aria2
 maintainers:
-  - name: ben.wangz
+  - name: ben
     email: ben.wangz@foxmail.com
