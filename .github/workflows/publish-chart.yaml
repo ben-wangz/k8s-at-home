@@ -40,5 +40,4 @@ jobs:
           skip_gh_release: ${{ github.ref_type != 'tag' }}
           skip_existing: ${{ github.ref_type == 'tag' }}
           mark_as_latest: ${{ github.ref_type != 'tag' }}
-          skip_existing: true
           version: v3.17.4
