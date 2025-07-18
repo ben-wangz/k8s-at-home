@@ -13,11 +13,6 @@ on:
         required: false
         type: boolean
         default: false
-      selected_image:
-        description: "Optional specific image to publish (e.g. aria-ng, aria2). Leave empty to publish all."
-        required: false
-        type: string
-        default: ""
   push:
     branches:
       - "main"
@@ -36,7 +31,6 @@ jobs:
           - name_suffix: "aria2"
             container_path: "application/aria2/container/aria2"
             dockerfile_path: "application/aria2/container/aria2/Dockerfile"
-    # if: ${{ !github.event.inputs.selected_image || contains(github.event.inputs.selected_image, matrix.name_suffix) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
