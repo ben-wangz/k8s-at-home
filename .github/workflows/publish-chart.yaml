@@ -16,8 +16,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - chart_name_suffix: "aria2"
-            chart_path: "application/aria2/chart"
+          - chart_path: "application/aria2/chart"
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -35,7 +34,7 @@ jobs:
           oci_password: ${{ secrets.GITHUB_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           charts_dir: "${{ matrix.chart_path }}"
-          tag_name_pattern: ${{ github.ref_type == 'tag' && format('{0}-{1}-chart-{{version}}', github.repository, matrix.chart_name_suffix) || format('{0}-{1}-chart-latest', github.repository, matrix.chart_name_suffix) }}
+          tag_name_pattern: ${{ github.ref_type == 'tag' && format('{0}-{{chartName}}-chart', github.repository) || format('{0}-{{chartName}}-chart-latest', github.repository) }}
           skip_dependencies: false
           skip_gh_release: ${{ github.ref_type != 'tag' }}
           mark_as_latest: ${{ github.ref_type != 'tag' }}
