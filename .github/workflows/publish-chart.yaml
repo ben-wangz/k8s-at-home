@@ -38,6 +38,5 @@ jobs:
           tag_name_pattern: ${{ github.ref_type == 'tag' && format('{0}-{1}-chart-{{version}}', github.repository, matrix.chart_name_suffix) || format('{0}-{1}-chart-latest', github.repository, matrix.chart_name_suffix) }}
           skip_dependencies: false
           skip_gh_release: ${{ github.ref_type != 'tag' }}
-          skip_existing: ${{ github.ref_type == 'tag' }}
           mark_as_latest: ${{ github.ref_type != 'tag' }}
           version: v3.17.4
