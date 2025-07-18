@@ -54,12 +54,12 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: "${{ env.REGISTRY }}/${{ github.repository }}-${{ matrix.images.name_suffix }}"
+        images: "${{ env.REGISTRY }}/${{ github.repository }}-${{ matrix.name_suffix }}"
     - name: build and push container image
       uses: docker/build-push-action@v6
       with:
-        context: "${{ matrix.images.container_path }}"
-        file: "${{ matrix.images.dockerfile_path }}"
+        context: "${{ matrix.container_path }}"
+        file: "${{ matrix.dockerfile_path }}"
         push: ${{ github.ref_type == 'tag' || (inputs.push != null && inputs.push) }}
-        tags: ${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' && format('{0}/{1}-{2}:{3}', env.REGISTRY, github.repository, matrix.images.name_suffix, inputs.tag) || steps.meta.outputs.tags }}
+        tags: ${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' && format('{0}/{1}-{2}:{3}', env.REGISTRY, github.repository, matrix.name_suffix, inputs.tag) || steps.meta.outputs.tags }}
         labels: "${{ steps.meta.outputs.labels }}"
