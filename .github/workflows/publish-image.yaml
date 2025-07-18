@@ -40,7 +40,7 @@ jobs:
           - name_suffix: "aria2"
             container_path: "application/aria2/container/aria2"
             dockerfile_path: "application/aria2/container/aria2/Dockerfile"
-        include: ${{ contains(github.event.inputs.selected_image, matrix.images.name_suffix) || github.event.inputs.selected_image == null || github.event.inputs.selected_image == '' }}
+        include: ${{ contains(github.event.inputs.selected_image, matrix.name_suffix) || github.event.inputs.selected_image == null || github.event.inputs.selected_image == '' }}
     steps:
     - name: checkout-repository
       uses: actions/checkout@v4
