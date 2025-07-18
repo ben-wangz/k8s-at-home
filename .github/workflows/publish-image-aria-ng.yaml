@@ -14,8 +14,6 @@ name: publish-image-aria-ng
         type: boolean
         default: false
   push:
-    branches:
-      - "main"
     tags:
       - "v*"
 env:
