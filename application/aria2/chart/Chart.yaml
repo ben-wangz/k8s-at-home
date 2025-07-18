@@ -2,7 +2,7 @@ apiVersion: v2
 name: aria2
 version: 1.0.0
 appVersion: "latest"
-description: A Helm chart for aria2 downloader with AriaNg web UI
+description: aria2 downloader with AriaNg web UI
 type: application
 keywords:
   - aria2
