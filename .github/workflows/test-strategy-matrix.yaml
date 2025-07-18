@@ -1,0 +1,9 @@
+jobs:
+  example_job:
+    strategy:
+      matrix:
+        version: [10, 12, 14]
+    runs-on: ubuntu-latest
+    if: matrix.version == 12
+    steps:
+      - run: echo "Running for version ${{ matrix.version }}"
