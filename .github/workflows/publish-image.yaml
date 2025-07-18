@@ -27,10 +27,6 @@ env:
   REGISTRY: ghcr.io
 jobs:
   build-and-push-images:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     strategy:
       matrix:
         images:
@@ -40,7 +36,11 @@ jobs:
           - name_suffix: "aria2"
             container_path: "application/aria2/container/aria2"
             dockerfile_path: "application/aria2/container/aria2/Dockerfile"
-        include: ${{ contains(github.event.inputs.selected_image, matrix.name_suffix) || github.event.inputs.selected_image == null || github.event.inputs.selected_image == '' }}
+    if: ${{ !github.event.inputs.selected_image || contains(github.event.inputs.selected_image, matrix.name_suffix) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
     - name: checkout-repository
       uses: actions/checkout@v4
