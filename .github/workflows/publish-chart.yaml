@@ -1,0 +1,44 @@
+---
+name: publish-chart
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    tags:
+      - "v*"
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - chart_name_suffix: "aria2"
+            chart_path: "application/aria2/chart"
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+      - name: chart-releaser
+        uses: bitdeps/helm-oci-charts-releaser@v0.1.4
+        with:
+          oci_registry: ghcr.io
+          oci_username: ${{ github.actor }}
+          oci_password: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          charts_dir: "${{ matrix.chart_path }}"
+          tag_name_pattern: ${{ github.ref_type == 'tag' && format('{0}-{1}-chart-{{version}}', github.repository, matrix.chart_name_suffix) || format('{0}-{1}-chart-latest', github.repository, matrix.chart_name_suffix) }}
+          skip_dependencies: false
+          skip_gh_release: ${{ github.ref_type != 'tag' }}
+          skip_existing: ${{ github.ref_type == 'tag' }}
+          mark_as_latest: ${{ github.ref_type != 'tag' }}
+          skip_existing: true
+          version: v3.17.4
