@@ -29,7 +29,7 @@ jobs:
   build-and-push-images:
     strategy:
       matrix:
-        images:
+        include:
           - name_suffix: "aria-ng"
             container_path: "application/aria2/container/aria-ng"
             dockerfile_path: "application/aria2/container/aria-ng/Dockerfile"
