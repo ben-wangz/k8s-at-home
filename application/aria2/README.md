@@ -13,7 +13,7 @@ aria2 is a download tool, which supports multi connections and multi protocols.
     * [aria2](chart/)
 3. install with helm
     * ```shell
-      helm upgrade --install aria2 application/aria2/chart \
+      helm upgrade --install aria2 oci://ghcr.io/ben-wangz/k8s-at-home/aria2 \
         --atomic \
         --version 1.0.0 \
         --namespace default \
