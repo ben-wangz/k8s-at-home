@@ -1,0 +1,63 @@
+{{- if .Values.ingress.proxy.enabled }}
+apiVersion: {{ include "common.capabilities.ingress.apiVersion" . }}
+kind: Ingress
+metadata:
+  name: {{ include "common.names.fullname" . }}-proxy
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+  {{- if or .Values.ingress.proxy.annotations .Values.commonAnnotations }}
+  {{- $annotations := include "common.tplvalues.merge" ( dict "values" ( list .Values.ingress.proxy.annotations .Values.commonAnnotations ) "context" . ) }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" $annotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.proxy.ingressClassName }}
+  ingressClassName: {{ .Values.ingress.proxy.ingressClassName | quote }}
+  {{- end }}
+  rules:
+    {{- if .Values.ingress.proxy.hostname }}
+    - http:
+        paths:
+          - path: {{ .Values.ingress.proxy.path }}
+            pathType: {{ .Values.ingress.proxy.pathType }}
+            backend: {{- include "common.ingress.backend" (dict "serviceName" (include "common.names.fullname" .) "servicePort" "http" "context" $)  | nindent 14 }}
+      host: {{ include "common.tplvalues.render" ( dict "value" .Values.ingress.proxy.hostname "context" $ ) }}
+    {{- end }}
+  {{- if and .Values.ingress.proxy.tls (include "common.ingress.certManagerRequest" ( dict "annotations" .Values.ingress.proxy.annotations )) }}
+  tls:
+    - hosts:
+        - {{ include "common.tplvalues.render" ( dict "value" .Values.ingress.proxy.hostname "context" $ ) }}
+      secretName: {{ printf "%s-proxy-tls" .Values.ingress.proxy.hostname }}
+  {{- end }}
+{{- end }}
+
+{{- if .Values.ingress.controller.enabled }}
+apiVersion: {{ include "common.capabilities.ingress.apiVersion" . }}
+kind: Ingress
+metadata:
+  name: {{ include "common.names.fullname" . }}-controller
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+  {{- if or .Values.ingress.controller.annotations .Values.commonAnnotations }}
+  {{- $annotations := include "common.tplvalues.merge" ( dict "values" ( list .Values.ingress.controller.annotations .Values.commonAnnotations ) "context" . ) }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" $annotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.controller.ingressClassName }}
+  ingressClassName: {{ .Values.ingress.controller.ingressClassName | quote }}
+  {{- end }}
+  rules:
+    {{- if .Values.ingress.controller.hostname }}
+    - http:
+        paths:
+          - path: {{ .Values.ingress.controller.path }}
+            pathType: {{ .Values.ingress.controller.pathType }}
+            backend: {{- include "common.ingress.backend" (dict "serviceName" (include "common.names.fullname" .) "servicePort" "controller" "context" $)  | nindent 14 }}
+      host: {{ include "common.tplvalues.render" ( dict "value" .Values.ingress.controller.hostname "context" $ ) }}
+    {{- end }}
+  {{- if and .Values.ingress.controller.tls (include "common.ingress.certManagerRequest" ( dict "annotations" .Values.ingress.controller.annotations )) }}
+  tls:
+    - hosts:
+        - {{ include "common.tplvalues.render" ( dict "value" .Values.ingress.controller.hostname "context" $ ) }}
+      secretName: {{ printf "%s-controller-tls" .Values.ingress.controller.hostname }}
+  {{- end }}
+{{- end }}

@@ -17,6 +17,7 @@ jobs:
       matrix:
         include:
           - chart_path: "application/aria2"
+          - chart_path: "application/clash"
     steps:
       - name: checkout
         uses: actions/checkout@v4

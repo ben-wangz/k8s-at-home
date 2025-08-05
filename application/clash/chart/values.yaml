@@ -1,0 +1,97 @@
+replicas: 1
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+revisionHistoryLimit: 10
+updateStrategy: {}
+imagePullSecrets: []
+affinity: {}
+podAffinityPreset: ""
+podAntiAffinityPreset: "soft"
+nodeAffinityPreset:
+  type: "none"
+  key: ""
+  values: []
+podSecurityContext:
+  enabled: true
+  fsGroupChangePolicy: Always
+  supplementalGroups: []
+  fsGroup: 1001
+nodeSelector: {}
+tolerations: []
+extraVolumes: []
+clash:
+  image:
+    repository: docker.io/dreamacro/clash
+    tag: v1.18.0
+    pullPolicy: IfNotPresent
+  ports:
+    http: 7890
+    controller: 9090
+  timezone: "Asia/Shanghai"
+  extraEnvVars: {}
+  extraEnvVarsSecret: ""
+  extraVolumeMounts: []
+  resourcesPreset: "medium"
+  customLivenessProbe: {}
+  customReadinessProbe: {}
+  customStartupProbe: {}
+persistence:
+  enabled: false
+  storageClass: ""
+  existingClaim: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  subPath: ""
+  annotations: {}
+  selector: {}
+  dataSource: {}
+config:
+  existingSecret: ""
+  # if existingSecret is not set, configContent will be used
+  # configContent: |-
+  #   port: 7890
+  #   socks-port: 7891
+  #   redir-port: 7892
+  #   allow-lan: true
+  #   mode: Rule
+  #   log-level: info
+  #   external-controller: 0.0.0.0:9090
+  #   secret: ""
+  # countryMmdbContent: |-
+  #   # content of Country.mmdb
+
+service:
+  type: ClusterIP
+  ports:
+    http: 7890
+    controller: 9090
+  annotations: {}
+  clusterIP: ""
+  sessionAffinity: ""
+  sessionAffinityConfig: {}
+  externalTrafficPolicy: ""
+  loadBalancerSourceRanges: []
+  loadBalancerIP: ""
+  loadBalancerClass: ""
+  extraPorts: []
+ingress:
+  proxy:
+    enabled: false
+    annotations: {}
+    ingressClassName: nginx
+    hostname: proxy.clash.example.com
+    path: /
+    pathType: Prefix
+    tls: false
+  controller:
+    enabled: false
+    annotations: {}
+    ingressClassName: nginx
+    hostname: controller.clash.example.com
+    path: /
+    pathType: Prefix
+    tls: false
+extraDeploy: []

@@ -1,0 +1,20 @@
+apiVersion: v2
+name: clash
+version: 1.0.0
+appVersion: "v1.18.0"
+description: A rule-based tunnel in Go
+type: application
+keywords:
+  - clash
+  - proxy
+dependencies:
+- name: common
+  repository: oci://registry-1.docker.io/bitnamicharts
+  tags:
+  - bitnami-common
+  version: 2.x.x
+home: https://github.com/ben-wangz/k8s-at-home
+sources:
+- https://github.com/ben-wangz/k8s-at-home/tree/main/application/clash
+maintainers:
+  - name: ben
