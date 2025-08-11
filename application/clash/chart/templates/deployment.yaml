@@ -54,7 +54,8 @@ spec:
           name: controller
         volumeMounts:
         - name: config
-          mountPath: /root/.config/clash
+          mountPath: /root/.config/clash/config.yaml
+          subPath: config.yaml
         {{- if .Values.clash.extraVolumeMounts }}
           {{- include "common.tplvalues.render" (dict "value" .Values.clash.extraVolumeMounts "context" $) | nindent 8 }}
         {{- end }}

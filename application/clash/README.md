@@ -10,13 +10,18 @@ Clash is a powerful proxy tool that supports multiple protocols and provides fle
     * [clash](chart/)
 
 2. install with helm
+    * prepare `clash/config.yaml` for clash
+    * create secret named `clash-config` with directory `clash`
+        + ```shell
+          kubectl -n basic-components create secret generic clash-config --from-file=clash/
+          ```
     * ```shell
       helm upgrade --install clash oci://ghcr.io/ben-wangz/k8s-at-home-charts/clash \
         --atomic \
         --version 1.0.0 \
-        --namespace default \
+        --namespace basic-components \
         --create-namespace \
-        --set replicas=1 \
-        --set clash.timezone="Asia/Shanghai" \
-        --set service.type=ClusterIP
+        --set clash.image.repository=m.daocloud.io/docker.io/dreamacro/clash \
+        --set config.existingSecret=clash-config \
+        --set clash.timezone="Asia/Shanghai"
       ```
