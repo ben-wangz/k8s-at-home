@@ -45,6 +45,6 @@ Clash is a powerful proxy tool that supports multiple protocols and provides fle
         --set config.existingSecret=clash-config \
         --set clash.timezone="Asia/Shanghai" \
         --set service.type=NodePort \
-        --set service.ports.httpNodePort=32789 \
-        --set service.ports.controllerNodePort=32909
+        --set service.ports.httpNodePort=31789 \
+        --set service.ports.controllerNodePort=31909
       ```
