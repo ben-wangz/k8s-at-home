@@ -65,9 +65,9 @@ service:
   type: ClusterIP
   ports:
     http: 7890
-    httpNodePort: 32789
+    httpNodePort: 31789
     controller: 9090
-    controllerNodePort: 32909
+    controllerNodePort: 31909
   annotations: {}
   clusterIP: ""
   sessionAffinity: ""
