@@ -25,6 +25,7 @@ Clash is a powerful proxy tool that supports multiple protocols and provides fle
               ENCODED_SUBSCRIPTION_URL=your-encoded-subscription-url
               podman exec -it subconverter sh -c \
                   "wget -O /tmp/config.yaml 'http://localhost:25500/sub?url=$ENCODED_SUBSCRIPTION_URL&target=clash'"
+              mkdir -p clash
               podman cp subconverter:/tmp/config.yaml clash/config.yaml
               ```
         + replace `external-controller`
@@ -50,8 +51,9 @@ Clash is a powerful proxy tool that supports multiple protocols and provides fle
       ```
 3. use with client
     * ```shell
-      export http_proxy=http://ben-k3s1:31789
-      export https_proxy=http://ben-k3s1:31789
+      NODE_IN_CLUSTER_IP=ben-k3s1
+      export http_proxy=http://$NODE_IN_CLUSTER_IP:31789
+      export https_proxy=http://$NODE_IN_CLUSTER_IP:31789
       export no_proxy=localhost,127.0.0.1,*.local
       ```
     * ```shell
