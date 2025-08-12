@@ -48,3 +48,12 @@ Clash is a powerful proxy tool that supports multiple protocols and provides fle
         --set service.ports.httpNodePort=31789 \
         --set service.ports.controllerNodePort=31909
       ```
+3. use with client
+    * ```shell
+      export http_proxy=http://ben-k3s1:31789
+      export https_proxy=http://ben-k3s1:31789
+      export no_proxy=localhost,127.0.0.1,*.local
+      ```
+    * ```shell
+      curl "https://whois.pconline.com.cn/ipJson.jsp?ip=&json=true"
+      ```
