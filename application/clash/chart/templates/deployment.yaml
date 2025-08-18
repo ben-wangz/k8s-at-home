@@ -45,60 +45,60 @@ spec:
       {{- end }}
       containers:
       - name: clash
-        image: {{ include "common.images.image" (dict "imageRoot" .Values.clash.image "global" .Values.global) }}
-        imagePullPolicy: {{ .Values.clash.image.pullPolicy }}
+        image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
-        - containerPort: {{ .Values.clash.ports.http }}
+        - containerPort: {{ .Values.ports.http }}
           name: http
-        - containerPort: {{ .Values.clash.ports.controller }}
+        - containerPort: {{ .Values.ports.controller }}
           name: controller
         volumeMounts:
         - name: config
           mountPath: /root/.config/clash/config.yaml
           subPath: config.yaml
-        {{- if .Values.clash.extraVolumeMounts }}
-          {{- include "common.tplvalues.render" (dict "value" .Values.clash.extraVolumeMounts "context" $) | nindent 8 }}
+        {{- if .Values.extraVolumeMounts }}
+          {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 8 }}
         {{- end }}
         env:
         - name: TZ
-          value: {{ .Values.clash.timezone | quote }}
-        {{- if .Values.clash.extraEnvVars }}
-        {{- include "common.tplvalues.render" (dict "value" .Values.clash.extraEnvVars "context" $) | nindent 10 }}
+          value: {{ .Values.timezone | quote }}
+        {{- if .Values.extraEnvVars }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.extraEnvVars "context" $) | nindent 10 }}
         {{- end }}
-        {{- if .Values.clash.extraEnvVarsSecret }}
+        {{- if .Values.extraEnvVarsSecret }}
         envFrom:
         - secretRef:
-            name: {{ .Values.clash.extraEnvVarsSecret }}
+            name: {{ .Values.extraEnvVarsSecret }}
         {{- end }}
-        {{- if .Values.clash.resources }}
-        resources: {{- toYaml .Values.clash.resources | nindent 10 }}
-        {{- else if ne .Values.clash.resourcesPreset "none" }}
-        resources: {{- include "common.resources.preset" (dict "type" .Values.clash.resourcesPreset) | nindent 10 }}
+        {{- if .Values.resources }}
+        resources: {{- toYaml .Values.resources | nindent 10 }}
+        {{- else if ne .Values.resourcesPreset "none" }}
+        resources: {{- include "common.resources.preset" (dict "type" .Values.resourcesPreset) | nindent 10 }}
         {{- end }}
-        {{- if .Values.clash.customLivenessProbe }}
-        livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.clash.customLivenessProbe "context" $) | nindent 10 }}
+        {{- if .Values.customLivenessProbe }}
+        livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customLivenessProbe "context" $) | nindent 10 }}
         {{- else }}
         livenessProbe:
           tcpSocket:
-            port: {{ .Values.clash.ports.http }}
+            port: {{ .Values.ports.http }}
           initialDelaySeconds: 30
           periodSeconds: 10
         {{- end }}
-        {{- if .Values.clash.customReadinessProbe }}
-        readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.clash.customReadinessProbe "context" $) | nindent 10 }}
+        {{- if .Values.customReadinessProbe }}
+        readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customReadinessProbe "context" $) | nindent 10 }}
         {{- else }}
         readinessProbe:
           tcpSocket:
-            port: {{ .Values.clash.ports.http }}
+            port: {{ .Values.ports.http }}
           initialDelaySeconds: 10
           periodSeconds: 5
         {{- end }}
-        {{- if .Values.clash.customStartupProbe }}
-        startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.clash.customStartupProbe "context" $) | nindent 10 }}
+        {{- if .Values.customStartupProbe }}
+        startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customStartupProbe "context" $) | nindent 10 }}
         {{- else }}
         startupProbe:
           tcpSocket:
-            port: {{ .Values.clash.ports.http }}
+            port: {{ .Values.ports.http }}
           initialDelaySeconds: 60
           periodSeconds: 15
         {{- end }}

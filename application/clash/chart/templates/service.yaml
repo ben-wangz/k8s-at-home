@@ -36,12 +36,12 @@ spec:
   ports:
     - protocol: TCP
       port: {{ .Values.service.ports.http }}
-      targetPort: {{ .Values.clash.ports.http }}
+      targetPort: {{ .Values.ports.http }}
       nodePort: {{ .Values.service.ports.httpNodePort }}
       name: http
     - protocol: TCP
       port: {{ .Values.service.ports.controller }}
-      targetPort: {{ .Values.clash.ports.controller }}
+      targetPort: {{ .Values.ports.controller }}
       nodePort: {{ .Values.service.ports.controllerNodePort }}
       name: controller
     {{- if .Values.service.extraPorts }}
