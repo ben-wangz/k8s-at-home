@@ -1,0 +1,54 @@
+replicas: 1
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+revisionHistoryLimit: 10
+updateStrategy: {}
+imagePullSecrets: []
+affinity: {}
+podAffinityPreset: ""
+podAntiAffinityPreset: "soft"
+nodeAffinityPreset:
+  type: "none"
+  key: ""
+  values: []
+podSecurityContext:
+  enabled: true
+  fsGroupChangePolicy: Always
+  supplementalGroups: []
+  fsGroup: 1001
+nodeSelector: {}
+tolerations: []
+extraVolumes: []
+yacd:
+  image:
+    repository: docker.io/haishanh/yacd
+    tag: master
+    pullPolicy: IfNotPresent
+  ports:
+    http: 80
+  resources: {}
+  resourcesPreset: none
+service:
+  type: ClusterIP
+  ports:
+    http: 80
+  annotations: {}
+  clusterIP: ""
+  sessionAffinity: ""
+  sessionAffinityConfig: {}
+  externalTrafficPolicy: ""
+  loadBalancerSourceRanges: []
+  loadBalancerIP: ""
+  loadBalancerClass: ""
+  extraPorts: []
+ingress:
+  enabled: false
+  annotations: {}
+  ingressClassName: nginx
+  hostname: yacd.example.com
+  path: /
+  pathType: Prefix
+  tls: false
+extraDeploy: []

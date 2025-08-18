@@ -1,0 +1,102 @@
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
+kind: Deployment
+metadata:
+  name: {{ include "common.names.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  {{- if .Values.updateStrategy }}
+  strategy: {{- toYaml .Values.updateStrategy | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 8 }}
+      annotations:
+        {{- if .Values.podAnnotations }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.podAnnotations "context" $) | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets: {{- include "common.tplvalues.render" ( dict "value" .Values.imagePullSecrets "context" $ ) | nindent 6 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      affinity: {{- include "common.tplvalues.render" ( dict "value" .Values.affinity "context" $ ) | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAffinity: {{- include "common.affinities.pods" ( dict "type" .Values.podAffinityPreset "customLabels" .Values.podLabels "context" $ ) | nindent 10 }}
+        podAntiAffinity: {{- include "common.affinities.pods" ( dict "type" .Values.podAntiAffinityPreset "customLabels" .Values.podLabels "context" $ ) | nindent 10 }}
+        nodeAffinity: {{- include "common.affinities.nodes" ( dict "type" .Values.nodeAffinityPreset.type "key" .Values.nodeAffinityPreset.key "values" .Values.nodeAffinityPreset.values ) | nindent 10 }}
+      {{- end }}
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" ( dict "value" .Values.nodeSelector "context" $ ) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" ( dict "value" .Values.tolerations "context" $ ) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.podSecurityContext.enabled }}
+      securityContext: {{- include "common.compatibility.renderSecurityContext" ( dict "secContext" .Values.podSecurityContext "context" $ ) | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: yacd
+        image: {{ include "common.images.image" (dict "imageRoot" .Values.yacd.image "global" .Values.global) }}
+        imagePullPolicy: {{ .Values.yacd.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.yacd.ports.http }}
+          name: http
+        {{- if .Values.yacd.extraVolumeMounts }}
+          {{- include "common.tplvalues.render" (dict "value" .Values.yacd.extraVolumeMounts "context" $) | nindent 8 }}
+        {{- end }}
+        env:
+        {{- if .Values.yacd.extraEnvVars }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.yacd.extraEnvVars "context" $) | nindent 10 }}
+        {{- end }}
+        {{- if .Values.yacd.extraEnvVarsSecret }}
+        envFrom:
+        - secretRef:
+            name: {{ .Values.yacd.extraEnvVarsSecret }}
+        {{- end }}
+        {{- if .Values.yacd.resources }}
+        resources: {{- toYaml .Values.yacd.resources | nindent 10 }}
+        {{- else if ne .Values.yacd.resourcesPreset "none" }}
+        resources: {{- include "common.resources.preset" (dict "type" .Values.yacd.resourcesPreset) | nindent 10 }}
+        {{- end }}
+        {{- if .Values.yacd.customLivenessProbe }}
+        livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.yacd.customLivenessProbe "context" $) | nindent 10 }}
+        {{- else }}
+        livenessProbe:
+          httpGet:
+            path: /
+            port: {{ .Values.yacd.ports.http }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        {{- end }}
+        {{- if .Values.yacd.customReadinessProbe }}
+        readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.yacd.customReadinessProbe "context" $) | nindent 10 }}
+        {{- else }}
+        readinessProbe:
+          httpGet:
+            path: /
+            port: {{ .Values.yacd.ports.http }}
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        {{- end }}
+        {{- if .Values.yacd.customStartupProbe }}
+        startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.yacd.customStartupProbe "context" $) | nindent 10 }}
+        {{- else }}
+        startupProbe:
+          httpGet:
+            path: /
+            port: {{ .Values.yacd.ports.http }}
+          initialDelaySeconds: 60
+          periodSeconds: 15
+        {{- end }}
+      {{- if .Values.extraVolumes }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 6 }}
+      {{- end }}
