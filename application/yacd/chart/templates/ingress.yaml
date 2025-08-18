@@ -1,12 +1,12 @@
 {{- if .Values.ingress.enabled -}}
-{{- $annotations := include "common.tplvalues.merge" ( dict "values" ( list .Values.ingress.annotations .Values.commonAnnotations ) "context" . ) }}
 apiVersion: {{ include "common.capabilities.ingress.apiVersion" . }}
 kind: Ingress
 metadata:
   name: {{ include "common.names.fullname" . }}
   namespace: {{ include "common.names.namespace" . | quote }}
   labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
-  {{- if $annotations }}
+  {{- if or .Values.ingress.annotations .Values.commonAnnotations }}
+  {{- $annotations := include "common.tplvalues.merge" ( dict "values" ( list .Values.ingress.annotations .Values.commonAnnotations ) "context" . ) }}
   annotations: {{- include "common.tplvalues.render" ( dict "value" $annotations "context" $) | nindent 4 }}
   {{- end }}
 spec:
@@ -22,10 +22,10 @@ spec:
             backend: {{- include "common.ingress.backend" (dict "serviceName" (include "common.names.fullname" .) "servicePort" .Values.service.ports.http "context" $) | nindent 14 }}
       host: {{ include "common.tplvalues.render" ( dict "value" .Values.ingress.hostname "context" $ ) }}
     {{- end }}
-  {{- if and .Values.ingress.tls (include "common.ingress.certManagerRequest" ( dict "annotations" $annotations )) }}
+  {{- if and .Values.ingress.tls (include "common.ingress.certManagerRequest" ( dict "annotations" .Values.ingress.annotations )) }}
   tls:
     - hosts:
         - {{ include "common.tplvalues.render" ( dict "value" .Values.ingress.hostname "context" $ ) }}
       secretName: {{ printf "%s-tls" .Values.ingress.hostname }}
   {{- end }}
-  {{- end }}
+{{- end }}
