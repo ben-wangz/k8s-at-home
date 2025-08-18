@@ -13,7 +13,7 @@ yacd (Yet Another Clash Dashboard) is a web-based dashboard for Clash, a powerfu
     * ```shell
       helm upgrade --install yacd oci://ghcr.io/ben-wangz/k8s-at-home-charts/yacd \
         --atomic \
-        --version 0.1.0 \
+        --version 0.2.0 \
         --namespace basic-components \
         --create-namespace \
         --set image.repository=m.daocloud.io/docker.io/haishanh/yacd \
