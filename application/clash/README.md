@@ -42,9 +42,9 @@ Clash is a powerful proxy tool that supports multiple protocols and provides fle
         --version 1.1.0 \
         --namespace basic-components \
         --create-namespace \
-        --set clash.image.repository=m.daocloud.io/docker.io/dreamacro/clash \
+        --set image.repository=m.daocloud.io/docker.io/dreamacro/clash \
         --set config.existingSecret=clash-config \
-        --set clash.timezone="Asia/Shanghai" \
+        --set timezone="Asia/Shanghai" \
         --set service.type=NodePort \
         --set service.ports.httpNodePort=31789 \
         --set service.ports.controllerNodePort=31909
