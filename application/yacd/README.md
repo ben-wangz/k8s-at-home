@@ -16,9 +16,7 @@ yacd (Yet Another Clash Dashboard) is a web-based dashboard for Clash, a powerfu
         --version 0.1.0 \
         --namespace basic-components \
         --create-namespace \
-        --set yacd.image.repository=m.daocloud.io/docker.io/haishanh/yacd \
-        --set service.type=NodePort \
-        --set service.ports.httpNodePort=32808 \
+        --set image.repository=m.daocloud.io/docker.io/haishanh/yacd \
         --set ingress.enabled=true \
         --set ingress.hostname=yacd.example.com
       ```

@@ -45,55 +45,55 @@ spec:
       {{- end }}
       containers:
       - name: yacd
-        image: {{ include "common.images.image" (dict "imageRoot" .Values.yacd.image "global" .Values.global) }}
-        imagePullPolicy: {{ .Values.yacd.image.pullPolicy }}
+        image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
-        - containerPort: {{ .Values.yacd.ports.http }}
+        - containerPort: {{ .Values.ports.http }}
           name: http
-        {{- if .Values.yacd.extraVolumeMounts }}
-          {{- include "common.tplvalues.render" (dict "value" .Values.yacd.extraVolumeMounts "context" $) | nindent 8 }}
+        {{- if .Values.extraVolumeMounts }}
+          {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 8 }}
         {{- end }}
         env:
-        {{- if .Values.yacd.extraEnvVars }}
-        {{- include "common.tplvalues.render" (dict "value" .Values.yacd.extraEnvVars "context" $) | nindent 10 }}
+        {{- if .Values.extraEnvVars }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.extraEnvVars "context" $) | nindent 10 }}
         {{- end }}
-        {{- if .Values.yacd.extraEnvVarsSecret }}
+        {{- if .Values.extraEnvVarsSecret }}
         envFrom:
         - secretRef:
-            name: {{ .Values.yacd.extraEnvVarsSecret }}
+            name: {{ .Values.extraEnvVarsSecret }}
         {{- end }}
-        {{- if .Values.yacd.resources }}
-        resources: {{- toYaml .Values.yacd.resources | nindent 10 }}
-        {{- else if ne .Values.yacd.resourcesPreset "none" }}
-        resources: {{- include "common.resources.preset" (dict "type" .Values.yacd.resourcesPreset) | nindent 10 }}
+        {{- if .Values.resources }}
+        resources: {{- toYaml .Values.resources | nindent 10 }}
+        {{- else if ne .Values.resourcesPreset "none" }}
+        resources: {{- include "common.resources.preset" (dict "type" .Values.resourcesPreset) | nindent 10 }}
         {{- end }}
-        {{- if .Values.yacd.customLivenessProbe }}
-        livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.yacd.customLivenessProbe "context" $) | nindent 10 }}
+        {{- if .Values.customLivenessProbe }}
+        livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customLivenessProbe "context" $) | nindent 10 }}
         {{- else }}
         livenessProbe:
           httpGet:
             path: /
-            port: {{ .Values.yacd.ports.http }}
+            port: {{ .Values.ports.http }}
           initialDelaySeconds: 30
           periodSeconds: 10
         {{- end }}
-        {{- if .Values.yacd.customReadinessProbe }}
-        readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.yacd.customReadinessProbe "context" $) | nindent 10 }}
+        {{- if .Values.customReadinessProbe }}
+        readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customReadinessProbe "context" $) | nindent 10 }}
         {{- else }}
         readinessProbe:
           httpGet:
             path: /
-            port: {{ .Values.yacd.ports.http }}
+            port: {{ .Values.ports.http }}
           initialDelaySeconds: 10
           periodSeconds: 5
         {{- end }}
-        {{- if .Values.yacd.customStartupProbe }}
-        startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.yacd.customStartupProbe "context" $) | nindent 10 }}
+        {{- if .Values.customStartupProbe }}
+        startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customStartupProbe "context" $) | nindent 10 }}
         {{- else }}
         startupProbe:
           httpGet:
             path: /
-            port: {{ .Values.yacd.ports.http }}
+            port: {{ .Values.ports.http }}
           initialDelaySeconds: 60
           periodSeconds: 15
         {{- end }}

@@ -21,15 +21,14 @@ podSecurityContext:
 nodeSelector: {}
 tolerations: []
 extraVolumes: []
-yacd:
-  image:
-    repository: docker.io/haishanh/yacd
-    tag: master
-    pullPolicy: IfNotPresent
-  ports:
-    http: 80
-  resources: {}
-  resourcesPreset: none
+image:
+  repository: docker.io/haishanh/yacd
+  tag: master
+  pullPolicy: IfNotPresent
+ports:
+  http: 80
+resources: {}
+resourcesPreset: none
 service:
   type: ClusterIP
   ports:
