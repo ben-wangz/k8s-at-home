@@ -61,7 +61,13 @@ config:
   #   secret: ""
 
 service:
-  type: ClusterIP
+  # Exposing proxy service(7890) via ingress is complex due to:
+  # - Ingress Controllers (e.g. Nginx) are designed for regular HTTP services
+  # - Proxy requests use absolute URLs in request line
+  # - Host header is target server's domain, not ingress domain
+  # - Path in proxy requests is unrelated to ingress path configuration
+  # default: NodePort is used for simplicity
+  type: NodePort
   ports:
     http: 7890
     httpNodePort: 31789
@@ -77,14 +83,6 @@ service:
   loadBalancerClass: ""
   extraPorts: []
 ingress:
-  proxy:
-    enabled: false
-    annotations: {}
-    ingressClassName: nginx
-    hostname: proxy.clash.example.com
-    path: /
-    pathType: Prefix
-    tls: false
   controller:
     enabled: false
     annotations: {}
