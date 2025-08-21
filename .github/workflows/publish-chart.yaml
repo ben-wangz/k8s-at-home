@@ -18,6 +18,7 @@ jobs:
         include:
           - chart_path: "application/aria2"
           - chart_path: "application/clash"
+          - chart_path: "application/yacd"
     steps:
       - name: checkout
         uses: actions/checkout@v4
