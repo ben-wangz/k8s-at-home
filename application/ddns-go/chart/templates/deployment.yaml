@@ -103,7 +103,7 @@ spec:
       - name: data
         {{- if .Values.persistence.enabled }}
         persistentVolumeClaim:
-          claimName: {{ if .Values.persistence.existingClaim }}{{ .Values.persistence.existingClaim }}{{ else }}{{ include "common.names.fullname" . }}{{ end }}
+          claimName: {{ if .Values.persistence.existingClaim }}{{ .Values.persistence.existingClaim }}{{ else }}{{ include "ddns-go.pvc.fullname" . }}{{ end }}
         {{- else }}
         emptyDir: {}
         {{- end }}

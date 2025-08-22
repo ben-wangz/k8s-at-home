@@ -19,6 +19,7 @@ jobs:
           - chart_path: "application/aria2"
           - chart_path: "application/clash"
           - chart_path: "application/yacd"
+          - chart_path: "application/ddns-go"
     steps:
       - name: checkout
         uses: actions/checkout@v4
