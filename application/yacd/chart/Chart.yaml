@@ -5,7 +5,6 @@ description: A Helm chart for yacd (Yet Another Clash Dashboard)
 keywords:
   - clash
   - dashboard
-  - proxy
 maintainers:
   - name: ben.wangz
     email: ben.wangz@foxmail.com

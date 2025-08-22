@@ -21,4 +21,5 @@ podman run --rm \
   -w /workspace/code \
   quay.io/helmpack/chart-testing:${CT_VERSION} ct lint \
     --chart-dirs application/aria2 \
-    --chart-dirs application/clash
+    --chart-dirs application/clash \
+    --chart-dirs application/yacd
