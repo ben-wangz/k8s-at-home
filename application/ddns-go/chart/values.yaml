@@ -1,0 +1,71 @@
+replicas: 1
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+revisionHistoryLimit: 10
+updateStrategy: {}
+imagePullSecrets: []
+affinity: {}
+podAffinityPreset: ""
+podAntiAffinityPreset: "soft"
+nodeAffinityPreset:
+  type: "none"
+  key: ""
+  values: []
+podSecurityContext:
+  enabled: true
+  fsGroupChangePolicy: Always
+  supplementalGroups: []
+  fsGroup: 1001
+nodeSelector: {}
+tolerations: []
+extraVolumes: []
+image:
+  repository: m.daocloud.io/docker.io/jeessy/ddns-go
+  tag: v6.12.2
+  pullPolicy: IfNotPresent
+ports:
+  http: 9876
+timezone: "Asia/Shanghai"
+extraEnvVars: {}
+extraEnvVarsSecret: ""
+extraVolumeMounts: []
+resourcesPreset: "medium"
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+persistence:
+  enabled: true
+  storageClass: ""
+  existingClaim: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  subPath: ""
+  annotations: {}
+  selector: {}
+  dataSource: {}
+service:
+  type: ClusterIP
+  ports:
+    http: 9876
+    httpNodePort: 31987
+  annotations: {}
+  clusterIP: ""
+  sessionAffinity: ""
+  sessionAffinityConfig: {}
+  externalTrafficPolicy: ""
+  loadBalancerSourceRanges: []
+  loadBalancerIP: ""
+  loadBalancerClass: ""
+  extraPorts: []
+ingress:
+  enabled: false
+  annotations: {}
+  ingressClassName: nginx
+  hostname: ddns-go.example.com
+  path: /
+  pathType: Prefix
+  tls: false
+extraDeploy: []

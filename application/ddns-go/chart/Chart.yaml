@@ -1,0 +1,20 @@
+apiVersion: v2
+name: ddns-go
+version: 1.0.0
+appVersion: "v6.12.2"
+description: A simple and easy-to-use dynamic DNS client
+type: application
+keywords:
+  - ddns
+  - dynamic-dns
+dependencies:
+- name: common
+  repository: oci://registry-1.docker.io/bitnamicharts
+  tags:
+  - bitnami-common
+  version: 2.x.x
+home: https://github.com/ben-wangz/k8s-at-home
+sources:
+- https://github.com/ben-wangz/k8s-at-home/tree/main/application/ddns-go
+maintainers:
+  - name: ben
