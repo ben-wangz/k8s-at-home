@@ -20,3 +20,16 @@ ddns-go is a dynamic DNS tool that automatically updates DNS records when your I
         --set ingress.enabled=true \
         --set ingress.hostname=ddns-go.example.com
       ```
+3. change password
+    * ```shell
+      # create a secret
+      kubectl -n basic-components create secret generic ddns-go-credentials \
+        --from-literal=username=admin \
+        --from-literal=password=$(tr -dc A-Za-z0-9 < /dev/urandom | head -c 16)
+      # read password from secret
+      PASSWORD=$(kubectl -n basic-components get secret ddns-go-credentials -o jsonpath='{.data.password}' | base64 -d)
+      # reset password
+      kubectl -n basic-components exec -it deployment/ddns-go -- /app/ddns-go -resetPassword $PASSWORD
+      # delete old pod to apply new password
+      kubectl -n basic-components delete pod -l app.kubernetes.io/name=ddns-go
+      ```
