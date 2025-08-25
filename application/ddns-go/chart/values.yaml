@@ -22,7 +22,7 @@ nodeSelector: {}
 tolerations: []
 extraVolumes: []
 image:
-  repository: m.daocloud.io/docker.io/jeessy/ddns-go
+  repository: docker.io/jeessy/ddns-go
   tag: v6.12.2
   pullPolicy: IfNotPresent
 ports:
@@ -31,7 +31,7 @@ timezone: "Asia/Shanghai"
 extraEnvVars: {}
 extraEnvVarsSecret: ""
 extraVolumeMounts: []
-resourcesPreset: "medium"
+resourcesPreset: "small"
 customLivenessProbe: {}
 customReadinessProbe: {}
 customStartupProbe: {}
