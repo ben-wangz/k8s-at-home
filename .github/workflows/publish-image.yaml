@@ -31,6 +31,9 @@ jobs:
           - name_suffix: "aria2"
             container_path: "application/aria2/container/aria2"
             dockerfile_path: "application/aria2/container/aria2/Dockerfile"
+          - name_suffix: "podman-in-container"
+            container_path: "application/podman-in-container/container"
+            dockerfile_path: "application/podman-in-container/container/Dockerfile"
     runs-on: ubuntu-latest
     permissions:
       contents: read
