@@ -1,4 +1,4 @@
-ARG ALPINE_IMAGE=docker.io/library/alpine:latest
+ARG ALPINE_IMAGE=m.daocloud.io/docker.io/library/alpine:latest
 FROM ${ALPINE_IMAGE}
 
 RUN apk add --no-cache aria2

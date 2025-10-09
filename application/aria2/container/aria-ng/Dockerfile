@@ -1,4 +1,4 @@
-ARG NGINX_IMAGE=docker.io/library/nginx:stable
+ARG NGINX_IMAGE=m.daocloud.io/docker.io/library/nginx:stable
 FROM ${NGINX_IMAGE}
 RUN apt-get update \
     && apt-get install -y moreutils netcat-openbsd curl unzip \

@@ -1,4 +1,5 @@
-FROM m.daocloud.io/quay.io/podman/stable:v5.6.1
+ARG PODMAN_IMAGE=m.daocloud.io/quay.io/podman/stable:v5.6.1
+FROM ${PODMAN_IMAGE}
 
 LABEL maintainer="k8s-at-home"
 
