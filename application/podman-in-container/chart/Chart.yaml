@@ -2,7 +2,7 @@ apiVersion: v2
 name: podman-in-container
 version: 1.0.0
 appVersion: "v5.6.1"
-description: Podman runtime in container with SSH access support
+description: Podman runtime in container with SSH
 type: application
 keywords:
   - podman

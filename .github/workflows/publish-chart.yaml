@@ -20,6 +20,7 @@ jobs:
           - chart_path: "application/clash"
           - chart_path: "application/yacd"
           - chart_path: "application/ddns-go"
+          - chart_path: "application/podman-in-container"
     steps:
       - name: checkout
         uses: actions/checkout@v4
