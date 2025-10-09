@@ -1,0 +1,83 @@
+replicas: 1
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+revisionHistoryLimit: 10
+updateStrategy: {}
+imagePullSecrets: []
+affinity: {}
+podAffinityPreset: ""
+podAntiAffinityPreset: "soft"
+nodeAffinityPreset:
+  type: "none"
+  key: ""
+  values: []
+podSecurityContext:
+  enabled: true
+  fsGroupChangePolicy: Always
+  supplementalGroups: []
+  fsGroup: 1001
+containerSecurityContext:
+  enabled: true
+  privileged: true
+  allowPrivilegeEscalation: true
+nodeSelector: {}
+tolerations: []
+extraVolumes: []
+image:
+  repository: ghcr.io/ben-wangz/k8s-at-home-podman-in-container
+  tag: latest
+  pullPolicy: IfNotPresent
+ports:
+  ssh: 22
+timezone: "Asia/Shanghai"
+ssh:
+  enabled: true
+  existingSecret: ""
+  authorizedKeys: []
+extraEnvVars: {}
+extraEnvVarsSecret: ""
+extraVolumeMounts: []
+resourcesPreset: "medium"
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+persistence:
+  container:
+    enabled: true
+    storageClass: ""
+    existingClaim: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+    subPath: ""
+    annotations: {}
+    selector: {}
+    dataSource: {}
+  home:
+    enabled: true
+    storageClass: ""
+    existingClaim: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 5Gi
+    subPath: ""
+    annotations: {}
+    selector: {}
+    dataSource: {}
+service:
+  type: ClusterIP
+  ports:
+    ssh: 22
+    sshNodePort: 32022
+  annotations: {}
+  clusterIP: ""
+  sessionAffinity: ""
+  sessionAffinityConfig: {}
+  externalTrafficPolicy: ""
+  loadBalancerSourceRanges: []
+  loadBalancerIP: ""
+  loadBalancerClass: ""
+  extraPorts: []
+extraDeploy: []

@@ -1,0 +1,30 @@
+{{- if and .Values.persistence.container.enabled (not .Values.persistence.container.existingClaim) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "podman-in-container.containerPvc.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "common.labels.standard" . | nindent 4 }}
+  {{- with .Values.persistence.container.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.container.accessModes | nindent 4 }}
+  {{- if .Values.persistence.container.selector }}
+  selector:
+    {{- toYaml .Values.persistence.container.selector | nindent 4 }}
+  {{- end }}
+  {{- if .Values.persistence.container.storageClass }}
+  storageClassName: {{ .Values.persistence.container.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.container.size }}
+  {{- if .Values.persistence.container.dataSource }}
+  dataSource:
+    {{- toYaml .Values.persistence.container.dataSource | nindent 4 }}
+  {{- end }}
+{{- end -}}

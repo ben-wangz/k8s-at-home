@@ -1,0 +1,21 @@
+apiVersion: v2
+name: podman-in-container
+version: 1.0.0
+appVersion: "v5.6.1"
+description: Podman runtime in container with SSH access support
+type: application
+keywords:
+  - podman
+  - container
+  - ssh
+dependencies:
+- name: common
+  repository: oci://registry-1.docker.io/bitnamicharts
+  tags:
+  - bitnami-common
+  version: 2.x.x
+home: https://github.com/ben-wangz/k8s-at-home
+sources:
+- https://github.com/ben-wangz/k8s-at-home/tree/main/application/podman-in-container
+maintainers:
+  - name: ben

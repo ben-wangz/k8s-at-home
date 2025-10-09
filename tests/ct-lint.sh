@@ -31,6 +31,7 @@ fi
 declare -A CHARTS=(
   ["aria2"]="application/aria2"
   ["clash"]="application/clash"
+  ["podman-in-container"]="application/podman-in-container"
   ["yacd"]="application/yacd"
 )
 

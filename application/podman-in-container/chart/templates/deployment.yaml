@@ -1,0 +1,138 @@
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
+kind: Deployment
+metadata:
+  name: {{ include "common.names.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  {{- if .Values.updateStrategy }}
+  strategy: {{- toYaml .Values.updateStrategy | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 8 }}
+      annotations:
+        {{- if .Values.podAnnotations }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.podAnnotations "context" $) | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets: {{- include "common.tplvalues.render" ( dict "value" .Values.imagePullSecrets "context" $ ) | nindent 6 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      affinity: {{- include "common.tplvalues.render" ( dict "value" .Values.affinity "context" $ ) | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAffinity: {{- include "common.affinities.pods" ( dict "type" .Values.podAffinityPreset "customLabels" .Values.podLabels "context" $ ) | nindent 10 }}
+        podAntiAffinity: {{- include "common.affinities.pods" ( dict "type" .Values.podAntiAffinityPreset "customLabels" .Values.podLabels "context" $ ) | nindent 10 }}
+        nodeAffinity: {{- include "common.affinities.nodes" ( dict "type" .Values.nodeAffinityPreset.type "key" .Values.nodeAffinityPreset.key "values" .Values.nodeAffinityPreset.values ) | nindent 10 }}
+      {{- end }}
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" ( dict "value" .Values.nodeSelector "context" $ ) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" ( dict "value" .Values.tolerations "context" $ ) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.podSecurityContext.enabled }}
+      securityContext: {{- include "common.compatibility.renderSecurityContext" ( dict "secContext" .Values.podSecurityContext "context" $ ) | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: podman-in-container
+        image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        {{- if .Values.containerSecurityContext.enabled }}
+        securityContext:
+          privileged: {{ .Values.containerSecurityContext.privileged }}
+          allowPrivilegeEscalation: {{ .Values.containerSecurityContext.allowPrivilegeEscalation }}
+        {{- end }}
+        ports:
+        - containerPort: {{ .Values.ports.ssh }}
+          name: ssh
+        volumeMounts:
+        - name: container-volume
+          mountPath: /var/lib/containers
+        - name: home-volume
+          mountPath: /root
+        {{- if .Values.ssh.enabled }}
+        - name: ssh-authorized-keys
+          mountPath: /root/.ssh/authorized_keys
+          subPath: authorized_keys
+          readOnly: true
+        {{- end }}
+        {{- if .Values.extraVolumeMounts }}
+          {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 8 }}
+        {{- end }}
+        env:
+        - name: TZ
+          value: {{ .Values.timezone | quote }}
+        {{- if .Values.extraEnvVars }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.extraEnvVars "context" $) | nindent 10 }}
+        {{- end }}
+        {{- if .Values.extraEnvVarsSecret }}
+        envFrom:
+        - secretRef:
+            name: {{ .Values.extraEnvVarsSecret }}
+        {{- end }}
+        {{- if .Values.resources }}
+        resources: {{- toYaml .Values.resources | nindent 10 }}
+        {{- else if ne .Values.resourcesPreset "none" }}
+        resources: {{- include "common.resources.preset" (dict "type" .Values.resourcesPreset) | nindent 10 }}
+        {{- end }}
+        {{- if .Values.customLivenessProbe }}
+        livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customLivenessProbe "context" $) | nindent 10 }}
+        {{- else }}
+        livenessProbe:
+          tcpSocket:
+            port: {{ .Values.ports.ssh }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        {{- end }}
+        {{- if .Values.customReadinessProbe }}
+        readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customReadinessProbe "context" $) | nindent 10 }}
+        {{- else }}
+        readinessProbe:
+          tcpSocket:
+            port: {{ .Values.ports.ssh }}
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        {{- end }}
+        {{- if .Values.customStartupProbe }}
+        startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customStartupProbe "context" $) | nindent 10 }}
+        {{- else }}
+        startupProbe:
+          tcpSocket:
+            port: {{ .Values.ports.ssh }}
+          initialDelaySeconds: 60
+          periodSeconds: 15
+        {{- end }}
+      volumes:
+      - name: container-volume
+        {{- if .Values.persistence.container.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ if .Values.persistence.container.existingClaim }}{{ .Values.persistence.container.existingClaim }}{{ else }}{{ include "podman-in-container.containerPvc.fullname" . }}{{ end }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: home-volume
+        {{- if .Values.persistence.home.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ if .Values.persistence.home.existingClaim }}{{ .Values.persistence.home.existingClaim }}{{ else }}{{ include "podman-in-container.homePvc.fullname" . }}{{ end }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      {{- if .Values.ssh.enabled }}
+      - name: ssh-authorized-keys
+        secret:
+          secretName: {{ include "podman-in-container.sshSecret.name" . }}
+          defaultMode: 0600
+      {{- end }}
+      {{- if .Values.extraVolumes }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 6 }}
+      {{- end }}
