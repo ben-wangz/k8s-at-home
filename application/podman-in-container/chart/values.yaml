@@ -4,7 +4,8 @@ commonAnnotations: {}
 podLabels: {}
 podAnnotations: {}
 revisionHistoryLimit: 10
-updateStrategy: {}
+updateStrategy:
+  type: Recreate
 imagePullSecrets: []
 affinity: {}
 podAffinityPreset: ""

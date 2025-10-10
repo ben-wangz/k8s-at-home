@@ -23,7 +23,7 @@ Podman-in-container provides a containerized Podman runtime with SSH access supp
       ```shell
       helm upgrade --install podman-in-container oci://ghcr.io/ben-wangz/k8s-at-home-charts/podman-in-container \
         --atomic \
-        --version 1.1.1 \
+        --version 1.1.2 \
         --namespace basic-components \
         --create-namespace \
         --set service.type=NodePort \
@@ -39,7 +39,7 @@ Podman-in-container provides a containerized Podman runtime with SSH access supp
       # Install with existing secret
       helm upgrade --install podman-in-container oci://ghcr.io/ben-wangz/k8s-at-home-charts/podman-in-container \
         --atomic \
-        --version 1.1.1 \
+        --version 1.1.2 \
         --namespace basic-components \
         --create-namespace \
         --set service.type=NodePort \
@@ -82,7 +82,7 @@ Podman-in-container provides a containerized Podman runtime with SSH access supp
       ```shell
       helm upgrade --install podman-in-container oci://ghcr.io/ben-wangz/k8s-at-home-charts/podman-in-container \
         --atomic \
-        --version 1.1.1 \
+        --version 1.1.2 \
         --namespace basic-components \
         --create-namespace \
         --set persistence.container.size=20Gi \
@@ -96,3 +96,4 @@ Podman-in-container provides a containerized Podman runtime with SSH access supp
 - SSH is the primary access method (no ingress support for SSH protocol)
 - All container images and data persist across pod restarts via PersistentVolumeClaims
 - For production use, consider using LoadBalancer service type or port forwarding instead of NodePort
+- **Update Strategy**: Uses `Recreate` strategy to avoid PVC conflicts during updates with ReadWriteOnce volumes. This means the old pod is terminated before the new one starts, causing brief downtime during updates.
