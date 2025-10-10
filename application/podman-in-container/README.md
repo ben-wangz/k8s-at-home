@@ -26,8 +26,6 @@ Podman-in-container provides a containerized Podman runtime with SSH access supp
         --version 1.0.0 \
         --namespace basic-components \
         --create-namespace \
-        --set image.repository=ghcr.io/ben-wangz/k8s-at-home-podman-in-container \
-        --set image.tag=latest \
         --set service.type=NodePort \
         --set "ssh.authorizedKeys[0]=${SSH_PUBLIC_KEY}"
       ```
@@ -44,8 +42,6 @@ Podman-in-container provides a containerized Podman runtime with SSH access supp
         --version 1.0.0 \
         --namespace basic-components \
         --create-namespace \
-        --set image.repository=ghcr.io/ben-wangz/k8s-at-home-podman-in-container \
-        --set image.tag=latest \
         --set service.type=NodePort \
         --set ssh.existingSecret=podman-ssh-keys
       ```

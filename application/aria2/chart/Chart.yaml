@@ -1,7 +1,7 @@
 apiVersion: v2
 name: aria2
 version: 1.0.0
-appVersion: "latest"
+appVersion: "1.0.0"
 description: aria2 downloader with AriaNg web UI
 type: application
 keywords:

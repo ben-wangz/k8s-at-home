@@ -23,8 +23,8 @@ extraVolumes: []
 aria2:
   image:
     repository: ghcr.io/ben-wangz/k8s-at-home-aria2
-    tag: latest
-    pullPolicy: Always
+    tag: 1.0.0
+    pullPolicy: IfNotPresent
   ports:
     rpc: 6800
     p2p: 6868
@@ -40,8 +40,8 @@ aria2:
 ariaNg:
   image:
     repository: ghcr.io/ben-wangz/k8s-at-home-aria-ng
-    tag: latest
-    pullPolicy: Always
+    tag: 1.0.0
+    pullPolicy: IfNotPresent
   ports:
     http: 8080
   timezone: "Asia/Shanghai"
