@@ -17,13 +17,16 @@ Podman-in-container provides a containerized Podman runtime with SSH access supp
 
       # Read the public key
       export SSH_PUBLIC_KEY=$(cat ~/.ssh/podman-in-container.pub)
+
+      # Get the latest chart version
+      export CHART_VERSION=$(bash ../get-version.sh podman-in-container chart)
       ```
 
     * Install with inline SSH public key:
       ```shell
       helm upgrade --install podman-in-container oci://ghcr.io/ben-wangz/k8s-at-home-charts/podman-in-container \
         --atomic \
-        --version 1.2.0 \
+        --version ${CHART_VERSION} \
         --namespace basic-components \
         --create-namespace \
         --set service.type=NodePort \
@@ -39,7 +42,7 @@ Podman-in-container provides a containerized Podman runtime with SSH access supp
       # Install with existing secret
       helm upgrade --install podman-in-container oci://ghcr.io/ben-wangz/k8s-at-home-charts/podman-in-container \
         --atomic \
-        --version 1.2.0 \
+        --version ${CHART_VERSION} \
         --namespace basic-components \
         --create-namespace \
         --set service.type=NodePort \
@@ -80,9 +83,12 @@ Podman-in-container provides a containerized Podman runtime with SSH access supp
 
     * Configure persistence:
       ```shell
+      # Get the latest chart version
+      export CHART_VERSION=$(bash ../get-version.sh podman-in-container chart)
+
       helm upgrade --install podman-in-container oci://ghcr.io/ben-wangz/k8s-at-home-charts/podman-in-container \
         --atomic \
-        --version 1.2.0 \
+        --version ${CHART_VERSION} \
         --namespace basic-components \
         --create-namespace \
         --set persistence.container.size=20Gi \

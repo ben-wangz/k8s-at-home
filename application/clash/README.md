@@ -37,9 +37,12 @@ Clash is a powerful proxy tool that supports multiple protocols and provides fle
           kubectl -n basic-components create secret generic clash-config --from-file=clash/
           ```
     * ```shell
+      # Get the latest chart version
+      export CHART_VERSION=$(bash ../get-version.sh clash chart)
+
       helm upgrade --install clash oci://ghcr.io/ben-wangz/k8s-at-home-charts/clash \
         --atomic \
-        --version 1.2.3 \
+        --version ${CHART_VERSION} \
         --namespace basic-components \
         --create-namespace \
         --set image.repository=m.daocloud.io/docker.io/dreamacro/clash \

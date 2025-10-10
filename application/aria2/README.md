@@ -13,9 +13,12 @@ aria2 is a download tool, which supports multi connections and multi protocols.
     * [aria2](chart/)
 3. install with helm
     * ```shell
+      # Get the latest chart version
+      export CHART_VERSION=$(bash ../get-version.sh aria2 chart)
+
       helm upgrade --install aria2 oci://ghcr.io/ben-wangz/k8s-at-home-charts/aria2 \
         --atomic \
-        --version 1.0.0 \
+        --version ${CHART_VERSION} \
         --namespace default \
         --create-namespace \
         --set aria2.rpcSecret="your-rpc-secret" \

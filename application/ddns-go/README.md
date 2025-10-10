@@ -11,9 +11,12 @@ ddns-go is a dynamic DNS tool that automatically updates DNS records when your I
 
 2. install with helm
     * ```shell
+      # Get the latest chart version
+      export CHART_VERSION=$(bash ../get-version.sh ddns-go chart)
+
       helm upgrade --install ddns-go oci://ghcr.io/ben-wangz/k8s-at-home-charts/ddns-go \
         --atomic \
-        --version 1.0.0 \
+        --version ${CHART_VERSION} \
         --namespace basic-components \
         --create-namespace \
         --set image.repository=m.daocloud.io/docker.io/jeessy/ddns-go \
