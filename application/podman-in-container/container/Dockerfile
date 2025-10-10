@@ -9,7 +9,7 @@ ADD --chmod=0755 https://github.com/krallin/tini/releases/download/${TINI_VERSIO
 ENTRYPOINT ["/tini", "--"]
 
 RUN dnf update -y \
-    && dnf install -y openssh-server \
+    && dnf install -y openssh-server procps \
     && dnf clean all
 RUN mkdir -p /var/run/sshd \
     && sed -i 's/#PermitRootLogin yes/PermitRootLogin without-password/' /etc/ssh/sshd_config \
