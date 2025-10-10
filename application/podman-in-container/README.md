@@ -19,7 +19,7 @@ Podman-in-container provides a containerized Podman runtime with SSH access supp
       export SSH_PUBLIC_KEY=$(cat ~/.ssh/podman-in-container.pub)
 
       # Get the latest chart version
-      export CHART_VERSION=$(bash ../get-version.sh podman-in-container chart)
+      export CHART_VERSION=$(bash ../../tools/get-version.sh podman-in-container chart)
       ```
 
     * Install with inline SSH public key:
@@ -84,7 +84,7 @@ Podman-in-container provides a containerized Podman runtime with SSH access supp
     * Configure persistence:
       ```shell
       # Get the latest chart version
-      export CHART_VERSION=$(bash ../get-version.sh podman-in-container chart)
+      export CHART_VERSION=$(bash ../../tools/get-version.sh podman-in-container chart)
 
       helm upgrade --install podman-in-container oci://ghcr.io/ben-wangz/k8s-at-home-charts/podman-in-container \
         --atomic \

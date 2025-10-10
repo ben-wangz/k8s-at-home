@@ -12,6 +12,11 @@ set -o errexit -o nounset -o pipefail
 #   bash bump-image-version.sh aria2/aria-ng major
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
+APPLICATION_DIR="${PROJECT_ROOT}/application"
+
+# Load version utilities library
+source "${SCRIPT_DIR}/lib/version-utils.sh"
 
 # Colors
 RED='\033[0;31m'
@@ -50,73 +55,6 @@ EOF
     exit 1
 }
 
-function get_version_file() {
-    local app_path="$1"
-    local version_file=""
-
-    if [[ "${app_path}" == *"/"* ]]; then
-        # Multiple containers (e.g., aria2/aria2)
-        local base_app="${app_path%%/*}"
-        local container_name="${app_path#*/}"
-        version_file="${SCRIPT_DIR}/${base_app}/container/${container_name}/VERSION"
-    else
-        # Single container (e.g., podman-in-container)
-        version_file="${SCRIPT_DIR}/${app_path}/container/VERSION"
-    fi
-
-    if [[ ! -f "${version_file}" ]]; then
-        log_error "VERSION file not found at ${version_file}"
-        exit 1
-    fi
-
-    echo "${version_file}"
-}
-
-function parse_version() {
-    local version="$1"
-
-    # Validate semver format
-    if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        log_error "Invalid version format: $version (expected: X.Y.Z)"
-        exit 1
-    fi
-
-    local major="${version%%.*}"
-    local rest="${version#*.}"
-    local minor="${rest%%.*}"
-    local patch="${rest#*.}"
-
-    echo "$major $minor $patch"
-}
-
-function bump_version() {
-    local version="$1"
-    local bump_type="$2"
-
-    read -r major minor patch <<< "$(parse_version "$version")"
-
-    case "$bump_type" in
-        major)
-            major=$((major + 1))
-            minor=0
-            patch=0
-            ;;
-        minor)
-            minor=$((minor + 1))
-            patch=0
-            ;;
-        patch)
-            patch=$((patch + 1))
-            ;;
-        *)
-            log_error "Invalid bump type: $bump_type (must be major, minor, or patch)"
-            exit 1
-            ;;
-    esac
-
-    echo "${major}.${minor}.${patch}"
-}
-
 # Main
 if [[ $# -ne 2 ]]; then
     usage
@@ -128,15 +66,23 @@ BUMP_TYPE="$2"
 log_info "Bumping image version for: $APP_PATH"
 
 # Get version file path
-VERSION_FILE=$(get_version_file "$APP_PATH")
+VERSION_FILE=$(resolve_version_file_path "$APP_PATH" "$APPLICATION_DIR")
 log_info "VERSION file: $VERSION_FILE"
+
+# Validate file exists
+if ! validate_file_exists "$VERSION_FILE" "VERSION"; then
+    exit 1
+fi
 
 # Read current version
 CURRENT_VERSION=$(cat "$VERSION_FILE")
 log_info "Current version: $CURRENT_VERSION"
 
 # Calculate new version
-NEW_VERSION=$(bump_version "$CURRENT_VERSION" "$BUMP_TYPE")
+if ! NEW_VERSION=$(bump_semver "$CURRENT_VERSION" "$BUMP_TYPE"); then
+    log_error "Failed to calculate new version"
+    exit 1
+fi
 log_info "New version: $NEW_VERSION"
 
 # Confirm before making changes
@@ -157,5 +103,5 @@ log_info "  $APP_PATH: $CURRENT_VERSION -> $NEW_VERSION"
 echo ""
 log_warn "Next steps:"
 log_warn "  1. Review the changes"
-log_warn "  2. Update the chart version if needed: bash bump-chart-version.sh <chart-name> <bump-type> --sync-images"
+log_warn "  2. Update the chart version if needed: bash tools/bump-chart-version.sh <chart-name> <bump-type> --sync-images"
 log_warn "  3. Commit the changes"

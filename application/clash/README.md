@@ -38,7 +38,7 @@ Clash is a powerful proxy tool that supports multiple protocols and provides fle
           ```
     * ```shell
       # Get the latest chart version
-      export CHART_VERSION=$(bash ../get-version.sh clash chart)
+      export CHART_VERSION=$(bash ../../tools/get-version.sh clash chart)
 
       helm upgrade --install clash oci://ghcr.io/ben-wangz/k8s-at-home-charts/clash \
         --atomic \

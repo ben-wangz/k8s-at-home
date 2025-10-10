@@ -14,7 +14,7 @@ aria2 is a download tool, which supports multi connections and multi protocols.
 3. install with helm
     * ```shell
       # Get the latest chart version
-      export CHART_VERSION=$(bash ../get-version.sh aria2 chart)
+      export CHART_VERSION=$(bash ../../tools/get-version.sh aria2 chart)
 
       helm upgrade --install aria2 oci://ghcr.io/ben-wangz/k8s-at-home-charts/aria2 \
         --atomic \

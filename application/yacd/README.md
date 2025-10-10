@@ -12,7 +12,7 @@ yacd (Yet Another Clash Dashboard) is a web-based dashboard for Clash, a powerfu
 2. install with helm
     * ```shell
       # Get the latest chart version
-      export CHART_VERSION=$(bash ../get-version.sh yacd chart)
+      export CHART_VERSION=$(bash ../../tools/get-version.sh yacd chart)
 
       helm upgrade --install yacd oci://ghcr.io/ben-wangz/k8s-at-home-charts/yacd \
         --atomic \

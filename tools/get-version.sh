@@ -16,6 +16,8 @@ set -o errexit -o nounset -o pipefail
 #   bash get-version.sh aria2 chart
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
+APPLICATION_DIR="${PROJECT_ROOT}/application"
 
 function usage() {
     echo "Usage: $0 [app-name] [image|chart]"
@@ -50,7 +52,7 @@ function list_all_versions() {
         local app_version=$(grep '^appVersion:' "$chart_file" | awk '{print $2}' | tr -d '"')
 
         printf "  %-25s chart: %-10s appVersion: %s\n" "$app_name" "$version" "$app_version"
-    done < <(find "${SCRIPT_DIR}" -maxdepth 3 -type f -name "Chart.yaml" | sort)
+    done < <(find "${APPLICATION_DIR}" -maxdepth 3 -type f -name "Chart.yaml" | sort)
 
     echo ""
     echo "=== Container Images ==="
@@ -60,7 +62,7 @@ function list_all_versions() {
     while IFS= read -r version_file; do
         local version=$(cat "$version_file")
         local container_dir=$(dirname "$version_file")
-        local relative_path=${container_dir#${SCRIPT_DIR}/}
+        local relative_path=${container_dir#${APPLICATION_DIR}/}
 
         # Parse the path to get app name
         if [[ "$relative_path" == */container ]]; then
@@ -73,7 +75,7 @@ function list_all_versions() {
             local base_app=$(basename "$(dirname "$(dirname "$container_dir")")")
             printf "  %-25s image: %s\n" "$base_app/$container_name" "$version"
         fi
-    done < <(find "${SCRIPT_DIR}" -type f -name "VERSION" | sort)
+    done < <(find "${APPLICATION_DIR}" -type f -name "VERSION" | sort)
 
     echo ""
 }
@@ -87,10 +89,10 @@ function get_image_version() {
         # Split the path: base_app/container_name -> base_app/container/container_name/VERSION
         local base_app="${app_path%%/*}"
         local container_name="${app_path#*/}"
-        version_file="${SCRIPT_DIR}/${base_app}/container/${container_name}/VERSION"
+        version_file="${APPLICATION_DIR}/${base_app}/container/${container_name}/VERSION"
     else
         # Single-level path (e.g., podman-in-container)
-        version_file="${SCRIPT_DIR}/${app_path}/container/VERSION"
+        version_file="${APPLICATION_DIR}/${app_path}/container/VERSION"
     fi
 
     if [[ ! -f "${version_file}" ]]; then
@@ -105,7 +107,7 @@ function get_chart_version() {
     local app_name="$1"
     # For chart, use the base app name (e.g., aria2 instead of aria2/aria2)
     local base_app_name="${app_name%%/*}"
-    local chart_file="${SCRIPT_DIR}/${base_app_name}/chart/Chart.yaml"
+    local chart_file="${APPLICATION_DIR}/${base_app_name}/chart/Chart.yaml"
 
     if [[ ! -f "${chart_file}" ]]; then
         echo "Error: Chart.yaml not found at ${chart_file}" >&2
@@ -119,7 +121,7 @@ function get_app_version() {
     local app_name="$1"
     # For appVersion, use the base app name
     local base_app_name="${app_name%%/*}"
-    local chart_file="${SCRIPT_DIR}/${base_app_name}/chart/Chart.yaml"
+    local chart_file="${APPLICATION_DIR}/${base_app_name}/chart/Chart.yaml"
 
     if [[ ! -f "${chart_file}" ]]; then
         echo "Error: Chart.yaml not found at ${chart_file}" >&2

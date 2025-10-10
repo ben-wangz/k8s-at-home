@@ -7,7 +7,7 @@ set -o errexit -o nounset -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
-GET_VERSION_SCRIPT="${PROJECT_ROOT}/application/get-version.sh"
+GET_VERSION_SCRIPT="${PROJECT_ROOT}/tools/get-version.sh"
 
 # Colors for output
 RED='\033[0;31m'
