@@ -149,14 +149,48 @@ collect_build_args() {
   echo "${build_args[@]}"
 }
 
+# Validate semver format
+validate_semver() {
+  local version=$1
+  local name=$2
+
+  # Semver regex: X.Y.Z with optional pre-release and build metadata
+  # Supports: 1.0.0, 2.1.3-alpha.1, 1.0.0-beta+exp.sha.5114f85, etc.
+  local semver_regex='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?(\+([0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*))?$'
+
+  if ! echo "${version}" | grep -Eq "${semver_regex}"; then
+    echo -e "${RED}Error: VERSION file for '${name}' contains invalid semver version: ${version}${NC}"
+    echo "Expected format: X.Y.Z (e.g., 1.0.0, 2.1.3, 1.0.0-alpha.1, 1.0.0+build.123)"
+    echo "See https://semver.org for details"
+    return 1
+  fi
+
+  return 0
+}
+
 # Build function
 build_image() {
   local name=$1
   local context_path="${REPO_ROOT}/${IMAGES[$name]}"
   local dockerfile="${context_path}/Dockerfile"
-  local image_tag="k8s-at-home-${name}:${TAG_PREFIX}"
+  local version_file="${context_path}/VERSION"
 
-  echo -e "${YELLOW}Building ${name}...${NC}"
+  # Read version from VERSION file if using default tag
+  if [ "$TAG_PREFIX" = "test" ] && [ -f "$version_file" ]; then
+    local version=$(cat "$version_file" | tr -d '[:space:]')
+
+    # Validate semver format
+    if ! validate_semver "$version" "$name"; then
+      return 1
+    fi
+
+    local image_tag="k8s-at-home-${name}:${version}"
+    echo -e "${YELLOW}Building ${name} (version: ${version})...${NC}"
+  else
+    local image_tag="k8s-at-home-${name}:${TAG_PREFIX}"
+    echo -e "${YELLOW}Building ${name}...${NC}"
+  fi
+
   echo "  Context: ${context_path}"
   echo "  Dockerfile: ${dockerfile}"
   echo "  Tag: ${image_tag}"
@@ -225,7 +259,15 @@ done
 echo -e "${GREEN}=== Build Summary ===${NC}"
 echo -e "${GREEN}Successful (${#SUCCESSFUL_IMAGES[@]}):${NC}"
 for img in "${SUCCESSFUL_IMAGES[@]}"; do
-  echo -e "  ${GREEN}✓${NC} k8s-at-home-${img}:${TAG_PREFIX}"
+  # Determine what tag was used
+  local context_path="${REPO_ROOT}/${IMAGES[$img]}"
+  local version_file="${context_path}/VERSION"
+  if [ "$TAG_PREFIX" = "test" ] && [ -f "$version_file" ]; then
+    local version=$(cat "$version_file" | tr -d '[:space:]')
+    echo -e "  ${GREEN}✓${NC} k8s-at-home-${img}:${version}"
+  else
+    echo -e "  ${GREEN}✓${NC} k8s-at-home-${img}:${TAG_PREFIX}"
+  fi
 done
 
 if [ ${#FAILED_IMAGES[@]} -gt 0 ]; then

@@ -16,8 +16,6 @@ on:
   push:
     branches:
       - "main"
-    tags:
-      - "v*"
 env:
   REGISTRY: ghcr.io
 jobs:
@@ -41,22 +39,50 @@ jobs:
     steps:
     - name: checkout-repository
       uses: actions/checkout@v4
+    - name: read-version-file
+      id: version
+      run: |
+        VERSION=$(cat ${{ matrix.container_path }}/VERSION | tr -d '[:space:]')
+
+        # Validate semver format (X.Y.Z or X.Y.Z-prerelease+metadata)
+        # Basic semver regex: major.minor.patch with optional pre-release and build metadata
+        if ! echo "${VERSION}" | grep -Pq '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'; then
+          echo "Error: VERSION file contains invalid semver version: ${VERSION}"
+          echo "Expected format: X.Y.Z (e.g., 1.0.0, 2.1.3, 1.0.0-alpha.1, 1.0.0+build.123)"
+          exit 1
+        fi
+
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "Read version ${VERSION} from ${{ matrix.container_path }}/VERSION"
     - name: log in to the container registry
       uses: docker/login-action@v3
       with:
         registry: "${{ env.REGISTRY }}"
         username: "${{ github.actor }}"
         password: "${{ secrets.GITHUB_TOKEN }}"
-    - name: "extract metadata (tags, labels)"
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: "${{ env.REGISTRY }}/${{ github.repository }}-${{ matrix.name_suffix }}"
+    - name: generate-tags
+      id: tags
+      run: |
+        IMAGE_NAME="${{ env.REGISTRY }}/${{ github.repository }}-${{ matrix.name_suffix }}"
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.tag }}" ]; then
+          # Manual trigger with custom tag
+          TAGS="${IMAGE_NAME}:${{ inputs.tag }}"
+        else
+          # Auto trigger: use VERSION file + dev-sha tag
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-8)
+          TAGS="${IMAGE_NAME}:${VERSION},${IMAGE_NAME}:dev-${SHA_SHORT}"
+        fi
+        echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+        echo "Generated tags: ${TAGS}"
     - name: build and push container image
       uses: docker/build-push-action@v6
       with:
         context: "${{ matrix.container_path }}"
         file: "${{ matrix.dockerfile_path }}"
-        push: ${{ github.ref_type == 'tag' || (inputs.push != null && inputs.push) }}
-        tags: ${{ github.event_name == 'workflow_dispatch' && inputs.tag != '' && format('{0}/{1}-{2}:{3}', env.REGISTRY, github.repository, matrix.name_suffix, inputs.tag) || steps.meta.outputs.tags }}
-        labels: "${{ steps.meta.outputs.labels }}"
+        push: ${{ inputs.push == true || github.ref == 'refs/heads/main' }}
+        tags: ${{ steps.tags.outputs.tags }}
+        labels: |
+          org.opencontainers.image.version=${{ steps.version.outputs.version }}
+          org.opencontainers.image.revision=${{ github.sha }}
+          org.opencontainers.image.source=${{ github.repositoryUrl }}
