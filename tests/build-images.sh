@@ -260,10 +260,10 @@ echo -e "${GREEN}=== Build Summary ===${NC}"
 echo -e "${GREEN}Successful (${#SUCCESSFUL_IMAGES[@]}):${NC}"
 for img in "${SUCCESSFUL_IMAGES[@]}"; do
   # Determine what tag was used
-  local context_path="${REPO_ROOT}/${IMAGES[$img]}"
-  local version_file="${context_path}/VERSION"
+  context_path="${REPO_ROOT}/${IMAGES[$img]}"
+  version_file="${context_path}/VERSION"
   if [ "$TAG_PREFIX" = "test" ] && [ -f "$version_file" ]; then
-    local version=$(cat "$version_file" | tr -d '[:space:]')
+    version=$(cat "$version_file" | tr -d '[:space:]')
     echo -e "  ${GREEN}✓${NC} k8s-at-home-${img}:${version}"
   else
     echo -e "  ${GREEN}✓${NC} k8s-at-home-${img}:${TAG_PREFIX}"
