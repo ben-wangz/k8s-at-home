@@ -2,6 +2,7 @@
 
 set -o errexit -o nounset -o pipefail
 
+# SSH setup
 ENABLE_SSH=${ENABLE_SSH:-"true"}
 if [[ "${ENABLE_SSH}" == "true" ]]; then
   mkdir -p $HOME/.ssh
@@ -16,6 +17,23 @@ if [[ "${ENABLE_SSH}" == "true" ]]; then
     echo "SSH authorized keys have been configured by env: AUTHORIZED_KEYS"
   fi
   /usr/sbin/sshd -D -E /var/log/sshd.log &
+fi
+
+# Claude Code setup
+# Check if both required environment variables are set
+if [[ -n "${ANTHROPIC_BASE_URL:-}" ]] && [[ -n "${ANTHROPIC_AUTH_TOKEN:-}" ]]; then
+  echo "Claude Code is enabled (ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN are set)"
+
+  # Test Claude Code installation
+  if command -v claude &> /dev/null; then
+    echo "Testing Claude Code installation..."
+    claude -v
+    echo "Claude Code is ready to use"
+  else
+    echo "Warning: Claude Code command not found, but environment variables are set"
+  fi
+else
+  echo "Claude Code is disabled (ANTHROPIC_BASE_URL or ANTHROPIC_AUTH_TOKEN not set)"
 fi
 
 wait
