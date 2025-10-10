@@ -234,6 +234,12 @@ bash tests/build-images.sh [image-names...]
 # Test chart linting
 bash tests/ct-lint.sh [chart-name]
 
+# Test chart linting with proxy (if dependency download fails)
+http_proxy=http://proxy.example.com:8080 \
+https_proxy=http://proxy.example.com:8080 \
+no_proxy=localhost,127.0.0.1 \
+  bash tests/ct-lint.sh [chart-name]
+
 # Test version utilities
 bash tests/bump-version.sh
 bash tests/get-version.sh

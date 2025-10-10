@@ -55,6 +55,9 @@ CHARTS:
 
 ENVIRONMENT VARIABLES:
   CT_IMAGE              - Chart testing image (default: quay.io/helmpack/chart-testing:${CT_VERSION})
+  http_proxy            - HTTP proxy for downloading chart dependencies
+  https_proxy           - HTTPS proxy for downloading chart dependencies
+  no_proxy              - Comma-separated list of hosts to exclude from proxying
 
 EXAMPLES:
   # Lint all charts
@@ -65,6 +68,12 @@ EXAMPLES:
 
   # Lint with custom chart-testing image
   CT_IMAGE=m.daocloud.io/quay.io/helmpack/chart-testing:${CT_VERSION} $(basename "$0")
+
+  # Lint with proxy (for downloading dependencies)
+  http_proxy=http://proxy.example.com:8080 \\
+  https_proxy=http://proxy.example.com:8080 \\
+  no_proxy=localhost,127.0.0.1 \\
+    $(basename "$0") aria2
 
 EOF
 }
@@ -115,19 +124,50 @@ for chart in "${CHARTS_TO_LINT[@]}"; do
   CHART_DIRS_ARGS+=("--chart-dirs" "${CHARTS[$chart]}")
 done
 
+# Build proxy environment variables for container
+PROXY_ENV_ARGS=()
+if [ -n "${http_proxy:-}" ]; then
+  PROXY_ENV_ARGS+=("-e" "http_proxy=${http_proxy}")
+  PROXY_ENV_ARGS+=("-e" "HTTP_PROXY=${http_proxy}")
+fi
+if [ -n "${https_proxy:-}" ]; then
+  PROXY_ENV_ARGS+=("-e" "https_proxy=${https_proxy}")
+  PROXY_ENV_ARGS+=("-e" "HTTPS_PROXY=${https_proxy}")
+fi
+if [ -n "${no_proxy:-}" ]; then
+  PROXY_ENV_ARGS+=("-e" "no_proxy=${no_proxy}")
+  PROXY_ENV_ARGS+=("-e" "NO_PROXY=${no_proxy}")
+fi
+
 # Main execution
 echo -e "${GREEN}=== Linting Helm Charts ===${NC}"
 echo "Repository root: ${REPO_ROOT}"
 echo "Chart-testing image: ${CT_IMAGE}"
 echo "Charts to lint: ${CHARTS_TO_LINT[*]}"
+if [ ${#PROXY_ENV_ARGS[@]} -gt 0 ]; then
+  echo -e "${YELLOW}Proxy configuration detected${NC}"
+  [ -n "${http_proxy:-}" ] && echo "  http_proxy: ${http_proxy}"
+  [ -n "${https_proxy:-}" ] && echo "  https_proxy: ${https_proxy}"
+  [ -n "${no_proxy:-}" ] && echo "  no_proxy: ${no_proxy}"
+fi
 echo ""
 
 echo -e "${YELLOW}Running chart-testing...${NC}"
-if podman run --rm \
-  -v "${REPO_ROOT}:/workspace/code" \
-  -w /workspace/code \
-  "${CT_IMAGE}" ct lint \
-    "${CHART_DIRS_ARGS[@]}"; then
+# Handle proxy args expansion - only add if array is not empty
+PODMAN_CMD=(podman run --rm
+  -v "${REPO_ROOT}:/workspace/code"
+  -w /workspace/code)
+
+# Add proxy environment variables if any
+if [ ${#PROXY_ENV_ARGS[@]} -gt 0 ]; then
+  PODMAN_CMD+=("${PROXY_ENV_ARGS[@]}")
+fi
+
+# Add image and ct command
+PODMAN_CMD+=("${CT_IMAGE}" ct lint "${CHART_DIRS_ARGS[@]}")
+
+# Execute the command
+if "${PODMAN_CMD[@]}"; then
   echo ""
   echo -e "${GREEN}✓ All charts passed linting!${NC}"
   exit 0
