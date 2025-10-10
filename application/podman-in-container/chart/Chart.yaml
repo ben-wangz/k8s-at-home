@@ -8,6 +8,12 @@ keywords:
   - podman
   - container
   - ssh
+annotations:
+  # Custom metadata for version management
+  k8s-at-home.io/images: |
+    - name: podman-in-container
+      path: podman-in-container
+      valuesKey: image.tag
 dependencies:
 - name: common
   repository: oci://registry-1.docker.io/bitnamicharts

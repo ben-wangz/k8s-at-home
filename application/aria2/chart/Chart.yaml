@@ -7,6 +7,15 @@ type: application
 keywords:
   - aria2
   - downloader
+annotations:
+  # Custom metadata for version management
+  k8s-at-home.io/images: |
+    - name: aria2
+      path: aria2/aria2
+      valuesKey: aria2.image.tag
+    - name: aria-ng
+      path: aria2/aria-ng
+      valuesKey: ariaNg.image.tag
 dependencies:
 - name: common
   repository: oci://registry-1.docker.io/bitnamicharts

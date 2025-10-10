@@ -6,11 +6,11 @@ revisionHistoryLimit: 10
 updateStrategy: {}
 imagePullSecrets: []
 affinity: {}
-podAffinityPreset: ""
-podAntiAffinityPreset: "soft"
+podAffinityPreset: ''
+podAntiAffinityPreset: soft
 nodeAffinityPreset:
-  type: "none"
-  key: ""
+  type: none
+  key: ''
   values: []
 podSecurityContext:
   enabled: true
@@ -28,12 +28,12 @@ aria2:
   ports:
     rpc: 6800
     p2p: 6868
-  timezone: "Asia/Shanghai"
-  rpcSecret: "your-rpc-secret"
+  timezone: Asia/Shanghai
+  rpcSecret: your-rpc-secret
   extraEnvVars: {}
-  extraEnvVarsSecret: ""
+  extraEnvVarsSecret: ''
   extraVolumeMounts: []
-  resourcesPreset: "medium"
+  resourcesPreset: medium
   customLivenessProbe: {}
   customReadinessProbe: {}
   customStartupProbe: {}
@@ -44,21 +44,21 @@ ariaNg:
     pullPolicy: IfNotPresent
   ports:
     http: 8080
-  timezone: "Asia/Shanghai"
-  rpcHost: "127.0.0.1"
-  rpcPort: "6800"
-  resourcesPreset: "small"
+  timezone: Asia/Shanghai
+  rpcHost: 127.0.0.1
+  rpcPort: '6800'
+  resourcesPreset: small
   customLivenessProbe: {}
   customReadinessProbe: {}
   customStartupProbe: {}
 persistence:
   enabled: true
-  storageClass: ""
-  existingClaim: ""
+  storageClass: ''
+  existingClaim: ''
   accessModes:
-    - ReadWriteOnce
+  - ReadWriteOnce
   size: 10Gi
-  subPath: ""
+  subPath: ''
   annotations: {}
   selector: {}
   dataSource: {}
@@ -68,13 +68,13 @@ service:
     p2p: 6868
     ariaNg: 8080
   annotations: {}
-  clusterIP: ""
-  sessionAffinity: ""
+  clusterIP: ''
+  sessionAffinity: ''
   sessionAffinityConfig: {}
-  externalTrafficPolicy: ""
+  externalTrafficPolicy: ''
   loadBalancerSourceRanges: []
-  loadBalancerIP: ""
-  loadBalancerClass: ""
+  loadBalancerIP: ''
+  loadBalancerClass: ''
   extraPorts: []
 ingress:
   enabled: true

@@ -8,11 +8,11 @@ updateStrategy:
   type: Recreate
 imagePullSecrets: []
 affinity: {}
-podAffinityPreset: ""
-podAntiAffinityPreset: "soft"
+podAffinityPreset: ''
+podAntiAffinityPreset: soft
 nodeAffinityPreset:
-  type: "none"
-  key: ""
+  type: none
+  key: ''
   values: []
 podSecurityContext:
   enabled: true
@@ -32,38 +32,38 @@ image:
   pullPolicy: IfNotPresent
 ports:
   ssh: 22
-timezone: "Asia/Shanghai"
+timezone: Asia/Shanghai
 ssh:
   enabled: true
-  existingSecret: ""
+  existingSecret: ''
   authorizedKeys: []
 extraEnvVars: {}
-extraEnvVarsSecret: ""
+extraEnvVarsSecret: ''
 extraVolumeMounts: []
-resourcesPreset: "medium"
+resourcesPreset: medium
 customLivenessProbe: {}
 customReadinessProbe: {}
 customStartupProbe: {}
 persistence:
   container:
     enabled: true
-    storageClass: ""
-    existingClaim: ""
+    storageClass: ''
+    existingClaim: ''
     accessModes:
-      - ReadWriteOnce
+    - ReadWriteOnce
     size: 10Gi
-    subPath: ""
+    subPath: ''
     annotations: {}
     selector: {}
     dataSource: {}
   home:
     enabled: true
-    storageClass: ""
-    existingClaim: ""
+    storageClass: ''
+    existingClaim: ''
     accessModes:
-      - ReadWriteOnce
+    - ReadWriteOnce
     size: 5Gi
-    subPath: ""
+    subPath: ''
     annotations: {}
     selector: {}
     dataSource: {}
@@ -73,12 +73,12 @@ service:
     ssh: 22
     sshNodePort: 32022
   annotations: {}
-  clusterIP: ""
-  sessionAffinity: ""
+  clusterIP: ''
+  sessionAffinity: ''
   sessionAffinityConfig: {}
-  externalTrafficPolicy: ""
+  externalTrafficPolicy: ''
   loadBalancerSourceRanges: []
-  loadBalancerIP: ""
-  loadBalancerClass: ""
+  loadBalancerIP: ''
+  loadBalancerClass: ''
   extraPorts: []
 extraDeploy: []
