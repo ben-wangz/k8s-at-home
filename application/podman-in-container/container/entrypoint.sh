@@ -16,7 +16,7 @@ if [[ "${ENABLE_SSH}" == "true" ]]; then
     chmod 600 $HOME/.ssh/authorized_keys
     echo "SSH authorized keys have been configured by env: AUTHORIZED_KEYS"
   fi
-  /usr/sbin/sshd -D &
+  /usr/sbin/sshd -D -E /var/log/sshd.log &
 fi
 
 wait

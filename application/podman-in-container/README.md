@@ -23,7 +23,7 @@ Podman-in-container provides a containerized Podman runtime with SSH access supp
       ```shell
       helm upgrade --install podman-in-container oci://ghcr.io/ben-wangz/k8s-at-home-charts/podman-in-container \
         --atomic \
-        --version 1.0.0 \
+        --version 1.1.0 \
         --namespace basic-components \
         --create-namespace \
         --set service.type=NodePort \
@@ -39,7 +39,7 @@ Podman-in-container provides a containerized Podman runtime with SSH access supp
       # Install with existing secret
       helm upgrade --install podman-in-container oci://ghcr.io/ben-wangz/k8s-at-home-charts/podman-in-container \
         --atomic \
-        --version 1.0.0 \
+        --version 1.1.0 \
         --namespace basic-components \
         --create-namespace \
         --set service.type=NodePort \
@@ -82,7 +82,7 @@ Podman-in-container provides a containerized Podman runtime with SSH access supp
       ```shell
       helm upgrade --install podman-in-container oci://ghcr.io/ben-wangz/k8s-at-home-charts/podman-in-container \
         --atomic \
-        --version 1.0.0 \
+        --version 1.1.0 \
         --namespace basic-components \
         --create-namespace \
         --set persistence.container.size=20Gi \
