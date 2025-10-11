@@ -5,7 +5,7 @@ LABEL maintainer="k8s-at-home"
 
 # Install system packages, Node.js, pnpm, and Claude Code in fewer layers
 RUN dnf update -y \
-    && dnf install -y openssh-server procps ncurses curl \
+    && dnf install -y openssh-server procps ncurses curl which screen \
     && dnf clean all \
     && curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash - \
     && dnf install -y nodejs \
