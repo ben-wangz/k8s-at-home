@@ -28,6 +28,14 @@ RUN mkdir -p /var/run/sshd \
 # Copy entrypoint script
 COPY --chmod=0755 entrypoint.sh /entrypoint.sh
 
+# Install openvscode-server
+ARG OPENVSCODE_VERSION=v1.103.1
+RUN curl -LO https://github.com/gitpod-io/openvscode-server/releases/download/openvscode-server-${OPENVSCODE_VERSION}/openvscode-server-${OPENVSCODE_VERSION}-linux-x64.tar.gz \
+    && mkdir -p /opt/openvscode-server \
+    && tar zxvf openvscode-server-${OPENVSCODE_VERSION}-linux-x64.tar.gz -C /opt/openvscode-server \
+    && ln -s /opt/openvscode-server/openvscode-server-${OPENVSCODE_VERSION}-linux-x64 /opt/openvscode-server/current \
+    && rm openvscode-server-${OPENVSCODE_VERSION}-linux-x64.tar.gz
+
 # Download tini (moved down to improve cache utilization)
 ARG TINI_VERSION=v0.19.0
 ADD --chmod=0755 https://github.com/krallin/tini/releases/download/${TINI_VERSION}/tini /tini

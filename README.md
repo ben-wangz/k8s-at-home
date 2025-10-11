@@ -80,6 +80,9 @@ Update container image versions following semver.
 **Usage:**
 ```bash
 bash tools/bump-image-version.sh <app-path> <major|minor|patch>
+
+# Non-interactive mode (auto-confirm)
+echo y | bash tools/bump-image-version.sh <app-path> <major|minor|patch>
 ```
 
 **When to use:**
@@ -112,6 +115,9 @@ Update Helm chart versions with optional image synchronization.
 **Usage:**
 ```bash
 bash tools/bump-chart-version.sh <chart-name> <major|minor|patch> [--sync-images]
+
+# Non-interactive mode (auto-confirm)
+echo y | bash tools/bump-chart-version.sh <chart-name> <major|minor|patch> [--sync-images]
 ```
 
 **Options:**
@@ -151,10 +157,10 @@ When you modify a Dockerfile or container code:
 vim application/podman-in-container/container/Dockerfile
 
 # 2. Bump image version
-bash tools/bump-image-version.sh podman-in-container patch
+echo y | bash tools/bump-image-version.sh podman-in-container patch
 
 # 3. Bump chart version and sync images
-bash tools/bump-chart-version.sh podman-in-container patch --sync-images
+echo y | bash tools/bump-chart-version.sh podman-in-container patch --sync-images
 
 # 4. Test the build
 bash tests/build-images.sh podman-in-container
@@ -174,7 +180,7 @@ When you modify chart templates, values, or configuration:
 vim application/aria2/chart/templates/deployment.yaml
 
 # 2. Bump chart version (no image sync needed)
-bash tools/bump-chart-version.sh aria2 patch
+echo y | bash tools/bump-chart-version.sh aria2 patch
 
 # 3. Test the chart
 bash tests/ct-lint.sh aria2
@@ -191,13 +197,13 @@ For applications with multiple containers (e.g., aria2):
 
 ```bash
 # 1. Update aria2 backend image
-bash tools/bump-image-version.sh aria2/aria2 minor
+echo y | bash tools/bump-image-version.sh aria2/aria2 minor
 
 # 2. Update aria-ng frontend image
-bash tools/bump-image-version.sh aria2/aria-ng patch
+echo y | bash tools/bump-image-version.sh aria2/aria-ng patch
 
 # 3. Sync all images to chart
-bash tools/bump-chart-version.sh aria2 minor --sync-images
+echo y | bash tools/bump-chart-version.sh aria2 minor --sync-images
 
 # 4. Test
 bash tests/build-images.sh aria2 aria-ng
