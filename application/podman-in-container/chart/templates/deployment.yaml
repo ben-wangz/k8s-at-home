@@ -58,6 +58,10 @@ spec:
         ports:
         - containerPort: {{ .Values.ports.ssh }}
           name: ssh
+        {{- if .Values.openvscode.enabled }}
+        - containerPort: {{ .Values.ports.openvscode }}
+          name: openvscode
+        {{- end }}
         volumeMounts:
         - name: container-volume
           mountPath: /var/lib/containers
@@ -75,6 +79,17 @@ spec:
         env:
         - name: TZ
           value: {{ .Values.timezone | quote }}
+        {{- if .Values.openvscode.enabled }}
+        - name: OPEN_VSCODE_SERVER_PORT
+          value: {{ .Values.openvscode.port | quote }}
+        - name: OPEN_VSCODE_SERVER_LISTENING_HOST
+          value: {{ .Values.openvscode.listeningHost | quote }}
+        - name: OPEN_VSCODE_SERVER_CONNECTION_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "podman-in-container.openvscodSecret.name" . }}
+              key: connection-token
+        {{- end }}
         {{- if .Values.extraEnvVars }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraEnvVars "context" $) | nindent 10 }}
         {{- end }}

@@ -1,0 +1,52 @@
+{{- if and .Values.openvscode.enabled .Values.ingress.openvscode.enabled }}
+apiVersion: {{ include "common.capabilities.ingress.apiVersion" . }}
+kind: Ingress
+metadata:
+  name: {{ include "common.names.fullname" . }}-openvscode
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+  annotations:
+    {{- if .Values.ingress.openvscode.annotations }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.ingress.openvscode.annotations "context" $ ) | nindent 4 }}
+    {{- end }}
+    {{- if .Values.commonAnnotations }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if .Values.ingress.openvscode.ingressClassName }}
+  ingressClassName: {{ .Values.ingress.openvscode.ingressClassName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.openvscode.hostname }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.openvscode.path }}
+            pathType: {{ .Values.ingress.openvscode.pathType }}
+            backend:
+              service:
+                name: {{ include "common.names.fullname" . }}
+                port:
+                  number: {{ .Values.service.ports.openvscode }}
+          {{- if .Values.ingress.openvscode.extraPaths }}
+          {{- include "common.tplvalues.render" ( dict "value" .Values.ingress.openvscode.extraPaths "context" $ ) | nindent 10 }}
+          {{- end }}
+    {{- if .Values.ingress.openvscode.extraHosts }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.ingress.openvscode.extraHosts "context" $ ) | nindent 4 }}
+    {{- end }}
+    {{- if .Values.ingress.openvscode.extraRules }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.ingress.openvscode.extraRules "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- if or .Values.ingress.openvscode.tls .Values.ingress.openvscode.extraTls }}
+  tls:
+    {{- if .Values.ingress.openvscode.tls }}
+    - hosts:
+        - {{ .Values.ingress.openvscode.hostname }}
+      {{- if .Values.ingress.openvscode.tlsSecret }}
+      secretName: {{ .Values.ingress.openvscode.tlsSecret }}
+      {{- end }}
+    {{- end }}
+    {{- if .Values.ingress.openvscode.extraTls }}
+    {{- include "common.tplvalues.render" ( dict "value" .Values.ingress.openvscode.extraTls "context" $ ) | nindent 4 }}
+    {{- end }}
+  {{- end }}
+{{- end }}

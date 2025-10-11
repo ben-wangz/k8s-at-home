@@ -41,6 +41,15 @@ spec:
       nodePort: {{ .Values.service.ports.sshNodePort }}
       {{- end }}
       name: ssh
+    {{- if .Values.openvscode.enabled }}
+    - protocol: TCP
+      port: {{ .Values.service.ports.openvscode }}
+      targetPort: {{ .Values.ports.openvscode }}
+      {{- if (and (eq .Values.service.type "NodePort") (not (empty .Values.service.ports.openvscodNodePort))) }}
+      nodePort: {{ .Values.service.ports.openvscodNodePort }}
+      {{- end }}
+      name: openvscode
+    {{- end }}
     {{- if .Values.service.extraPorts }}
     {{- include "common.tplvalues.render" (dict "value" .Values.service.extraPorts "context" $) | nindent 4 }}
     {{- end }}

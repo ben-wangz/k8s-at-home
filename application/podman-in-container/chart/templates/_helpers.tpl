@@ -22,3 +22,25 @@ Create the name of the SSH secret to use
 {{- include "common.names.fullname" . }}-ssh
 {{- end }}
 {{- end -}}
+
+{{/*
+Create the name of the OpenVSCode secret to use
+*/}}
+{{- define "podman-in-container.openvscodSecret.name" -}}
+{{- if .Values.openvscode.connection.token.existingSecret }}
+{{- .Values.openvscode.connection.token.existingSecret }}
+{{- else }}
+{{- include "common.names.fullname" . }}-openvscode
+{{- end }}
+{{- end -}}
+
+{{/*
+Generate OpenVSCode connection token
+*/}}
+{{- define "podman-in-container.openvscodSecret.token" -}}
+{{- if .Values.openvscode.connection.token.raw }}
+{{- .Values.openvscode.connection.token.raw }}
+{{- else }}
+{{- derivePassword 1 "long" (include "common.names.fullname" .) "openvscode-token" .Release.Namespace }}
+{{- end }}
+{{- end -}}

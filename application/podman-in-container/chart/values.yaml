@@ -32,12 +32,21 @@ image:
   pullPolicy: IfNotPresent
 ports:
   ssh: 22
+  openvscode: 3000
 timezone: Asia/Shanghai
 hostname: ''
 ssh:
   enabled: true
   existingSecret: ''
   authorizedKeys: []
+openvscode:
+  enabled: false
+  port: 3000
+  listeningHost: 0.0.0.0
+  connection:
+    token:
+      raw: ''
+      existingSecret: ''
 extraEnvVars: {}
 extraEnvVarsSecret: ''
 extraVolumeMounts: []
@@ -73,6 +82,8 @@ service:
   ports:
     ssh: 22
     sshNodePort: 32022
+    openvscode: 3000
+    openvscodNodePort: 32300
   annotations: {}
   clusterIP: ''
   sessionAffinity: ''
@@ -82,4 +93,18 @@ service:
   loadBalancerIP: ''
   loadBalancerClass: ''
   extraPorts: []
+ingress:
+  openvscode:
+    enabled: false
+    ingressClassName: ''
+    hostname: openvscode.local
+    path: /
+    pathType: Prefix
+    annotations: {}
+    tls: false
+    tlsSecret: ''
+    extraHosts: []
+    extraPaths: []
+    extraTls: []
+    extraRules: []
 extraDeploy: []
