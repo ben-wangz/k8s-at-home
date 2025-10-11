@@ -2,7 +2,7 @@
 
 ## introduction
 
-This project is to setup k8s at home.
+This project is to develop and maintain k8s applications at home.
 
 ## application
 
