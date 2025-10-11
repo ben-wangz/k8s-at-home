@@ -33,6 +33,7 @@ image:
 ports:
   ssh: 22
 timezone: Asia/Shanghai
+hostname: ''
 ssh:
   enabled: true
   existingSecret: ''
