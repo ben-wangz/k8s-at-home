@@ -8,6 +8,12 @@ set -o errexit -o nounset -o pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
 
+# Load dependency checking library
+source "${SCRIPT_DIR}/lib/dependencies.sh"
+
+# Check dependencies before loading library
+NEEDS_PYYAML=true check_test_dependencies || exit 1
+
 # Load version utilities library
 source "${PROJECT_ROOT}/tools/lib/version-utils.sh"
 

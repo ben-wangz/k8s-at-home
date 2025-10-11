@@ -6,6 +6,12 @@
 
 set -o nounset -o pipefail
 
+# Ensure dependencies are available
+TOOLS_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${TOOLS_LIB_DIR}/dependencies.sh" ]]; then
+    source "${TOOLS_LIB_DIR}/dependencies.sh"
+fi
+
 # Parse semver version into major, minor, patch components
 # Usage: parse_semver "1.2.3"
 # Output: "1 2 3"
