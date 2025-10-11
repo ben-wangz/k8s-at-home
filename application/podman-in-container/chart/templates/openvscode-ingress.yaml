@@ -24,9 +24,9 @@ spec:
             pathType: {{ .Values.ingress.openvscode.pathType }}
             backend:
               service:
-                name: {{ include "common.names.fullname" . }}
+                name: {{ include "podman-in-container.openvscodService.name" . }}
                 port:
-                  number: {{ .Values.service.ports.openvscode }}
+                  number: {{ .Values.service.openvscode.port }}
           {{- if .Values.ingress.openvscode.extraPaths }}
           {{- include "common.tplvalues.render" ( dict "value" .Values.ingress.openvscode.extraPaths "context" $ ) | nindent 10 }}
           {{- end }}

@@ -44,3 +44,17 @@ Generate OpenVSCode connection token
 {{- derivePassword 1 "long" (include "common.names.fullname" .) "openvscode-token" .Release.Namespace }}
 {{- end }}
 {{- end -}}
+
+{{/*
+Create the name of the SSH service
+*/}}
+{{- define "podman-in-container.sshService.name" -}}
+{{- include "common.names.fullname" . }}-ssh
+{{- end -}}
+
+{{/*
+Create the name of the OpenVSCode service
+*/}}
+{{- define "podman-in-container.openvscodService.name" -}}
+{{- include "common.names.fullname" . }}-openvscode
+{{- end -}}

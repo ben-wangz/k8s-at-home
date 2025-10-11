@@ -78,21 +78,34 @@ persistence:
     selector: {}
     dataSource: {}
 service:
-  type: ClusterIP
-  ports:
-    ssh: 22
-    sshNodePort: 32022
-    openvscode: 3000
-    openvscodNodePort: 32300
-  annotations: {}
-  clusterIP: ''
-  sessionAffinity: ''
-  sessionAffinityConfig: {}
-  externalTrafficPolicy: ''
-  loadBalancerSourceRanges: []
-  loadBalancerIP: ''
-  loadBalancerClass: ''
-  extraPorts: []
+  ssh:
+    enabled: true
+    type: ClusterIP
+    port: 22
+    nodePort: 32022
+    annotations: {}
+    clusterIP: ''
+    sessionAffinity: ''
+    sessionAffinityConfig: {}
+    externalTrafficPolicy: ''
+    loadBalancerSourceRanges: []
+    loadBalancerIP: ''
+    loadBalancerClass: ''
+    extraPorts: []
+  openvscode:
+    enabled: false
+    type: ClusterIP
+    port: 3000
+    nodePort: 32300
+    annotations: {}
+    clusterIP: ''
+    sessionAffinity: ''
+    sessionAffinityConfig: {}
+    externalTrafficPolicy: ''
+    loadBalancerSourceRanges: []
+    loadBalancerIP: ''
+    loadBalancerClass: ''
+    extraPorts: []
 ingress:
   openvscode:
     enabled: false

@@ -1,0 +1,49 @@
+{{- if .Values.service.ssh.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "podman-in-container.sshService.name" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+  annotations:
+    {{- if or .Values.service.ssh.annotations .Values.commonAnnotations }}
+    {{- $annotations := include "common.tplvalues.merge" ( dict "values" ( list .Values.service.ssh.annotations .Values.commonAnnotations ) "context" . ) }}
+    {{- include "common.tplvalues.render" ( dict "value" $annotations "context" $) | nindent 4 }}
+    {{- end }}
+spec:
+  {{- $podLabels := include "common.tplvalues.merge" ( dict "values" ( list .Values.podLabels .Values.commonLabels ) "context" . ) }}
+  type: {{ .Values.service.ssh.type }}
+  {{- if and .Values.service.ssh.clusterIP (eq .Values.service.ssh.type "ClusterIP") }}
+  clusterIP: {{ .Values.service.ssh.clusterIP }}
+  {{- end }}
+  {{- if .Values.service.ssh.sessionAffinity }}
+  sessionAffinity: {{ .Values.service.ssh.sessionAffinity }}
+  {{- end }}
+  {{- if .Values.service.ssh.sessionAffinityConfig }}
+  sessionAffinityConfig: {{- include "common.tplvalues.render" (dict "value" .Values.service.ssh.sessionAffinityConfig "context" $) | nindent 4 }}
+  {{- end }}
+  {{- if or (eq .Values.service.ssh.type "LoadBalancer") (eq .Values.service.ssh.type "NodePort") }}
+  externalTrafficPolicy: {{ .Values.service.ssh.externalTrafficPolicy | quote }}
+  {{- end }}
+  {{- if and (eq .Values.service.ssh.type "LoadBalancer") (not (empty .Values.service.ssh.loadBalancerSourceRanges)) }}
+  loadBalancerSourceRanges: {{- toYaml .Values.service.ssh.loadBalancerSourceRanges | nindent 4 }}
+  {{- end }}
+  {{- if and (eq .Values.service.ssh.type "LoadBalancer") (not (empty .Values.service.ssh.loadBalancerIP)) }}
+  loadBalancerIP: {{ .Values.service.ssh.loadBalancerIP }}
+  {{- end }}
+  {{- if and (eq .Values.service.ssh.type "LoadBalancer") .Values.service.ssh.loadBalancerClass }}
+  loadBalancerClass: {{ .Values.service.ssh.loadBalancerClass }}
+  {{- end }}
+  ports:
+    - protocol: TCP
+      port: {{ .Values.service.ssh.port }}
+      targetPort: {{ .Values.ports.ssh }}
+      {{- if (and (eq .Values.service.ssh.type "NodePort") (not (empty .Values.service.ssh.nodePort))) }}
+      nodePort: {{ .Values.service.ssh.nodePort }}
+      {{- end }}
+      name: ssh
+    {{- if .Values.service.ssh.extraPorts }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.service.ssh.extraPorts "context" $) | nindent 4 }}
+    {{- end }}
+  selector: {{- include "common.labels.matchLabels" ( dict "customLabels" $podLabels "context" $ ) | nindent 4 }}
+{{- end }}
