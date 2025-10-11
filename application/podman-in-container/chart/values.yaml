@@ -45,6 +45,10 @@ openvscode:
   listeningHost: 0.0.0.0
   connection:
     token:
+      # SECURITY: For production environments, set a strong random password here
+      # or use existingSecret to reference a manually created Kubernetes secret.
+      # If left empty, a deterministic token will be auto-generated (suitable for dev/test only).
+      # Token must contain only alphanumeric characters (0-9, a-z, A-Z) and hyphens (-).
       raw: ''
       existingSecret: ''
 extraEnvVars: {}

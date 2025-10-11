@@ -36,12 +36,18 @@ Create the name of the OpenVSCode secret to use
 
 {{/*
 Generate OpenVSCode connection token
+OpenVSCode only accepts alphanumeric characters (0-9, a-z, A-Z) and hyphens
+SECURITY NOTE: Auto-generated token uses deterministic SHA256 hash for stability
+in ArgoCD/GitOps environments. For production use, consider setting:
+  - openvscode.connection.token.raw with a strong random password, OR
+  - openvscode.connection.token.existingSecret to reference a manually created secret
 */}}
 {{- define "podman-in-container.openvscodSecret.token" -}}
 {{- if .Values.openvscode.connection.token.raw }}
 {{- .Values.openvscode.connection.token.raw }}
 {{- else }}
-{{- derivePassword 1 "long" (include "common.names.fullname" .) "openvscode-token" .Release.Namespace }}
+{{- $seed := printf "%s-%s-openvscode-token" (include "common.names.fullname" .) .Release.Namespace }}
+{{- sha256sum $seed | trunc 32 }}
 {{- end }}
 {{- end -}}
 
