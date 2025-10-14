@@ -91,7 +91,7 @@ spec:
               key: connection-token
         {{- end }}
         {{- if .Values.extraEnvVars }}
-        {{- include "common.tplvalues.render" (dict "value" .Values.extraEnvVars "context" $) | nindent 10 }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.extraEnvVars "context" $) | nindent 8 }}
         {{- end }}
         {{- if .Values.extraEnvVarsSecret }}
         envFrom:
