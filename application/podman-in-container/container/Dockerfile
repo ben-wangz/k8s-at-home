@@ -3,21 +3,26 @@ FROM ${PODMAN_IMAGE}
 
 LABEL maintainer="k8s-at-home"
 
-# Install system packages, Node.js, pnpm, and Claude Code in fewer layers
+# Setup environment variables
+ENV PNPM_HOME="/opt/pnpm" \
+    PATH="$PATH:/opt/pnpm" \
+    LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
+
+# Install system packages, openssh-server, nodejs, locale support, claude-code and iflow-cli
 RUN dnf update -y \
-    && dnf install -y openssh-server procps ncurses curl which screen \
-    && dnf clean all \
+    && dnf install -y procps ncurses curl which screen \
+       glibc-locale-source glibc-langpack-zh \
+       openssh-server \
     && curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash - \
     && dnf install -y nodejs \
+    && localedef -c -f UTF-8 -i en_US en_US.UTF-8 \
     && dnf clean all \
-    && npm install -g pnpm
-
-# Setup pnpm environment and install Claude Code (avoid /root as it will be mounted)
-ENV PNPM_HOME="/opt/pnpm" \
-    PATH="/opt/pnpm:$PATH"
-RUN mkdir -p ${PNPM_HOME} \
+    && npm install -g pnpm \
+    && mkdir -p ${PNPM_HOME} \
     && pnpm config set global-bin-dir ${PNPM_HOME} \
-    && pnpm add -g @anthropic-ai/claude-code
+    && pnpm add -g @anthropic-ai/claude-code \
+    && pnpm add -g @iflow-ai/iflow-cli
 
 # Configure SSH
 RUN mkdir -p /var/run/sshd \
