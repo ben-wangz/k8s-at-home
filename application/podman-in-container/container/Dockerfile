@@ -11,7 +11,7 @@ ENV PNPM_HOME="/opt/pnpm" \
 
 # Install system packages, openssh-server, nodejs, locale support, claude-code and iflow-cli
 RUN dnf update -y \
-    && dnf install -y procps ncurses curl which screen \
+    && dnf install -y procps ncurses curl which screen tree \
        glibc-locale-source glibc-langpack-zh \
        openssh-server \
     && curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash - \
