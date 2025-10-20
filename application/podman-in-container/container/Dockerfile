@@ -24,9 +24,9 @@ RUN dnf update -y \
     && mkdir -p ${PNPM_HOME} \
     && pnpm config set global-bin-dir ${PNPM_HOME} \
     && pnpm add -g @anthropic-ai/claude-code \
-    && curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/opt/uv" sh \
     && git clone https://github.com/oraios/serena /opt/serena \
-    && uv pip install --system -e /opt/serena \
+    && /opt/uv/bin/uv pip install --system -e /opt/serena \
     && pnpm add -g @iflow-ai/iflow-cli
 
 # Configure SSH
