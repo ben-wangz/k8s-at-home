@@ -9,7 +9,9 @@ ENV PNPM_HOME="/opt/pnpm" \
     LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8
 
-# Install system packages, openssh-server, nodejs, locale support, claude-code and iflow-cli
+# Install system packages, openssh-server, nodejs, uv, locale support, claude-code(including serena mcp), and iflow-cli
+# you can use the command below to add serena mcp to claude-code
+# claude mcp add serena -- serena start-mcp-server --context ide-assistant --project "$(pwd)"
 RUN dnf update -y \
     && dnf install -y procps ncurses curl which screen tree \
        glibc-locale-source glibc-langpack-zh \
@@ -22,6 +24,9 @@ RUN dnf update -y \
     && mkdir -p ${PNPM_HOME} \
     && pnpm config set global-bin-dir ${PNPM_HOME} \
     && pnpm add -g @anthropic-ai/claude-code \
+    && curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && git clone https://github.com/oraios/serena /opt/serena \
+    && uv pip install --system -e /opt/serena \
     && pnpm add -g @iflow-ai/iflow-cli
 
 # Configure SSH
