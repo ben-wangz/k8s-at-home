@@ -3,6 +3,9 @@ FROM ${PODMAN_IMAGE}
 
 LABEL maintainer="k8s-at-home"
 
+# Disable netns="host" to use default bridge mode
+RUN sed -i 's/^netns="host"$/# netns="host"  # Commented out to use default bridge mode for proper port mapping/' /etc/containers/containers.conf
+
 # Setup environment variables
 ENV PNPM_HOME="/opt/pnpm" \
     PATH="$PATH:/opt/pnpm" \
@@ -15,7 +18,7 @@ ENV PNPM_HOME="/opt/pnpm" \
 RUN dnf update -y \
     && dnf install -y procps ncurses curl which screen tree \
        glibc-locale-source glibc-langpack-zh \
-       openssh-server \
+       openssh-server vim \
     && curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash - \
     && dnf install -y nodejs \
     && localedef -c -f UTF-8 -i en_US en_US.UTF-8 \
