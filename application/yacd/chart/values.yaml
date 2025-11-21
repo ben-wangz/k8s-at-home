@@ -45,7 +45,7 @@ service:
 ingress:
   enabled: false
   annotations: {}
-  ingressClassName: nginx
+  className: nginx
   hostname: yacd.example.com
   path: /
   pathType: Prefix
