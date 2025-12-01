@@ -15,10 +15,7 @@ nodeAffinityPreset:
   key: ''
   values: []
 podSecurityContext:
-  enabled: true
-  fsGroupChangePolicy: Always
-  supplementalGroups: []
-  fsGroup: 1001
+  enabled: false
 containerSecurityContext:
   enabled: true
   privileged: true
