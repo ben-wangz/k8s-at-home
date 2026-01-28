@@ -12,11 +12,14 @@ ENV PNPM_HOME="/opt/pnpm" \
     LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8
 
-# Install system packages, openssh-server, nodejs, uv, locale support and claude-code(including serena mcp)
+RUN echo "export PATH=$PATH:$PNPM_HOME" >> /etc/profile \
+    && echo "export PNPM_HOME=${PNPM_HOME}" >> /etc/profile
+
+# Install system packages, openssh-server, nodejs, uv, locale support and claude-code(including serena mcp) and gemini-cli
 # you can use the command below to add serena mcp to claude-code
 # claude mcp add serena -- serena start-mcp-server --context ide-assistant --project "$(pwd)"
 RUN dnf update -y \
-    && dnf install -y procps ncurses curl which screen tree \
+    && dnf install -y procps ncurses curl which screen tree unzip openssl jq yq \
        glibc-locale-source glibc-langpack-zh \
        openssh-server vim \
     && curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash - \
@@ -29,7 +32,8 @@ RUN dnf update -y \
     && pnpm add -g @anthropic-ai/claude-code \
     && curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/opt/uv" sh \
     && git clone https://github.com/oraios/serena /opt/serena \
-    && /opt/uv/uv pip install --system -e /opt/serena
+    && /opt/uv/uv pip install --system -e /opt/serena \
+    && pnpm install -g @google/gemini-cli
 
 # Configure SSH
 RUN mkdir -p /var/run/sshd \
