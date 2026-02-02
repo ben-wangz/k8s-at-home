@@ -7,6 +7,38 @@ description: Manage chart and image versions. Use for version queries, bumping v
 
 Follows [Semantic Versioning 2.0](https://semver.org/)
 
+## Instructions
+
+When this skill is invoked, execute the following steps:
+
+1. **Parse arguments** to determine:
+   - Action: `bump`, `get`, `query`
+   - Target: `image`, `chart`, or both
+   - Bump type: `major`, `minor`, `patch`
+   - App name: from args, git status, or context
+
+2. **Determine app name** if not explicitly provided:
+   - Check git status for modified files in `application/*/container/` or `application/*/chart/`
+   - Extract app name from the path
+   - If multiple apps or unclear, ask user
+
+3. **Execute appropriate command**:
+   - **Bump image version**: `echo y | bash tools/bump-image-version.sh <app-path> <bump-type>`
+   - **Bump chart version**: `echo y | bash tools/bump-chart-version.sh <chart-name> <bump-type>`
+   - **Bump chart with sync**: `echo y | bash tools/bump-chart-version.sh <chart-name> <bump-type> --sync-images`
+   - **Get version**: `bash tools/get-version.sh [app-name] [type]`
+   - **List all versions**: `bash tools/get-version.sh`
+
+4. **Report results** to user with version changes
+
+### Argument Parsing Examples
+
+- `bump patch image` → Bump image patch version for app from context
+- `bump minor chart podman-in-container` → Bump chart minor version for podman-in-container
+- `bump patch` → Bump both image and chart patch version
+- `get version` → List all versions
+- `get image aria2/aria2` → Get aria2/aria2 image version
+
 ## Core Files
 
 | File | Purpose |

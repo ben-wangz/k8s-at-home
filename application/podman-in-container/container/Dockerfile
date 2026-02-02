@@ -29,7 +29,7 @@ RUN dnf update -y \
     && npm install -g pnpm \
     && mkdir -p ${PNPM_HOME} \
     && pnpm config set global-bin-dir ${PNPM_HOME} \
-    && pnpm add -g @anthropic-ai/claude-code \
+    && curl -fsSL https://claude.ai/install.sh | bash \
     && curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/opt/uv" sh \
     && git clone https://github.com/oraios/serena /opt/serena \
     && /opt/uv/uv pip install --system -e /opt/serena \
