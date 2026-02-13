@@ -11,12 +11,13 @@ ENV PATH="$PATH:/opt/nodejs/bin" \
     LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8
 
-# Install system packages, openssh-server, nodejs and locale support
+# Install system packages, openssh-server, python, nodejs and locale support
 ARG NODEJS_VERSION=v24.13.1
 RUN dnf update -y \
     && dnf install -y procps ncurses curl which screen tree unzip openssl jq yq \
        glibc-locale-source glibc-langpack-zh \
        openssh-server vim \
+       python3 python3-pip \
     && localedef -c -f UTF-8 -i en_US en_US.UTF-8 \
     && curl -fsSL https://nodejs.org/dist/${NODEJS_VERSION}/node-${NODEJS_VERSION}-linux-x64.tar.xz -o /tmp/nodejs.tar.xz \
     && mkdir -p /opt/nodejs \

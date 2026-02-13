@@ -2,6 +2,15 @@
 
 set -o errexit -o nounset -o pipefail
 
+# Setup bash profile if not exists
+if [[ ! -f $HOME/.bash_profile ]]; then
+  cat > $HOME/.bash_profile <<'EOF'
+if [ -f ~/.bashrc ]; then
+    . ~/.bashrc
+fi
+EOF
+fi
+
 # SSH setup
 ENABLE_SSH=${ENABLE_SSH:-"true"}
 if [[ "${ENABLE_SSH}" == "true" ]]; then
