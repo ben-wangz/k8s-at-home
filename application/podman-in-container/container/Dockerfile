@@ -7,12 +7,13 @@ LABEL maintainer="k8s-at-home"
 RUN sed -i 's/^netns="host"$/# netns="host"  # Commented out to use default bridge mode for proper port mapping/' /etc/containers/containers.conf
 
 # Setup environment variables
-ENV PATH="$PATH:/opt/nodejs/bin" \
+ENV PATH="$PATH:/opt/nodejs/bin:/usr/local/go/bin" \
     LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8
 
-# Install system packages, openssh-server, python, nodejs and locale support
+# Install system packages, openssh-server, python, nodejs, go and locale support
 ARG NODEJS_VERSION=v24.13.1
+ARG GO_VERSION=1.23.5
 RUN dnf update -y \
     && dnf install -y procps ncurses curl which screen tree unzip openssl jq yq \
        glibc-locale-source glibc-langpack-zh \
@@ -23,6 +24,9 @@ RUN dnf update -y \
     && mkdir -p /opt/nodejs \
     && tar -xJf /tmp/nodejs.tar.xz -C /opt/nodejs --strip-components=1 \
     && rm /tmp/nodejs.tar.xz \
+    && curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -o /tmp/go.tar.gz \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm /tmp/go.tar.gz \
     && dnf clean all
 
 # Configure SSH and setup login message
