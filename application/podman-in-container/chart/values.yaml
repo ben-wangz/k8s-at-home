@@ -25,7 +25,7 @@ tolerations: []
 extraVolumes: []
 image:
   repository: ghcr.io/ben-wangz/k8s-at-home-podman-in-container
-  tag: 1.4.0
+  tag: 1.4.1
   pullPolicy: IfNotPresent
 ports:
   ssh: 22

@@ -34,11 +34,13 @@ RUN mkdir -p /var/run/sshd \
     && sed -i 's/#PermitRootLogin yes/PermitRootLogin without-password/' /etc/ssh/sshd_config \
     && sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config \
     && sed -ri 's/session required pam_loginuid.so/#session required pam_loginuid.so/g' /etc/pam.d/sshd \
-    && echo "Common tools guide: /opt/codespace/docs/common-tools.md" > /etc/motd
+    && echo "export PATH=\"${PATH}\"" > /etc/profile.d/custom-path.sh \
+    && chmod +x /etc/profile.d/custom-path.sh
 
-# Copy documentation
+# Copy documentation and motd
 RUN mkdir -p /opt/codespace/docs
-COPY --chmod=0644 common-tools.md /opt/codespace/docs/
+COPY --chmod=0644 buitin-docs/ /opt/codespace/docs/
+COPY --chmod=0644 motd /etc/motd
 
 # Copy entrypoint script
 COPY --chmod=0755 entrypoint.sh /entrypoint.sh

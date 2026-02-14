@@ -10,6 +10,10 @@
     + ```bash
       curl -fsSL https://claude.ai/install.sh | bash
       ```
+* upgrade
+    + ```bash
+      claude update
+      ```
 
 ## Bun
 
@@ -22,12 +26,16 @@
 
 * installation
     + ```bash
-      git clone https://github.com/oraios/serena /opt/serena
-      pip install -e /opt/serena
+      podman run -d \
+        --name serena \
+        --pull=always \
+        -v $HOME/code:$HOME/code \
+        ghcr.io/oraios/serena:latest \
+        sleep infinity
       ```
     + Add to claude-code:
       ```bash
-      claude mcp add serena -- serena start-mcp-server --context ide-assistant --project "$(pwd)"
+      claude mcp add serena -- podman exec -i -w "$(pwd)" serena serena start-mcp-server --context ide-assistant --project "$(pwd)"
       ```
 
 ## Playwright MCP
@@ -39,7 +47,7 @@
         --entrypoint node \
         --name playwright \
         -p 8931:8931 \
-        mcr.microsoft.com/playwright/mcp \
+        mcr.microsoft.com/playwright/mcp:latest \
         cli.js --headless --browser chromium --no-sandbox --port 8931
       ```
     + Add to claude-code:
