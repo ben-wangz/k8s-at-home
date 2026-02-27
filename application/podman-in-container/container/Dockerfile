@@ -15,9 +15,11 @@ ENV PATH="$PATH:/opt/nodejs/bin:/usr/local/go/bin" \
 ARG NODEJS_VERSION=v24.13.1
 ARG GO_VERSION=1.23.5
 RUN dnf update -y \
-    && dnf install -y procps ncurses curl which screen tree unzip openssl jq yq \
+    && dnf install -y procps ncurses curl wget which screen tree unzip openssl jq yq \
        glibc-locale-source glibc-langpack-zh \
        openssh-server vim \
+       bind-utils telnet iputils \
+       poppler-utils \
        python3 python3-pip \
     && localedef -c -f UTF-8 -i en_US en_US.UTF-8 \
     && curl -fsSL https://nodejs.org/dist/${NODEJS_VERSION}/node-${NODEJS_VERSION}-linux-x64.tar.xz -o /tmp/nodejs.tar.xz \
@@ -27,6 +29,7 @@ RUN dnf update -y \
     && curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -o /tmp/go.tar.gz \
     && tar -C /usr/local -xzf /tmp/go.tar.gz \
     && rm /tmp/go.tar.gz \
+    && pip3 install --no-cache-dir paper-search-mcp \
     && dnf clean all
 
 # Configure SSH and setup login message
@@ -41,6 +44,9 @@ RUN mkdir -p /var/run/sshd \
 RUN mkdir -p /opt/codespace/docs
 COPY --chmod=0644 buitin-docs/ /opt/codespace/docs/
 COPY --chmod=0644 motd /etc/motd
+
+# Copy bin scripts
+COPY --chmod=0755 bin/ /usr/local/bin/
 
 # Copy entrypoint script
 COPY --chmod=0755 entrypoint.sh /entrypoint.sh

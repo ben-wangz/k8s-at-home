@@ -55,6 +55,17 @@
       claude mcp add playwright http://localhost:8931/mcp
       ```
 
+## Paper Search MCP
+
+* installation
+    + ```bash
+      pip install paper-search-mcp
+      ```
+    + Add to claude-code:
+      ```bash
+      claude mcp add -e SEMANTIC_SCHOLAR_API_KEY="" -s user paper_search_server -- python -m paper_search_mcp.server
+      ```
+
 ## ossutil
 
 * installation

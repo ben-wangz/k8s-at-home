@@ -73,6 +73,20 @@ Lightweight Kubernetes distribution for container environments. Includes kubectl
       fi
       ```
 
+* one-click management script (auto-installs if not present)
+    + ```bash
+      k3s.sh start
+      ```
+    + ```bash
+      k3s.sh stop
+      ```
+    + ```bash
+      k3s.sh status
+      ```
+    + ```bash
+      k3s.sh delete
+      ```
+
 * uninstall
     + ```bash
       /usr/local/bin/k3s-uninstall.sh
