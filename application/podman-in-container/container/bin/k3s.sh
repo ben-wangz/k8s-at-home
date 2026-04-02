@@ -4,6 +4,7 @@ set -e
 K3S_DATA_DIR="/var/lib/rancher/k3s"
 K3S_PID_FILE="/var/run/k3s.pid"
 K3S_LOG_FILE="/var/log/k3s.log"
+K3S_COPY_KUBECONFIG="${K3S_COPY_KUBECONFIG:-false}"
 export KUBECONFIG="/etc/rancher/k3s/k3s.yaml"
 
 ensure_k3s() {
@@ -18,7 +19,17 @@ ensure_k3s() {
 
 usage() {
     echo "Usage: $0 {start|stop|status|delete}"
+    echo "Env: K3S_COPY_KUBECONFIG=true to copy kubeconfig to ~/.kube/config after start"
     exit 1
+}
+
+maybe_copy_kubeconfig() {
+    case "${K3S_COPY_KUBECONFIG,,}" in
+        1|true|yes|on)
+            mkdir -p ~/.kube && cp /etc/rancher/k3s/k3s.yaml ~/.kube/config && chmod 600 ~/.kube/config
+            echo "kubeconfig copied to ~/.kube/config"
+            ;;
+    esac
 }
 
 cmd_start() {
@@ -40,6 +51,7 @@ cmd_start() {
     for i in {1..60}; do
         if k3s kubectl get nodes &>/dev/null; then
             echo "k3s is ready"
+            maybe_copy_kubeconfig
             return 0
         fi
         sleep 2

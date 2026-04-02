@@ -57,6 +57,14 @@ Lightweight Kubernetes distribution for container environments. Includes kubectl
       cp /etc/rancher/k3s/k3s.yaml $HOME/.kube/config
       chown $(id -u):$(id -g) $HOME/.kube/config
       ```
+    + Option 3: Auto-copy when starting with `k3s.sh` (disabled by default):
+      ```bash
+      K3S_COPY_KUBECONFIG=true k3s.sh start
+      ```
+      This runs:
+      ```bash
+      mkdir -p ~/.kube && cp /etc/rancher/k3s/k3s.yaml ~/.kube/config && chmod 600 ~/.kube/config
+      ```
 
 * stop k3s server
     + ```bash
@@ -76,6 +84,10 @@ Lightweight Kubernetes distribution for container environments. Includes kubectl
 * one-click management script (auto-installs if not present)
     + ```bash
       k3s.sh start
+      ```
+    + Copy kubeconfig to `~/.kube/config` after start:
+      ```bash
+      K3S_COPY_KUBECONFIG=true k3s.sh start
       ```
     + ```bash
       k3s.sh stop

@@ -4,16 +4,19 @@
 
 * Container runtime with network configured for port mapping.
 
-## Claude Code
+## OpenCode
 
 * installation
     + ```bash
-      curl -fsSL https://claude.ai/install.sh | bash
+      podman run --rm -it \
+        --name opencode-server \
+        -p 8080:8080 \
+        -v ~/.config/opencode/opencode.json:/root/.config/opencode/opencode.json:ro \
+        -v $HOME/code:$HOME/code \
+        ghcr.io/anomalyco/opencode:1.2.27 \
+        --hostname 0.0.0.0 --port 8080 web
       ```
-* upgrade
-    + ```bash
-      claude update
-      ```
+* open `http://localhost:8080`
 
 ## Bun
 
@@ -33,10 +36,6 @@
         ghcr.io/oraios/serena:latest \
         sleep infinity
       ```
-    + Add to claude-code:
-      ```bash
-      claude mcp add serena -- podman exec -i -w "$(pwd)" serena serena start-mcp-server --context ide-assistant --project "$(pwd)"
-      ```
 
 ## Playwright MCP
 
@@ -50,20 +49,12 @@
         mcr.microsoft.com/playwright/mcp:latest \
         cli.js --headless --browser chromium --no-sandbox --port 8931
       ```
-    + Add to claude-code:
-      ```bash
-      claude mcp add playwright http://localhost:8931/mcp
-      ```
 
 ## Paper Search MCP
 
 * installation
     + ```bash
       pip install paper-search-mcp
-      ```
-    + Add to claude-code:
-      ```bash
-      claude mcp add -e SEMANTIC_SCHOLAR_API_KEY="" -s user paper_search_server -- python -m paper_search_mcp.server
       ```
 
 ## ossutil
