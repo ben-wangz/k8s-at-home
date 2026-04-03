@@ -178,7 +178,7 @@ function install_release_binary() {
     fi
 
     if command -v sha256sum >/dev/null 2>&1; then
-        if ! (cd "$tmp_dir" && sha256sum --check checksums.txt --ignore-missing); then
+        if ! (cd "$tmp_dir" && sha256sum --check --status checksums.txt --ignore-missing); then
             echo "Error: Checksum verification failed for ${filename}" >&2
             return 1
         fi
