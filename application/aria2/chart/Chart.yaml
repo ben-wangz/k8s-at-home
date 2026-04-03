@@ -9,12 +9,12 @@ keywords:
   - downloader
 annotations:
   # Custom metadata for version management
-  k8s-at-home.io/images: |
-    - name: aria2
-      path: aria2/aria2
+  aria2/images: |
+    - name: aria2/aria2
+      path: application/aria2/container/aria2
       valuesKey: aria2.image.tag
-    - name: aria-ng
-      path: aria2/aria-ng
+    - name: aria2/aria-ng
+      path: application/aria2/container/aria-ng
       valuesKey: ariaNg.image.tag
 dependencies:
 - name: common

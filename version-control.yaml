@@ -1,0 +1,11 @@
+charts:
+  - name: aria2
+    path: application/aria2/chart
+  - name: clash
+    path: application/clash/chart
+  - name: ddns-go
+    path: application/ddns-go/chart
+  - name: podman-in-container
+    path: application/podman-in-container/chart
+  - name: yacd
+    path: application/yacd/chart

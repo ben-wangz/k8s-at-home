@@ -1,6 +1,6 @@
 ---
 name: version-control
-description: Manage chart and image versions. Use for version queries, bumping versions.
+description: Manage chart and image versions through forgekit.
 ---
 
 # Version Control
@@ -12,98 +12,101 @@ Follows [Semantic Versioning 2.0](https://semver.org/)
 When this skill is invoked, execute the following steps:
 
 1. **Parse arguments** to determine:
-   - Action: `bump`, `get`, `query`
+   - Action: `bump`, `get`, `query`, `sync`
    - Target: `image`, `chart`, or both
    - Bump type: `major`, `minor`, `patch`
-   - App name: from args, git status, or context
+   - App/module name: from args, git status, or context
 
 2. **Determine app name** if not explicitly provided:
    - Check git status for modified files in `application/*/container/` or `application/*/chart/`
-   - Extract app name from the path
-   - If multiple apps or unclear, ask user
+   - Extract app/module from the path
+   - If multiple apps/modules or unclear, ask user
 
-3. **Execute appropriate command**:
-   - **Bump image version**: `echo y | bash tools/bump-image-version.sh <app-path> <bump-type>`
-   - **Bump chart version**: `echo y | bash tools/bump-chart-version.sh <chart-name> <bump-type>`
-   - **Bump chart with sync**: `echo y | bash tools/bump-chart-version.sh <chart-name> <bump-type> --sync-images`
-   - **Get version**: `bash tools/get-version.sh [app-name] [type]`
-   - **List all versions**: `bash tools/get-version.sh`
+3. **Ensure forgekit binary is ready**:
+   - `FORGEKIT_BIN="$(bash setup/forgekit.sh)"`
+   - Always use `${FORGEKIT_BIN}` for version operations
+   - Keep min/best version defaults only in `setup/forgekit.sh`
 
-4. **Report results** to user with version changes
+4. **Execute forgekit command**:
+   - **Bump image version**: `${FORGEKIT_BIN} version bump <module> <bump-type>`
+   - **Bump chart version**: `${FORGEKIT_BIN} version bump-chart <chart-name> <bump-type>`
+   - **Bump chart with sync**: `${FORGEKIT_BIN} version bump-chart <chart-name> <bump-type> --sync`
+   - **Get all versions**: `${FORGEKIT_BIN} version get`
+   - **Get image/module version**: `${FORGEKIT_BIN} version get <module>`
+   - **Get chart version**: `${FORGEKIT_BIN} version get chart <chart-name>`
+   - **Get chart appVersion**: `${FORGEKIT_BIN} version get chart appVersion <chart-name>`
+   - **Sync image versions**: `${FORGEKIT_BIN} version sync [chart-name]`
+
+5. **Report results** to user with version changes
 
 ### Argument Parsing Examples
 
-- `bump patch image` → Bump image patch version for app from context
-- `bump minor chart podman-in-container` → Bump chart minor version for podman-in-container
-- `bump patch` → Bump both image and chart patch version
-- `get version` → List all versions
-- `get image aria2/aria2` → Get aria2/aria2 image version
+- `bump patch image` -> Bump image patch version for module from context
+- `bump minor chart podman-in-container` -> Bump chart minor version for podman-in-container
+- `bump patch` -> Bump both image and chart patch version
+- `get version` -> List all versions
+- `get image aria2/aria2` -> Get aria2/aria2 module version
 
 ## Core Files
 
 | File | Purpose |
 |------|---------|
-| `application/<app>/container/VERSION` | Image version source of truth |
-| `application/<app>/chart/Chart.yaml` | Chart version, appVersion, and `k8s-at-home.io/images` annotation |
+| `setup/forgekit.sh` | Ensure/install forgekit with repo-defined version policy |
+| `build/bin/forgekit` | Repo-local forgekit binary managed by setup script |
+| `version-control.yaml` | forgekit chart registry |
+| `application/<app>/container/**/VERSION` | Image version source of truth |
+| `application/<app>/chart/Chart.yaml` | Chart version, appVersion, and `<chart-name>/images` annotation |
 | `application/<app>/chart/values.yaml` | Image tags (synced from VERSION files) |
 
-## Scripts
+## Commands
 
-| Script | Purpose |
-|--------|---------|
-| `tools/get-version.sh` | Query application versions |
-| `tools/bump-image-version.sh` | Bump container image version |
-| `tools/bump-chart-version.sh` | Bump chart version, optionally sync image tags |
-
-### get-version.sh Usage
+### List/Get Version
 
 ```bash
+FORGEKIT_BIN="$(bash setup/forgekit.sh)"
+
 # List all versions
-bash tools/get-version.sh
+"${FORGEKIT_BIN}" version get
 
 # Get chart version
-bash tools/get-version.sh <app-name> chart
+"${FORGEKIT_BIN}" version get chart <chart-name>
 
-# Get image version
-bash tools/get-version.sh <app-name> image
+# Get image/module version
+"${FORGEKIT_BIN}" version get <module>
 
 # Get chart appVersion
-bash tools/get-version.sh <app-name> appVersion
+"${FORGEKIT_BIN}" version get chart appVersion <chart-name>
 
-# Multi-container apps
-bash tools/get-version.sh aria2/aria2 image
-bash tools/get-version.sh aria2/aria-ng image
+# Multi-container modules
+"${FORGEKIT_BIN}" version get aria2/aria2
+"${FORGEKIT_BIN}" version get aria2/aria-ng
 ```
 
-### bump-image-version.sh Usage
+### Bump Image Version
 
 ```bash
-# Bump image version
-bash tools/bump-image-version.sh <app-path> <major|minor|patch>
-
-# Non-interactive mode
-echo y | bash tools/bump-image-version.sh <app-path> <major|minor|patch>
+FORGEKIT_BIN="$(bash setup/forgekit.sh)"
+"${FORGEKIT_BIN}" version bump <module> <major|minor|patch>
 
 # Examples
-bash tools/bump-image-version.sh podman-in-container patch
-bash tools/bump-image-version.sh aria2/aria2 minor
+"${FORGEKIT_BIN}" version bump podman-in-container patch
+"${FORGEKIT_BIN}" version bump aria2/aria2 minor
 ```
 
-### bump-chart-version.sh Usage
+### Bump Chart Version
 
 ```bash
+FORGEKIT_BIN="$(bash setup/forgekit.sh)"
+
 # Bump chart version only
-bash tools/bump-chart-version.sh <chart-name> <major|minor|patch>
+"${FORGEKIT_BIN}" version bump-chart <chart-name> <major|minor|patch>
 
 # Bump chart version and sync images
-bash tools/bump-chart-version.sh <chart-name> <major|minor|patch> --sync-images
-
-# Non-interactive mode
-echo y | bash tools/bump-chart-version.sh <chart-name> <major|minor|patch> [--sync-images]
+"${FORGEKIT_BIN}" version bump-chart <chart-name> <major|minor|patch> --sync
 
 # Examples
-bash tools/bump-chart-version.sh aria2 patch
-bash tools/bump-chart-version.sh podman-in-container patch --sync-images
+"${FORGEKIT_BIN}" version bump-chart aria2 patch
+"${FORGEKIT_BIN}" version bump-chart podman-in-container patch --sync
 ```
 
 ## Workflows
@@ -111,11 +114,13 @@ bash tools/bump-chart-version.sh podman-in-container patch --sync-images
 ### Update Container Image
 
 ```bash
+FORGEKIT_BIN="$(bash setup/forgekit.sh)"
+
 # 1. Modify Dockerfile/container code
 # 2. Bump image version
-echo y | bash tools/bump-image-version.sh <app-path> <patch|minor|major>
+"${FORGEKIT_BIN}" version bump <module> <patch|minor|major>
 # 3. Bump chart version and sync
-echo y | bash tools/bump-chart-version.sh <chart-name> <patch|minor|major> --sync-images
+"${FORGEKIT_BIN}" version bump-chart <chart-name> <patch|minor|major> --sync
 # 4. Test
 bash tests/build-images.sh <image-name>
 ```
@@ -123,9 +128,11 @@ bash tests/build-images.sh <image-name>
 ### Update Chart Only
 
 ```bash
+FORGEKIT_BIN="$(bash setup/forgekit.sh)"
+
 # 1. Modify chart templates/values
 # 2. Bump chart version (no sync)
-echo y | bash tools/bump-chart-version.sh <chart-name> <patch|minor|major>
+"${FORGEKIT_BIN}" version bump-chart <chart-name> <patch|minor|major>
 # 3. Test
 bash tests/ct-lint.sh <chart-name>
 ```
@@ -133,11 +140,13 @@ bash tests/ct-lint.sh <chart-name>
 ### Multi-Container Application
 
 ```bash
+FORGEKIT_BIN="$(bash setup/forgekit.sh)"
+
 # 1. Bump each image
-echo y | bash tools/bump-image-version.sh aria2/aria2 minor
-echo y | bash tools/bump-image-version.sh aria2/aria-ng patch
+"${FORGEKIT_BIN}" version bump aria2/aria2 minor
+"${FORGEKIT_BIN}" version bump aria2/aria-ng patch
 # 2. Sync to chart
-echo y | bash tools/bump-chart-version.sh aria2 minor --sync-images
+"${FORGEKIT_BIN}" version bump-chart aria2 minor --sync
 # 3. Test
 bash tests/build-images.sh aria2 aria-ng
 bash tests/ct-lint.sh aria2
@@ -151,4 +160,4 @@ bash tests/ct-lint.sh aria2
 
 ## Important
 
-**Never bump versions without user confirmation.** When a version bump seems needed, ask the user first before executing any bump script.
+**Never bump versions without user confirmation.** When a version bump seems needed, ask the user first before executing any `forgekit version bump*` command.

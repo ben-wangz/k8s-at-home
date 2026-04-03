@@ -10,9 +10,9 @@ keywords:
   - ssh
 annotations:
   # Custom metadata for version management
-  k8s-at-home.io/images: |
+  podman-in-container/images: |
     - name: podman-in-container
-      path: podman-in-container
+      path: application/podman-in-container/container
       valuesKey: image.tag
 dependencies:
 - name: common
