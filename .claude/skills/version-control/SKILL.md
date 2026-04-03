@@ -116,7 +116,7 @@ FORGEKIT_BIN="$(bash setup/forgekit.sh)"
 ```bash
 FORGEKIT_BIN="$(bash setup/forgekit.sh)"
 
-# 1. Modify Dockerfile/container code
+# 1. Modify Containerfile/container code
 # 2. Bump image version
 "${FORGEKIT_BIN}" version bump <module> <patch|minor|major>
 # 3. Bump chart version and sync

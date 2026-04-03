@@ -5,41 +5,45 @@ on:
   push:
     branches:
       - "main"
-    tags:
-      - "v*"
+
 jobs:
-  release:
+  build-and-push-charts:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       packages: write
     strategy:
       matrix:
         include:
-          - chart_path: "application/aria2"
-          - chart_path: "application/clash"
-          - chart_path: "application/yacd"
-          - chart_path: "application/ddns-go"
-          - chart_path: "application/podman-in-container"
+          - chart_dir: "application/aria2/chart"
+          - chart_dir: "application/clash/chart"
+          - chart_dir: "application/yacd/chart"
+          - chart_dir: "application/ddns-go/chart"
+          - chart_dir: "application/podman-in-container/chart"
     steps:
       - name: checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - name: configure Git
+          fetch-depth: 1
+
+      - name: setup-helm
+        uses: azure/setup-helm@v4
+
+      - name: setup-forgekit
+        id: forgekit
         run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-      - name: chart-releaser
-        uses: bitdeps/helm-oci-charts-releaser@v0.1.4
-        with:
-          oci_registry: ghcr.io/${{ github.repository }}-charts
-          oci_username: ${{ github.actor }}
-          oci_password: ${{ secrets.GITHUB_TOKEN }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          charts_dir: "${{ matrix.chart_path }}"
-          tag_name_pattern: ${{ github.ref_type == 'tag' && '{{chartName}}-chart' || '{{chartName}}-chart-latest' }}
-          skip_dependencies: false
-          skip_gh_release: ${{ github.ref_type != 'tag' }}
-          mark_as_latest: ${{ github.ref_type != 'tag' }}
-          version: v3.17.4
+          FORGEKIT_BIN="$(bash setup/forgekit.sh 0.3.0 0.3.0)"
+          echo "bin=${FORGEKIT_BIN}" >> "$GITHUB_OUTPUT"
+          "${FORGEKIT_BIN}" --version
+
+      - name: build-and-push-chart
+        env:
+          FORGEKIT_BIN: ${{ steps.forgekit.outputs.bin }}
+          CHART_REGISTRY: ghcr.io/${{ github.repository }}-charts
+          CHART_REGISTRY_USERNAME: ${{ github.actor }}
+          CHART_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          "$FORGEKIT_BIN" publish chart build \
+            --project-root "$GITHUB_WORKSPACE" \
+            --chart-dir "${{ matrix.chart_dir }}" \
+            --push

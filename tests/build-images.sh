@@ -50,7 +50,7 @@ IMAGES:
   Available images: ${!IMAGES[@]}
 
 ENVIRONMENT VARIABLES:
-  You can override Dockerfile ARG values via environment variables:
+  You can override Containerfile ARG values via environment variables:
     ALPINE_IMAGE          - Base Alpine image (default: m.daocloud.io/docker.io/library/alpine:latest)
     NGINX_IMAGE           - Base Nginx image (default: m.daocloud.io/docker.io/library/nginx:stable)
     PODMAN_IMAGE          - Base Podman image (default: m.daocloud.io/quay.io/podman/stable:v5.6.1)
@@ -172,7 +172,7 @@ validate_semver() {
 build_image() {
   local name=$1
   local context_path="${REPO_ROOT}/${IMAGES[$name]}"
-  local dockerfile="${context_path}/Dockerfile"
+  local containerfile="${context_path}/Containerfile"
   local version_file="${context_path}/VERSION"
 
   # Read version from VERSION file if using default tag
@@ -192,11 +192,11 @@ build_image() {
   fi
 
   echo "  Context: ${context_path}"
-  echo "  Dockerfile: ${dockerfile}"
+  echo "  Containerfile: ${containerfile}"
   echo "  Tag: ${image_tag}"
 
-  if [ ! -f "$dockerfile" ]; then
-    echo -e "${RED}Error: Dockerfile not found at ${dockerfile}${NC}"
+  if [ ! -f "$containerfile" ]; then
+    echo -e "${RED}Error: Containerfile not found at ${containerfile}${NC}"
     return 1
   fi
 
@@ -215,7 +215,7 @@ build_image() {
   fi
 
   # Build the image with collected build args
-  if podman build -t "${image_tag}" -f "${dockerfile}" "${build_args_array[@]}" "${context_path}"; then
+  if podman build -t "${image_tag}" -f "${containerfile}" "${build_args_array[@]}" "${context_path}"; then
     echo -e "${GREEN}✓ Successfully built ${image_tag}${NC}"
 
     # Push if requested

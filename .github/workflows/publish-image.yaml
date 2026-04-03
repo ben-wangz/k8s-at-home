@@ -1,13 +1,7 @@
-# .github/workflows/publish-images.yaml
 name: publish-images
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Optional tag to use for the images (e.g. latest)"
-        required: false
-        type: string
-        default: "latest"
       push:
         description: "Push the images to the registry"
         required: false
@@ -16,73 +10,75 @@ on:
   push:
     branches:
       - "main"
+
 env:
   REGISTRY: ghcr.io
+
 jobs:
   build-and-push-images:
     strategy:
       matrix:
         include:
           - name_suffix: "aria-ng"
+            module: "aria2/aria-ng"
             container_path: "application/aria2/container/aria-ng"
-            dockerfile_path: "application/aria2/container/aria-ng/Dockerfile"
+            version_file: "application/aria2/container/aria-ng/VERSION"
           - name_suffix: "aria2"
+            module: "aria2/aria2"
             container_path: "application/aria2/container/aria2"
-            dockerfile_path: "application/aria2/container/aria2/Dockerfile"
+            version_file: "application/aria2/container/aria2/VERSION"
           - name_suffix: "podman-in-container"
+            module: "podman-in-container"
             container_path: "application/podman-in-container/container"
-            dockerfile_path: "application/podman-in-container/container/Dockerfile"
+            version_file: "application/podman-in-container/container/VERSION"
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
-    - name: checkout-repository
-      uses: actions/checkout@v4
-    - name: read-version-file
-      id: version
-      run: |
-        VERSION=$(cat ${{ matrix.container_path }}/VERSION | tr -d '[:space:]')
+      - name: checkout-repository
+        uses: actions/checkout@v4
 
-        # Validate semver format (X.Y.Z or X.Y.Z-prerelease+metadata)
-        # Basic semver regex: major.minor.patch with optional pre-release and build metadata
-        if ! echo "${VERSION}" | grep -Pq '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'; then
-          echo "Error: VERSION file contains invalid semver version: ${VERSION}"
-          echo "Expected format: X.Y.Z (e.g., 1.0.0, 2.1.3, 1.0.0-alpha.1, 1.0.0+build.123)"
-          exit 1
-        fi
+      - name: install-podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
 
-        echo "version=${VERSION}" >> $GITHUB_OUTPUT
-        echo "Read version ${VERSION} from ${{ matrix.container_path }}/VERSION"
-    - name: log in to the container registry
-      uses: docker/login-action@v3
-      with:
-        registry: "${{ env.REGISTRY }}"
-        username: "${{ github.actor }}"
-        password: "${{ secrets.GITHUB_TOKEN }}"
-    - name: generate-tags
-      id: tags
-      run: |
-        IMAGE_NAME="${{ env.REGISTRY }}/${{ github.repository }}-${{ matrix.name_suffix }}"
-        if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.tag }}" ]; then
-          # Manual trigger with custom tag
-          TAGS="${IMAGE_NAME}:${{ inputs.tag }}"
-        else
-          # Auto trigger: use VERSION file + dev-sha tag
-          VERSION="${{ steps.version.outputs.version }}"
-          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-8)
-          TAGS="${IMAGE_NAME}:${VERSION},${IMAGE_NAME}:dev-${SHA_SHORT}"
-        fi
-        echo "tags=${TAGS}" >> $GITHUB_OUTPUT
-        echo "Generated tags: ${TAGS}"
-    - name: build and push container image
-      uses: docker/build-push-action@v6
-      with:
-        context: "${{ matrix.container_path }}"
-        file: "${{ matrix.dockerfile_path }}"
-        push: ${{ inputs.push == true || github.ref == 'refs/heads/main' }}
-        tags: ${{ steps.tags.outputs.tags }}
-        labels: |
-          org.opencontainers.image.version=${{ steps.version.outputs.version }}
-          org.opencontainers.image.revision=${{ github.sha }}
-          org.opencontainers.image.source=${{ github.repositoryUrl }}
+      - name: setup-forgekit
+        id: forgekit
+        run: |
+          FORGEKIT_BIN="$(bash setup/forgekit.sh 0.3.0 0.3.0)"
+          echo "bin=${FORGEKIT_BIN}" >> "$GITHUB_OUTPUT"
+          "${FORGEKIT_BIN}" --version
+
+      - name: read-version-file
+        id: version
+        run: |
+          VERSION=$(tr -d '[:space:]' < "${{ matrix.version_file }}")
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: build-and-optional-push-image
+        env:
+          FORGEKIT_BIN: ${{ steps.forgekit.outputs.bin }}
+          SHOULD_PUSH: ${{ inputs.push == true || github.ref == 'refs/heads/main' }}
+          CONTAINER_REGISTRY: ${{ env.REGISTRY }}
+          CONTAINER_REGISTRY_USERNAME: ${{ github.actor }}
+          CONTAINER_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_NAME: ${{ github.repository }}-${{ matrix.name_suffix }}
+        run: |
+          BASE_ARGS=(
+            publish container build
+            --project-root "$GITHUB_WORKSPACE"
+            --container-dir "${{ matrix.container_path }}"
+            --module "${{ matrix.module }}"
+            --context "${{ matrix.container_path }}"
+            --label "org.opencontainers.image.version=${{ steps.version.outputs.version }}"
+            --label "org.opencontainers.image.revision=${{ github.sha }}"
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}"
+          )
+
+          if [[ "$SHOULD_PUSH" == "true" ]]; then
+            "$FORGEKIT_BIN" "${BASE_ARGS[@]}" --push --semver --multi-tag
+          else
+            "$FORGEKIT_BIN" "${BASE_ARGS[@]}"
+          fi

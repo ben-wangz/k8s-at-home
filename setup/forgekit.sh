@@ -7,8 +7,8 @@ PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
 TARGET_DIR="${PROJECT_ROOT}/build/bin"
 TARGET_BIN="${TARGET_DIR}/forgekit"
 
-DEFAULT_MIN_VERSION="${FORGEKIT_MIN_VERSION:-0.2.1}"
-DEFAULT_BEST_VERSION="${FORGEKIT_BEST_VERSION:-0.2.1}"
+DEFAULT_MIN_VERSION="${FORGEKIT_MIN_VERSION:-0.3.0}"
+DEFAULT_BEST_VERSION="${FORGEKIT_BEST_VERSION:-0.3.0}"
 FORGEKIT_REPO="${FORGEKIT_REPO:-ben-wangz/forgekit}"
 
 function usage() {
@@ -18,9 +18,9 @@ Usage: setup/forgekit.sh [min-version] [best-version]
 Ensures a usable forgekit binary is available for this repository.
 
 Arguments:
-  min-version   Minimum acceptable forgekit version (default: FORGEKIT_MIN_VERSION or 0.2.1)
+  min-version   Minimum acceptable forgekit version (default: FORGEKIT_MIN_VERSION or 0.3.0)
   best-version  Preferred forgekit version to download when install/upgrade is needed
-                (default: FORGEKIT_BEST_VERSION or 0.2.1)
+                (default: FORGEKIT_BEST_VERSION or 0.3.0)
 
 Environment:
   FORGEKIT_MIN_VERSION      Default min-version
@@ -146,7 +146,7 @@ function install_release_binary() {
     local filename="forgekit_${os}_${arch}"
     local tmp_dir
     tmp_dir="$(mktemp -d)"
-    trap 'rm -rf "${tmp_dir}"' RETURN
+    trap 'rm -rf "${tmp_dir:-}"; trap - RETURN' RETURN
 
     local base_primary="https://github.com/${FORGEKIT_REPO}/releases/download/${version_tag}"
     local base_fallback="https://files.m.daocloud.io/github.com/${FORGEKIT_REPO}/releases/download/${version_tag}"

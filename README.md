@@ -103,8 +103,8 @@ forgekit version bump-chart <chart-name> <major|minor|patch> --sync
 #### Workflow 1: Update container image
 
 ```bash
-# 1. Make changes to container code/Dockerfile
-vim application/podman-in-container/container/Dockerfile
+# 1. Make changes to container code/Containerfile
+vim application/podman-in-container/container/Containerfile
 
 # 2. Bump image version
 forgekit version bump podman-in-container patch
@@ -118,7 +118,7 @@ bash tests/build-images.sh podman-in-container
 # 5. Review and commit
 git diff
 git add application/podman-in-container/
-git commit -m "feat(podman-in-container): optimize Dockerfile layers"
+git commit -m "feat(podman-in-container): optimize Containerfile layers"
 ```
 
 #### Workflow 2: Update chart only
