@@ -1,6 +1,6 @@
 apiVersion: v2
 name: ddns-go
-version: 1.1.0
+version: 1.1.1
 appVersion: "v6.12.2"
 description: A simple and easy-to-use dynamic DNS client
 type: application

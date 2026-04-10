@@ -47,7 +47,7 @@ jobs:
       - name: setup-forgekit
         id: forgekit
         run: |
-          FORGEKIT_BIN="$(bash setup/forgekit.sh 0.3.0 0.3.0)"
+          FORGEKIT_BIN="$(bash setup/forgekit.sh)"
           echo "bin=${FORGEKIT_BIN}" >> "$GITHUB_OUTPUT"
           "${FORGEKIT_BIN}" --version
 

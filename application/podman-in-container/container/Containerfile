@@ -13,9 +13,9 @@ ENV PATH="$PATH:/opt/nodejs/bin:/usr/local/go/bin" \
 
 # Install system packages, openssh-server, python, nodejs, go and locale support
 ARG NODEJS_VERSION=v24.13.1
-ARG GO_VERSION=1.23.5
+ARG GO_VERSION=1.26.2
 RUN dnf update -y \
-    && dnf install -y procps ncurses curl wget which screen tree unzip openssl jq yq \
+    && dnf install -y procps ncurses curl wget which screen tmux tree unzip openssl jq yq \
         glibc-locale-source glibc-langpack-zh \
         openssh-server vim \
         bind-utils telnet iputils \
