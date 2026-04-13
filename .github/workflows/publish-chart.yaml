@@ -26,6 +26,7 @@ jobs:
           - chart_dir: "application/yacd/chart"
           - chart_dir: "application/ddns-go/chart"
           - chart_dir: "application/podman-in-container/chart"
+          - chart_dir: "application/sub2api/chart"
     steps:
       - name: checkout
         uses: actions/checkout@v4
