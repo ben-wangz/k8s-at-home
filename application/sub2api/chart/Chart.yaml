@@ -1,0 +1,29 @@
+apiVersion: v2
+name: sub2api
+version: 0.1.0
+appVersion: "0.1.111"
+description: Sub2API AI API gateway platform
+type: application
+keywords:
+  - sub2api
+  - ai
+  - gateway
+dependencies:
+  - name: common
+    repository: oci://registry-1.docker.io/bitnamicharts
+    tags:
+      - bitnami-common
+    version: 2.x.x
+  - name: redis
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: redis.enabled
+    version: 23.x.x
+  - name: postgresql
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: postgresql.enabled
+    version: 17.x.x
+home: https://github.com/ben-wangz/k8s-at-home
+sources:
+  - https://github.com/ben-wangz/k8s-at-home/tree/main/application/sub2api
+maintainers:
+  - name: ben

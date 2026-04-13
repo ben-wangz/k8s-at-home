@@ -14,6 +14,8 @@ ENV PATH="$PATH:/opt/nodejs/bin:/usr/local/go/bin" \
 # Install system packages, openssh-server, python, nodejs, go and locale support
 ARG NODEJS_VERSION=v24.13.1
 ARG GO_VERSION=1.26.2
+ARG HELM_VERSION=v4.1.4
+ARG HELM_MIRROR=files.m.daocloud.io
 RUN dnf update -y \
     && dnf install -y procps ncurses curl wget which screen tmux tree unzip openssl jq yq \
         glibc-locale-source glibc-langpack-zh \
@@ -29,6 +31,18 @@ RUN dnf update -y \
     && curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -o /tmp/go.tar.gz \
     && tar -C /usr/local -xzf /tmp/go.tar.gz \
     && rm /tmp/go.tar.gz \
+    && HELM_ARCH="" \
+    && case "$(uname -m)" in \
+        x86_64) HELM_ARCH="linux-amd64" ;; \
+        aarch64) HELM_ARCH="linux-arm64" ;; \
+        *) echo "Unsupported architecture for Helm: $(uname -m)" && exit 1 ;; \
+    esac \
+    && HELM_FILE="helm-${HELM_VERSION}-${HELM_ARCH}.tar.gz" \
+    && curl -fsSL "https://${HELM_MIRROR}/get.helm.sh/${HELM_FILE}" -o "/tmp/${HELM_FILE}" \
+    && tar -xzf "/tmp/${HELM_FILE}" -C /tmp \
+    && mv -f "/tmp/${HELM_ARCH}/helm" /usr/local/bin/helm \
+    && chmod 0755 /usr/local/bin/helm \
+    && rm -rf "/tmp/${HELM_FILE}" "/tmp/${HELM_ARCH}" \
     && pip3 install --no-cache-dir paper-search-mcp img2pdf \
     && dnf clean all
 

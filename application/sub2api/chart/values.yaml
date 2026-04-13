@@ -1,0 +1,194 @@
+replicas: 1
+
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+
+revisionHistoryLimit: 10
+updateStrategy:
+  type: RollingUpdate
+
+imagePullSecrets: []
+
+affinity: {}
+podAffinityPreset: ""
+podAntiAffinityPreset: soft
+nodeAffinityPreset:
+  type: none
+  key: ""
+  values: []
+
+podSecurityContext:
+  enabled: true
+  fsGroupChangePolicy: Always
+  supplementalGroups: []
+  fsGroup: 1001
+
+containerSecurityContext:
+  enabled: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  runAsNonRoot: true
+  privileged: false
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+nodeSelector: {}
+tolerations: []
+
+image:
+  repository: ghcr.io/wei-shaw/sub2api
+  tag: 0.1.111
+  pullPolicy: IfNotPresent
+
+resourcesPreset: medium
+resources: {}
+
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+extraEnvVars: []
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+
+service:
+  type: ClusterIP
+  ports:
+    http: 8080
+    httpNodePort: ""
+  annotations: {}
+  clusterIP: ""
+  sessionAffinity: ""
+  sessionAffinityConfig: {}
+  externalTrafficPolicy: ""
+  loadBalancerSourceRanges: []
+  loadBalancerIP: ""
+  loadBalancerClass: ""
+  extraPorts: []
+
+ingress:
+  enabled: false
+  ingressClassName: ""
+  hostname: sub2api.local
+  path: /
+  pathType: Prefix
+  annotations: {}
+  tls: false
+  tlsSecret: ""
+  extraHosts: []
+  extraPaths: []
+  extraTls: []
+  extraRules: []
+
+persistence:
+  data:
+    enabled: true
+    storageClass: ""
+    existingClaim: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+    subPath: ""
+    annotations: {}
+    labels: {}
+    selector: {}
+    dataSource: {}
+
+sub2api:
+  autoSetup: true
+  dataDir: /app/data
+  timezone: Asia/Shanghai
+
+  server:
+    host: 0.0.0.0
+    port: 8080
+    mode: release
+    runMode: standard
+
+  auth:
+    adminEmail: admin@sub2api.local
+    adminPassword: ""
+    jwtSecret: ""
+    jwtExpireHour: 24
+    totpEncryptionKey: ""
+    existingSecret: ""
+    existingSecretKeys:
+      adminPasswordKey: admin-password
+      jwtSecretKey: jwt-secret
+      totpEncryptionKey: totp-encryption-key
+
+  database:
+    sslmode: disable
+    maxOpenConns: 256
+    maxIdleConns: 128
+    connMaxLifetimeMinutes: 30
+    connMaxIdleTimeMinutes: 5
+
+  redis:
+    db: 0
+    poolSize: 1024
+    minIdleConns: 128
+    enableTLS: false
+
+  config:
+    existingSecret: ""
+    key: config.yaml
+
+  env: {}
+
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: true
+    password: ""
+    existingSecret: ""
+    existingSecretPasswordKey: ""
+  master:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+postgresql:
+  enabled: true
+  architecture: standalone
+  auth:
+    username: sub2api
+    password: ""
+    database: sub2api
+    existingSecret: ""
+    secretKeys:
+      userPasswordKey: password
+      adminPasswordKey: postgres-password
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+externalRedis:
+  host: ""
+  port: 6379
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: redis-password
+  db: 0
+  enableTLS: false
+
+externalPostgresql:
+  host: ""
+  port: 5432
+  username: sub2api
+  password: ""
+  database: sub2api
+  sslmode: disable
+  existingSecret: ""
+  existingSecretPasswordKey: postgres-password
+
+extraDeploy: []

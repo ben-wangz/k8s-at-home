@@ -1,0 +1,226 @@
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
+kind: Deployment
+metadata:
+  name: {{ include "common.names.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  {{- if .Values.updateStrategy }}
+  strategy: {{- toYaml .Values.updateStrategy | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" (dict "customLabels" .Values.podLabels "context" $) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" (dict "customLabels" .Values.podLabels "context" $) | nindent 8 }}
+      annotations:
+        {{- if .Values.podAnnotations }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.podAnnotations "context" $) | nindent 8 }}
+        {{- end }}
+        checksum/auth-secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets: {{- include "common.tplvalues.render" (dict "value" .Values.imagePullSecrets "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      affinity: {{- include "common.tplvalues.render" (dict "value" .Values.affinity "context" $) | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAffinity: {{- include "common.affinities.pods" (dict "type" .Values.podAffinityPreset "customLabels" .Values.podLabels "context" $) | nindent 10 }}
+        podAntiAffinity: {{- include "common.affinities.pods" (dict "type" .Values.podAntiAffinityPreset "customLabels" .Values.podLabels "context" $) | nindent 10 }}
+        nodeAffinity: {{- include "common.affinities.nodes" (dict "type" .Values.nodeAffinityPreset.type "key" .Values.nodeAffinityPreset.key "values" .Values.nodeAffinityPreset.values ) | nindent 10 }}
+      {{- end }}
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" (dict "value" .Values.nodeSelector "context" $ ) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.tolerations "context" $ ) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.podSecurityContext.enabled }}
+      securityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" .Values.podSecurityContext "context" $ ) | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: sub2api
+          image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.containerSecurityContext.enabled }}
+          securityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" .Values.containerSecurityContext "context" $) | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.sub2api.server.port }}
+          env:
+            - name: AUTO_SETUP
+              value: {{ .Values.sub2api.autoSetup | quote }}
+            - name: DATA_DIR
+              value: {{ include "common.tplvalues.render" (dict "value" .Values.sub2api.dataDir "context" $) | quote }}
+            - name: SERVER_HOST
+              value: {{ include "common.tplvalues.render" (dict "value" .Values.sub2api.server.host "context" $) | quote }}
+            - name: SERVER_PORT
+              value: {{ .Values.sub2api.server.port | quote }}
+            - name: SERVER_MODE
+              value: {{ include "common.tplvalues.render" (dict "value" .Values.sub2api.server.mode "context" $) | quote }}
+            - name: RUN_MODE
+              value: {{ include "common.tplvalues.render" (dict "value" .Values.sub2api.server.runMode "context" $) | quote }}
+            - name: TZ
+              value: {{ include "common.tplvalues.render" (dict "value" .Values.sub2api.timezone "context" $) | quote }}
+            - name: DATABASE_HOST
+              value: {{ include "sub2api.postgresql.host" . | quote }}
+            - name: DATABASE_PORT
+              value: {{ include "sub2api.postgresql.port" . | quote }}
+            - name: DATABASE_USER
+              value: {{ include "sub2api.postgresql.username" . | quote }}
+            - name: DATABASE_DBNAME
+              value: {{ include "sub2api.postgresql.database" . | quote }}
+            - name: DATABASE_SSLMODE
+              value: {{ include "sub2api.postgresql.sslmode" . | quote }}
+            - name: DATABASE_MAX_OPEN_CONNS
+              value: {{ .Values.sub2api.database.maxOpenConns | quote }}
+            - name: DATABASE_MAX_IDLE_CONNS
+              value: {{ .Values.sub2api.database.maxIdleConns | quote }}
+            - name: DATABASE_CONN_MAX_LIFETIME_MINUTES
+              value: {{ .Values.sub2api.database.connMaxLifetimeMinutes | quote }}
+            - name: DATABASE_CONN_MAX_IDLE_TIME_MINUTES
+              value: {{ .Values.sub2api.database.connMaxIdleTimeMinutes | quote }}
+            - name: REDIS_HOST
+              value: {{ include "sub2api.redis.host" . | quote }}
+            - name: REDIS_PORT
+              value: {{ include "sub2api.redis.port" . | quote }}
+            - name: REDIS_DB
+              value: {{ include "sub2api.redis.db" . | quote }}
+            - name: REDIS_POOL_SIZE
+              value: {{ .Values.sub2api.redis.poolSize | quote }}
+            - name: REDIS_MIN_IDLE_CONNS
+              value: {{ .Values.sub2api.redis.minIdleConns | quote }}
+            - name: REDIS_ENABLE_TLS
+              value: {{ include "sub2api.redis.enableTLS" . | quote }}
+            - name: ADMIN_EMAIL
+              value: {{ include "common.tplvalues.render" (dict "value" .Values.sub2api.auth.adminEmail "context" $) | quote }}
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sub2api.auth.secretName" . }}
+                  key: {{ include "sub2api.auth.adminPasswordKey" . }}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sub2api.auth.secretName" . }}
+                  key: {{ include "sub2api.auth.jwtSecretKey" . }}
+            - name: JWT_EXPIRE_HOUR
+              value: {{ .Values.sub2api.auth.jwtExpireHour | quote }}
+            - name: TOTP_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "sub2api.auth.secretName" . }}
+                  key: {{ include "sub2api.auth.totpEncryptionKey" . }}
+            {{- $postgresPasswordSecretName := include "sub2api.postgresql.password.secretName" . }}
+            {{- if $postgresPasswordSecretName }}
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $postgresPasswordSecretName }}
+                  key: {{ include "sub2api.postgresql.password.secretKey" . }}
+            {{- else }}
+            - name: DATABASE_PASSWORD
+              value: {{ include "common.tplvalues.render" (dict "value" .Values.externalPostgresql.password "context" $) | quote }}
+            {{- end }}
+            {{- $redisPasswordSecretName := include "sub2api.redis.password.secretName" . }}
+            {{- if $redisPasswordSecretName }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $redisPasswordSecretName }}
+                  key: {{ include "sub2api.redis.password.secretKey" . }}
+            {{- else }}
+            - name: REDIS_PASSWORD
+              value: {{ include "common.tplvalues.render" (dict "value" .Values.externalRedis.password "context" $) | quote }}
+            {{- end }}
+            {{- range $key, $value := .Values.sub2api.env }}
+            - name: {{ $key }}
+              value: {{ include "common.tplvalues.render" (dict "value" $value "context" $) | quote }}
+            {{- end }}
+            {{- if .Values.extraEnvVars }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.extraEnvVars "context" $) | nindent 12 }}
+            {{- end }}
+          {{- if .Values.extraEnvVarsSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ include "common.tplvalues.render" (dict "value" .Values.extraEnvVarsSecret "context" $) }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ include "common.tplvalues.render" (dict "value" .Values.sub2api.dataDir "context" $) | quote }}
+              {{- if .Values.persistence.data.subPath }}
+              subPath: {{ .Values.persistence.data.subPath | quote }}
+              {{- end }}
+            {{- if .Values.sub2api.config.existingSecret }}
+            - name: config
+              mountPath: {{ printf "%s/config.yaml" (include "common.tplvalues.render" (dict "value" .Values.sub2api.dataDir "context" $)) | quote }}
+              subPath: {{ .Values.sub2api.config.key | quote }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.extraVolumeMounts }}
+            {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 12 }}
+            {{- end }}
+          {{- if .Values.resources }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          {{- else if ne .Values.resourcesPreset "none" }}
+          resources: {{- include "common.resources.preset" (dict "type" .Values.resourcesPreset) | nindent 12 }}
+          {{- end }}
+          {{- if .Values.customLivenessProbe }}
+          livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customLivenessProbe "context" $) | nindent 12 }}
+          {{- else }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          {{- end }}
+          {{- if .Values.customReadinessProbe }}
+          readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customReadinessProbe "context" $) | nindent 12 }}
+          {{- else }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          {{- end }}
+          {{- if .Values.customStartupProbe }}
+          startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customStartupProbe "context" $) | nindent 12 }}
+          {{- else }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.data.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ if .Values.persistence.data.existingClaim }}{{ .Values.persistence.data.existingClaim }}{{ else }}{{ include "sub2api.pvc.fullname" . }}{{ end }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.sub2api.config.existingSecret }}
+        - name: config
+          secret:
+            secretName: {{ include "common.tplvalues.render" (dict "value" .Values.sub2api.config.existingSecret "context" $) }}
+        {{- end }}
+        {{- if .Values.extraVolumes }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $ ) | nindent 8 }}
+        {{- end }}

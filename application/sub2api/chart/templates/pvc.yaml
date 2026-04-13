@@ -1,0 +1,25 @@
+{{- if and .Values.persistence.data.enabled (not .Values.persistence.data.existingClaim) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "sub2api.pvc.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.persistence.data.labels "context" $) | nindent 4 }}
+  {{- if .Values.persistence.data.annotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.persistence.data.annotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes: {{- toYaml .Values.persistence.data.accessModes | nindent 4 }}
+  {{- if .Values.persistence.data.selector }}
+  selector: {{- include "common.tplvalues.render" (dict "value" .Values.persistence.data.selector "context" $) | nindent 4 }}
+  {{- end }}
+  {{- if .Values.persistence.data.storageClass }}
+  storageClassName: {{ .Values.persistence.data.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.data.size }}
+  {{- if .Values.persistence.data.dataSource }}
+  dataSource: {{- include "common.tplvalues.render" (dict "value" .Values.persistence.data.dataSource "context" $) | nindent 4 }}
+  {{- end }}
+{{- end -}}
