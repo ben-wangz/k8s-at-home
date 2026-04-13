@@ -7,5 +7,7 @@ charts:
     path: application/ddns-go/chart
   - name: podman-in-container
     path: application/podman-in-container/chart
+  - name: sub2api
+    path: application/sub2api/chart
   - name: yacd
     path: application/yacd/chart
