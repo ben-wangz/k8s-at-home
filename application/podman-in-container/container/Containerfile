@@ -16,6 +16,8 @@ ARG NODEJS_VERSION=v24.13.1
 ARG GO_VERSION=1.26.2
 ARG HELM_VERSION=v4.1.4
 ARG HELM_MIRROR=files.m.daocloud.io
+ARG KUBECTL_VERSION=v1.35.4
+ARG KUBECTL_MIRROR=files.m.daocloud.io
 RUN dnf update -y \
     && dnf install -y procps ncurses curl wget which screen tmux tree unzip openssl jq yq \
         glibc-locale-source glibc-langpack-zh \
@@ -43,6 +45,14 @@ RUN dnf update -y \
     && mv -f "/tmp/${HELM_ARCH}/helm" /usr/local/bin/helm \
     && chmod 0755 /usr/local/bin/helm \
     && rm -rf "/tmp/${HELM_FILE}" "/tmp/${HELM_ARCH}" \
+    && KUBECTL_ARCH="" \
+    && case "$(uname -m)" in \
+        x86_64) KUBECTL_ARCH="amd64" ;; \
+        aarch64) KUBECTL_ARCH="arm64" ;; \
+        *) echo "Unsupported architecture for kubectl: $(uname -m)" && exit 1 ;; \
+    esac \
+    && curl -fsSL "https://${KUBECTL_MIRROR}/dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl" -o /usr/local/bin/kubectl \
+    && chmod 0755 /usr/local/bin/kubectl \
     && pip3 install --no-cache-dir paper-search-mcp img2pdf \
     && dnf clean all
 
