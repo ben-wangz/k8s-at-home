@@ -10,6 +10,7 @@ This project is to develop and maintain k8s applications at home.
 * [clash](application/clash/README.md)
 * [yacd](application/yacd/README.md)
 * [podman-in-container](application/podman-in-container/README.md)
+* [sub2api](application/sub2api/chart/README.md)
 
 ## contributing
 
