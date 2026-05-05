@@ -57,6 +57,9 @@ spec:
               value: {{ .Values.server.env.vncPort | quote }}
             - name: USER_DATA_DIR
               value: {{ .Values.server.env.userDataDir | quote }}
+          volumeMounts:
+            - name: server-user-data
+              mountPath: {{ .Values.server.env.userDataDir | quote }}
           {{- if .Values.server.resources }}
           resources: {{- toYaml .Values.server.resources | nindent 12 }}
           {{- else if ne .Values.server.resourcesPreset "none" }}
@@ -65,11 +68,23 @@ spec:
           livenessProbe:
             tcpSocket:
               port: cdp
-            initialDelaySeconds: 20
-            periodSeconds: 10
+            initialDelaySeconds: {{ .Values.server.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.server.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.server.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.server.probes.liveness.failureThreshold }}
           readinessProbe:
             tcpSocket:
               port: cdp
-            initialDelaySeconds: 10
-            periodSeconds: 5
+            initialDelaySeconds: {{ .Values.server.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.server.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.server.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.server.probes.readiness.failureThreshold }}
+      volumes:
+        - name: server-user-data
+          {{- if .Values.server.persistence.userData.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-user-data" (include "chromium-bridge.server.fullname" .)) .Values.server.persistence.userData.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
 {{- end -}}

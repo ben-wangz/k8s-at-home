@@ -45,11 +45,15 @@ spec:
           livenessProbe:
             tcpSocket:
               port: http
-            initialDelaySeconds: 20
-            periodSeconds: 10
+            initialDelaySeconds: {{ .Values.novnc.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.novnc.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.novnc.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.novnc.probes.liveness.failureThreshold }}
           readinessProbe:
             tcpSocket:
               port: http
-            initialDelaySeconds: 10
-            periodSeconds: 5
+            initialDelaySeconds: {{ .Values.novnc.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.novnc.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.novnc.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.novnc.probes.readiness.failureThreshold }}
 {{- end -}}

@@ -16,6 +16,17 @@ Phase 1 (MVP scaffold) is implemented:
 - One Helm chart using Bitnami `common` dependency
 - Service-to-service wiring (`novnc` -> `server:5900`)
 
+Phase 2 (stability) is in progress:
+
+- Probe timings are configurable from `values.yaml`
+- `server` user data supports optional PVC persistence
+- `server` startup includes explicit CDP readiness diagnostics
+
+Phase 3 (hardening) baseline is available:
+
+- Optional `NetworkPolicy` templates for server/novnc traffic boundaries
+- noVNC ingress supports extra hosts/rules/tls entries
+
 ## Layout
 
 ```text

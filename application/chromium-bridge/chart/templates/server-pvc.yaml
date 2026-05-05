@@ -1,0 +1,19 @@
+{{- if and .Values.server.enabled .Values.server.persistence.userData.enabled (not .Values.server.persistence.userData.existingClaim) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-user-data" (include "chromium-bridge.server.fullname" .) }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+spec:
+  accessModes:
+    {{- range .Values.server.persistence.userData.accessModes }}
+    - {{ . | quote }}
+    {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.server.persistence.userData.size | quote }}
+  {{- if .Values.server.persistence.userData.storageClass }}
+  storageClassName: {{ .Values.server.persistence.userData.storageClass | quote }}
+  {{- end }}
+{{- end -}}

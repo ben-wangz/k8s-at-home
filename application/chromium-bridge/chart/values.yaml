@@ -19,6 +19,13 @@ nodeAffinityPreset:
 nodeSelector: {}
 tolerations: []
 
+networkPolicy:
+  enabled: false
+  allowExternal: true
+  kubeDnsNamespace: kube-system
+  kubeDnsPodLabels:
+    k8s-app: kube-dns
+
 server:
   enabled: true
   image:
@@ -34,6 +41,14 @@ server:
     chromeInternalPort: 9223
     vncPort: 5900
     userDataDir: /tmp/chrome-user-data
+  persistence:
+    userData:
+      enabled: false
+      existingClaim: ""
+      storageClass: ""
+      accessModes:
+        - ReadWriteOnce
+      size: 5Gi
   service:
     type: ClusterIP
     annotations: {}
@@ -44,6 +59,17 @@ server:
       vnc: null
   resourcesPreset: medium
   resources: {}
+  probes:
+    liveness:
+      initialDelaySeconds: 20
+      periodSeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 6
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 2
+      failureThreshold: 6
 
 novnc:
   enabled: true
@@ -69,11 +95,23 @@ novnc:
     annotations: {}
     tls: false
     tlsSecret: ''
+    selfSigned: false
     extraHosts: []
     extraPaths: []
     extraTls: []
     extraRules: []
   resourcesPreset: small
   resources: {}
+  probes:
+    liveness:
+      initialDelaySeconds: 20
+      periodSeconds: 10
+      timeoutSeconds: 2
+      failureThreshold: 6
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 2
+      failureThreshold: 6
 
 extraDeploy: []

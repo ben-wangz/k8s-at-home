@@ -3,6 +3,9 @@ server:
     repository: 127.0.0.1:31666/chromium-bridge-server
     tag: 0.1.0
     pullPolicy: IfNotPresent
+  persistence:
+    userData:
+      enabled: false
   service:
     type: NodePort
     cdpPort: 9222
@@ -20,3 +23,6 @@ novnc:
     type: NodePort
     port: 6080
     nodePort: 30080
+
+networkPolicy:
+  enabled: false
