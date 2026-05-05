@@ -1,0 +1,22 @@
+{{- if .Values.novnc.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "chromium-bridge.novnc.serviceName" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  {{- if .Values.novnc.service.annotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.novnc.service.annotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.novnc.service.type }}
+  selector: {{- include "common.labels.matchLabels" (dict "customLabels" (merge (dict "app.kubernetes.io/component" "novnc") .Values.podLabels) "context" $) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.novnc.service.port }}
+      targetPort: http
+      protocol: TCP
+      {{- if and (eq .Values.novnc.service.type "NodePort") .Values.novnc.service.nodePort }}
+      nodePort: {{ .Values.novnc.service.nodePort }}
+      {{- end }}
+{{- end -}}

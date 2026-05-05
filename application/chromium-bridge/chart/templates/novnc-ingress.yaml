@@ -1,0 +1,32 @@
+{{- if and .Values.novnc.enabled .Values.novnc.ingress.enabled -}}
+apiVersion: {{ include "common.capabilities.ingress.apiVersion" . }}
+kind: Ingress
+metadata:
+  name: {{ include "chromium-bridge.novnc.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  {{- if .Values.novnc.ingress.annotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.novnc.ingress.annotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.novnc.ingress.ingressClassName }}
+  ingressClassName: {{ .Values.novnc.ingress.ingressClassName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.novnc.ingress.hostname | quote }}
+      http:
+        paths:
+          - path: {{ .Values.novnc.ingress.path }}
+            pathType: {{ .Values.novnc.ingress.pathType }}
+            backend:
+              service:
+                name: {{ include "chromium-bridge.novnc.serviceName" . }}
+                port:
+                  number: {{ .Values.novnc.service.port }}
+  {{- if .Values.novnc.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.novnc.ingress.hostname | quote }}
+      secretName: {{ .Values.novnc.ingress.tlsSecret | quote }}
+  {{- end }}
+{{- end -}}

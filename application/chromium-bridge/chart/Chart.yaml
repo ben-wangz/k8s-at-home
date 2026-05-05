@@ -1,0 +1,30 @@
+apiVersion: v2
+name: chromium-bridge
+version: 0.1.0
+appVersion: "0.1.0"
+description: Shared Chromium bridge for CDP automation and noVNC takeover
+type: application
+keywords:
+  - chromium
+  - cdp
+  - playwright
+  - novnc
+annotations:
+  chromium-bridge/images: |
+    - name: chromium-bridge-server
+      path: application/chromium-bridge/server
+      valuesKey: server.image.tag
+    - name: chromium-bridge-novnc
+      path: application/chromium-bridge/novnc
+      valuesKey: novnc.image.tag
+dependencies:
+  - name: common
+    repository: oci://registry-1.docker.io/bitnamicharts
+    tags:
+      - bitnami-common
+    version: 2.x.x
+home: https://github.com/ben-wangz/k8s-at-home
+sources:
+  - https://github.com/ben-wangz/k8s-at-home/tree/main/application/chromium-bridge
+maintainers:
+  - name: ben

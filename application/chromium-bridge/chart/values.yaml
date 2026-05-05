@@ -1,0 +1,79 @@
+replicaCount: 1
+
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+
+revisionHistoryLimit: 10
+
+imagePullSecrets: []
+
+affinity: {}
+podAffinityPreset: ''
+podAntiAffinityPreset: soft
+nodeAffinityPreset:
+  type: none
+  key: ''
+  values: []
+nodeSelector: {}
+tolerations: []
+
+server:
+  enabled: true
+  image:
+    repository: ghcr.io/ben-wangz/chromium-bridge-server
+    tag: 0.1.0
+    pullPolicy: IfNotPresent
+  ports:
+    cdp: 9222
+    vnc: 5900
+  env:
+    screenResolution: 1920x1080x24
+    cdpPort: 9222
+    chromeInternalPort: 9223
+    vncPort: 5900
+    userDataDir: /tmp/chrome-user-data
+  service:
+    type: ClusterIP
+    annotations: {}
+    cdpPort: 9222
+    vncPort: 5900
+    nodePorts:
+      cdp: null
+      vnc: null
+  resourcesPreset: medium
+  resources: {}
+
+novnc:
+  enabled: true
+  image:
+    repository: ghcr.io/ben-wangz/chromium-bridge-novnc
+    tag: 0.1.0
+    pullPolicy: IfNotPresent
+  port: 6080
+  target:
+    host: ''
+    port: 5900
+  service:
+    type: ClusterIP
+    annotations: {}
+    port: 6080
+    nodePort: null
+  ingress:
+    enabled: false
+    ingressClassName: ''
+    hostname: novnc.local
+    path: /
+    pathType: Prefix
+    annotations: {}
+    tls: false
+    tlsSecret: ''
+    extraHosts: []
+    extraPaths: []
+    extraTls: []
+    extraRules: []
+  resourcesPreset: small
+  resources: {}
+
+extraDeploy: []

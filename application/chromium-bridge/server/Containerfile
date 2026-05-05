@@ -1,0 +1,30 @@
+FROM m.daocloud.io/docker.io/library/ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DISPLAY=:99
+ENV CHROME_HOME=/opt/chrome
+ENV CHROME_BIN=/opt/chrome/chrome-linux64/chrome
+ENV CFT_VERSION=147.0.7727.15
+
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu|http://mirrors.tuna.tsinghua.edu.cn/ubuntu|g; s|http://security.ubuntu.com/ubuntu|http://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources && \
+    apt-get update && apt-get install -y \
+    ca-certificates curl unzip wget tini \
+    xvfb x11vnc fluxbox socat \
+    libnspr4 libnss3 libatk-bridge2.0-0 libatk1.0-0 libcups2t64 \
+    libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+    libgbm1 libasound2t64 libxshmfence1 libx11-xcb1 libxss1 libxtst6 \
+    libglib2.0-0t64 libgtk-3-0t64 fonts-noto-cjk && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p ${CHROME_HOME} && \
+    wget -O /tmp/chrome-linux64.zip "https://files.m.daocloud.io/storage.googleapis.com/chrome-for-testing-public/${CFT_VERSION}/linux64/chrome-linux64.zip" && \
+    unzip -q /tmp/chrome-linux64.zip -d ${CHROME_HOME} && \
+    rm -f /tmp/chrome-linux64.zip
+
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
+EXPOSE 9222 5900
+
+ENTRYPOINT ["tini", "--"]
+CMD ["/start.sh"]

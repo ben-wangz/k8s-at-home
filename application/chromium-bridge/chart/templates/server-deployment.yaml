@@ -1,0 +1,75 @@
+{{- if .Values.server.enabled -}}
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
+kind: Deployment
+metadata:
+  name: {{ include "chromium-bridge.server.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" (dict "customLabels" (merge (dict "app.kubernetes.io/component" "server") .Values.podLabels) "context" $) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" (dict "customLabels" (merge (dict "app.kubernetes.io/component" "server") .Values.podLabels) "context" $) | nindent 8 }}
+      {{- if .Values.podAnnotations }}
+      annotations: {{- include "common.tplvalues.render" (dict "value" .Values.podAnnotations "context" $) | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets: {{- include "common.tplvalues.render" (dict "value" .Values.imagePullSecrets "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      affinity: {{- include "common.tplvalues.render" (dict "value" .Values.affinity "context" $) | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAffinity: {{- include "common.affinities.pods" (dict "type" .Values.podAffinityPreset "customLabels" .Values.podLabels "context" $) | nindent 10 }}
+        podAntiAffinity: {{- include "common.affinities.pods" (dict "type" .Values.podAntiAffinityPreset "customLabels" .Values.podLabels "context" $) | nindent 10 }}
+        nodeAffinity: {{- include "common.affinities.nodes" (dict "type" .Values.nodeAffinityPreset.type "key" .Values.nodeAffinityPreset.key "values" .Values.nodeAffinityPreset.values) | nindent 10 }}
+      {{- end }}
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" (dict "value" .Values.nodeSelector "context" $) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.tolerations "context" $) | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: server
+          image: {{ include "common.images.image" (dict "imageRoot" .Values.server.image "global" .Values.global) }}
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          ports:
+            - name: cdp
+              containerPort: {{ .Values.server.ports.cdp }}
+            - name: vnc
+              containerPort: {{ .Values.server.ports.vnc }}
+          env:
+            - name: SCREEN_RESOLUTION
+              value: {{ .Values.server.env.screenResolution | quote }}
+            - name: CDP_PORT
+              value: {{ .Values.server.env.cdpPort | quote }}
+            - name: CHROME_INTERNAL_PORT
+              value: {{ .Values.server.env.chromeInternalPort | quote }}
+            - name: VNC_PORT
+              value: {{ .Values.server.env.vncPort | quote }}
+            - name: USER_DATA_DIR
+              value: {{ .Values.server.env.userDataDir | quote }}
+          {{- if .Values.server.resources }}
+          resources: {{- toYaml .Values.server.resources | nindent 12 }}
+          {{- else if ne .Values.server.resourcesPreset "none" }}
+          resources: {{- include "common.resources.preset" (dict "type" .Values.server.resourcesPreset) | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            tcpSocket:
+              port: cdp
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: cdp
+            initialDelaySeconds: 10
+            periodSeconds: 5
+{{- end -}}

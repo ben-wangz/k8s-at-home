@@ -1,0 +1,29 @@
+{{- if .Values.server.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "chromium-bridge.server.serviceName" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  {{- if .Values.server.service.annotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.server.service.annotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.server.service.type }}
+  selector: {{- include "common.labels.matchLabels" (dict "customLabels" (merge (dict "app.kubernetes.io/component" "server") .Values.podLabels) "context" $) | nindent 4 }}
+  ports:
+    - name: cdp
+      port: {{ .Values.server.service.cdpPort }}
+      targetPort: cdp
+      protocol: TCP
+      {{- if and (eq .Values.server.service.type "NodePort") .Values.server.service.nodePorts.cdp }}
+      nodePort: {{ .Values.server.service.nodePorts.cdp }}
+      {{- end }}
+    - name: vnc
+      port: {{ .Values.server.service.vncPort }}
+      targetPort: vnc
+      protocol: TCP
+      {{- if and (eq .Values.server.service.type "NodePort") .Values.server.service.nodePorts.vnc }}
+      nodePort: {{ .Values.server.service.nodePorts.vnc }}
+      {{- end }}
+{{- end -}}

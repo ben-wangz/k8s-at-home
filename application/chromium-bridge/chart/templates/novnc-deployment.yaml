@@ -1,0 +1,55 @@
+{{- if .Values.novnc.enabled -}}
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
+kind: Deployment
+metadata:
+  name: {{ include "chromium-bridge.novnc.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" (dict "customLabels" (merge (dict "app.kubernetes.io/component" "novnc") .Values.podLabels) "context" $) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" (dict "customLabels" (merge (dict "app.kubernetes.io/component" "novnc") .Values.podLabels) "context" $) | nindent 8 }}
+      {{- if .Values.podAnnotations }}
+      annotations: {{- include "common.tplvalues.render" (dict "value" .Values.podAnnotations "context" $) | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets: {{- include "common.tplvalues.render" (dict "value" .Values.imagePullSecrets "context" $) | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: novnc
+          image: {{ include "common.images.image" (dict "imageRoot" .Values.novnc.image "global" .Values.global) }}
+          imagePullPolicy: {{ .Values.novnc.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.novnc.port }}
+          env:
+            - name: NOVNC_PORT
+              value: {{ .Values.novnc.port | quote }}
+            - name: SERVER_HOST
+              value: {{ include "chromium-bridge.novnc.targetHost" . | quote }}
+            - name: SERVER_VNC_PORT
+              value: {{ .Values.novnc.target.port | quote }}
+          {{- if .Values.novnc.resources }}
+          resources: {{- toYaml .Values.novnc.resources | nindent 12 }}
+          {{- else if ne .Values.novnc.resourcesPreset "none" }}
+          resources: {{- include "common.resources.preset" (dict "type" .Values.novnc.resourcesPreset) | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+{{- end -}}
