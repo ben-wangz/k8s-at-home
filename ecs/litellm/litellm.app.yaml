@@ -1,0 +1,118 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm
+spec:
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+  project: default
+  source:
+    repoURL: registry.registry.svc.cluster.local:5000/helm-charts
+    chart: litellm-helm
+    targetRevision: 1.1.0
+    helm:
+      releaseName: litellm
+      valuesObject:
+        global:
+          security:
+            allowInsecureImages: true
+        image:
+          repository: m.daocloud.io/ghcr.io/berriai/litellm
+          tag: main-v1.83.14-stable
+          pullPolicy: IfNotPresent
+        resources:
+          requests:
+            memory: 512Mi
+            cpu: 100m
+        startupProbe:
+          path: /health/readiness
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 180
+        readinessProbe:
+          path: /health/readiness
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 6
+        livenessProbe:
+          path: /health/liveliness
+          initialDelaySeconds: 120
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 6
+        migrationJob:
+          enabled: false
+        proxy_config:
+          model_list:
+            - model_name: example-model
+              litellm_params:
+                model: openai/example-model
+                api_base: https://example.com/v1
+                api_key: os.environ/KAOPU_API_KEY
+                use_responses_api: true
+          general_settings:
+            master_key: os.environ/PROXY_MASTER_KEY
+        environmentSecrets:
+          - litellm-env-secret
+        ingress:
+          enabled: true
+          className: traefik
+          annotations:
+            traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+            traefik.ingress.kubernetes.io/router.entrypoints: websecure
+          hosts:
+            - host: litellm.example.com
+              paths:
+                - path: /
+                  pathType: Prefix
+          tls:
+            - secretName: litellm.example.com-tls
+              hosts:
+                - litellm.example.com
+        db:
+          useExisting: false
+          deployStandalone: true
+          disableSchemaUpdate: true
+          dbCredentialsSecretName: litellm-credentials
+        postgresql:
+          global:
+            imageRegistry: m.daocloud.io
+          image:
+            registry: m.daocloud.io
+            repository: docker.io/bitnamilegacy/postgresql
+          auth:
+            username: litellm
+            database: litellm
+            existingSecret: litellm-credentials
+            secretKeys:
+              userPasswordKey: postgres-password
+              adminPasswordKey: postgres-password
+          primary:
+            persistence:
+              enabled: true
+              storageClass: local-path
+              size: 8Gi
+        redis:
+          enabled: true
+          global:
+            imageRegistry: m.daocloud.io
+          image:
+            registry: m.daocloud.io
+            repository: docker.io/bitnamilegacy/redis
+          auth:
+            enabled: true
+            existingSecret: litellm-credentials
+            existingSecretPasswordKey: redis-password
+          master:
+            persistence:
+              enabled: true
+              size: 8Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: agents
