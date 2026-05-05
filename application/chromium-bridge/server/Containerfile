@@ -21,10 +21,10 @@ RUN mkdir -p ${CHROME_HOME} && \
     unzip -q /tmp/chrome-linux64.zip -d ${CHROME_HOME} && \
     rm -f /tmp/chrome-linux64.zip
 
-COPY start.sh /start.sh
-RUN chmod +x /start.sh
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 9222 5900
 
 ENTRYPOINT ["tini", "--"]
-CMD ["/start.sh"]
+CMD ["/entrypoint.sh"]

@@ -1,39 +1,32 @@
 # chromium-bridge
 
-`chromium-bridge` provides a shared Chromium runtime for both automation (CDP/Playwright) and human visual takeover (noVNC).
+`chromium-bridge` provides a shared Chromium runtime for automation and manual visual takeover.
 
-## Components
+- Automation clients connect through CDP (`server`)
+- Human operators connect through noVNC (`novnc`)
 
-- `server`: Chromium(CFT) + Xvfb + x11vnc + socat
-- `novnc`: websockify/noVNC web endpoint
-- `chart`: Helm chart wiring server and novnc together
+## Quick start
 
-## Current phase
+1. Build images from `application/chromium-bridge/server` and `application/chromium-bridge/novnc`.
+2. Set image repository/tag in `application/chromium-bridge/chart/values.yaml`.
+3. Deploy chart:
 
-Phase 1 (MVP scaffold) is implemented:
+```bash
+helm upgrade --install chromium-bridge application/chromium-bridge/chart \
+  --namespace chromium-bridge \
+  --create-namespace
+```
 
-- Two independent image contexts
-- One Helm chart using Bitnami `common` dependency
-- Service-to-service wiring (`novnc` -> `server:5900`)
+## Verify
 
-Phase 2 (stability) is in progress:
+- Check CDP endpoint:
 
-- Probe timings are configurable from `values.yaml`
-- `server` user data supports optional PVC persistence
-- `server` startup includes explicit CDP readiness diagnostics
+```bash
+curl -sS http://<server-host>:9222/json/version
+```
 
-Phase 3 (hardening) baseline is available:
+- Check noVNC endpoint:
 
-- Optional `NetworkPolicy` templates for server/novnc traffic boundaries
-- noVNC ingress supports extra hosts/rules/tls entries
-
-## Layout
-
-```text
-application/chromium-bridge/
-  IMPLEMENTATION_PLAN.md
-  README.md
-  server/
-  novnc/
-  chart/
+```bash
+curl -I http://<novnc-host>:6080/
 ```

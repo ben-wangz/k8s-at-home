@@ -7,9 +7,9 @@ RUN sed -i 's|http://archive.ubuntu.com/ubuntu|http://mirrors.tuna.tsinghua.edu.
     ca-certificates bash novnc websockify \
     && rm -rf /var/lib/apt/lists/*
 
-COPY start.sh /start.sh
-RUN chmod +x /start.sh
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 6080
 
-CMD ["/start.sh"]
+CMD ["/entrypoint.sh"]

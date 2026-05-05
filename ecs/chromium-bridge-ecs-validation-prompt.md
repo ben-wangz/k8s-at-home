@@ -30,7 +30,7 @@ Before running, replace `<ECS_HOST>` with your current ECS address.
 【仓库路径】
 - 项目根目录：`/root/code/k8s-at-home`
 - chart 路径：`application/chromium-bridge/chart`
-- 推荐 values：`application/chromium-bridge/chart/values-ecs.yaml`
+- 推荐 values：使用 `application/chromium-bridge/chart/values.yaml` 并通过 `--set` 覆盖 ECS 相关项
 
 【执行步骤（必须按顺序）】
 
@@ -92,7 +92,7 @@ Step 7. 缓存 chromium-bridge 镜像到 `/data`
 
 Step 8. Helm 安装 chromium-bridge
 - namespace: `chromium-bridge`
-- 使用 values 文件：`application/chromium-bridge/chart/values-ecs.yaml`
+- 使用 values：`application/chromium-bridge/chart/values.yaml`，并显式设置 ECS 覆盖参数（镜像仓库/tag、NodePort 等）
 - 若直接在远端执行 helm，确保设置：
   - `export KUBECONFIG=/etc/rancher/k3s/k3s.yaml`
 - 验证：
