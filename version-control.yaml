@@ -3,6 +3,8 @@ charts:
     path: application/aria2/chart
   - name: clash
     path: application/clash/chart
+  - name: chromium-bridge
+    path: application/chromium-bridge/chart
   - name: ddns-go
     path: application/ddns-go/chart
   - name: podman-in-container

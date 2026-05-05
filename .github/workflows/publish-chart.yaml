@@ -23,6 +23,7 @@ jobs:
         include:
           - chart_dir: "application/aria2/chart"
           - chart_dir: "application/clash/chart"
+          - chart_dir: "application/chromium-bridge/chart"
           - chart_dir: "application/yacd/chart"
           - chart_dir: "application/ddns-go/chart"
           - chart_dir: "application/podman-in-container/chart"
