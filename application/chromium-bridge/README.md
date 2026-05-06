@@ -7,7 +7,7 @@
 
 ## Quick start
 
-1. Build images from `application/chromium-bridge/server` and `application/chromium-bridge/novnc`.
+1. Build images from `application/chromium-bridge/container/server` and `application/chromium-bridge/container/novnc`.
 2. Set image repository/tag in `application/chromium-bridge/chart/values.yaml`.
 3. Deploy chart:
 
