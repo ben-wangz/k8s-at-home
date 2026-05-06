@@ -7,12 +7,18 @@
 
 ## Quick start
 
-1. Build images from `application/chromium-bridge/container/server` and `application/chromium-bridge/container/novnc`.
-2. Set image repository/tag in `application/chromium-bridge/chart/values.yaml`.
-3. Deploy chart:
+1. Get the latest chart version:
 
 ```bash
-helm upgrade --install chromium-bridge application/chromium-bridge/chart \
+export CHART_VERSION=$(forgekit --project-root ../.. version get chart chromium-bridge)
+```
+
+2. Deploy chart from GHCR (uses published images by default):
+
+```bash
+helm upgrade --install chromium-bridge oci://ghcr.io/ben-wangz/k8s-at-home-charts/chromium-bridge \
+  --atomic \
+  --version ${CHART_VERSION} \
   --namespace chromium-bridge \
   --create-namespace
 ```

@@ -29,7 +29,7 @@ networkPolicy:
 server:
   enabled: true
   image:
-    repository: ghcr.io/ben-wangz/chromium-bridge-server
+    repository: ghcr.io/ben-wangz/k8s-at-home-chromium-bridge-server
     tag: 0.1.0
     pullPolicy: IfNotPresent
   ports:
@@ -74,7 +74,7 @@ server:
 novnc:
   enabled: true
   image:
-    repository: ghcr.io/ben-wangz/chromium-bridge-novnc
+    repository: ghcr.io/ben-wangz/k8s-at-home-chromium-bridge-novnc
     tag: 0.1.0
     pullPolicy: IfNotPresent
   port: 6080
