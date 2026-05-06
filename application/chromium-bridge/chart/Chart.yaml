@@ -11,10 +11,10 @@ keywords:
   - novnc
 annotations:
   chromium-bridge/images: |
-    - name: chromium-bridge-server
+    - name: chromium-bridge/server
       path: application/chromium-bridge/container/server
       valuesKey: server.image.tag
-    - name: chromium-bridge-novnc
+    - name: chromium-bridge/novnc
       path: application/chromium-bridge/container/novnc
       valuesKey: novnc.image.tag
 dependencies:
