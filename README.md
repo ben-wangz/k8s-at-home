@@ -131,8 +131,8 @@ vim application/aria2/chart/templates/deployment.yaml
 # 2. Bump chart version
 forgekit version bump-chart aria2 patch
 
-# 3. Test chart
-bash tests/ct-lint.sh aria2
+# 3. Validate chart release workflow
+# (Use .github/workflows/publish-chart.yaml)
 ```
 
 #### Workflow 3: Update multi-container application
@@ -149,7 +149,6 @@ forgekit version bump-chart aria2 minor --sync
 
 # 4. Test
 bash tests/build-images.sh aria2 aria-ng
-bash tests/ct-lint.sh aria2
 ```
 
 ### version synchronization metadata
@@ -175,8 +174,7 @@ annotations:
 # Test image builds
 bash tests/build-images.sh [image-names...]
 
-# Test chart linting
-bash tests/ct-lint.sh [chart-name]
+# Chart checks are handled by publish-chart workflow
 ```
 
 ### pull request checklist
@@ -184,4 +182,4 @@ bash tests/ct-lint.sh [chart-name]
 - [ ] Version numbers updated with `forgekit`
 - [ ] Image/chart versions are synchronized when needed
 - [ ] Images build successfully (`bash tests/build-images.sh`)
-- [ ] Charts pass linting (`bash tests/ct-lint.sh`)
+- [ ] Charts pass `publish-chart` workflow
