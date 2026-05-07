@@ -85,6 +85,14 @@ When `server.ingress.enabled=true` or `novnc.ingress.enabled=true`, ingress auth
 - Use existing secret: `*.ingress.auth.existingSecret=<secret-name>`
 - Override credentials: `*.ingress.auth.username` / `*.ingress.auth.password`
 
+Implementation details:
+
+- Traefik: chart creates `Middleware` resources and injects `traefik.ingress.kubernetes.io/router.middlewares` annotation.
+- NGINX: chart injects basic-auth annotations directly on Ingress (no extra CRD/template needed):
+  - `nginx.ingress.kubernetes.io/auth-type=basic`
+  - `nginx.ingress.kubernetes.io/auth-secret=<generated-or-existing-secret>`
+  - `nginx.ingress.kubernetes.io/auth-realm=Authentication Required`
+
 Example (set explicit credentials for CDP ingress):
 
 ```bash
