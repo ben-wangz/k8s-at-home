@@ -71,6 +71,14 @@ server:
     extraPaths: []
     extraTls: []
     extraRules: []
+    auth:
+      enabled: true
+      provider: auto
+      existingSecret: ''
+      username: admin
+      password: ''
+      traefik:
+        existingMiddleware: ''
   resourcesPreset: medium
   resources: {}
   probes:
@@ -114,6 +122,14 @@ novnc:
     extraPaths: []
     extraTls: []
     extraRules: []
+    auth:
+      enabled: true
+      provider: auto
+      existingSecret: ''
+      username: admin
+      password: ''
+      traefik:
+        existingMiddleware: ''
   resourcesPreset: small
   resources: {}
   probes:

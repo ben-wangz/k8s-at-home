@@ -1,0 +1,25 @@
+{{- $serverProvider := include "chromium-bridge.ingressCredentials.provider" (dict "context" . "ingress" .Values.server.ingress) -}}
+{{- if and .Values.server.enabled .Values.server.ingress.enabled .Values.server.ingress.auth.enabled (eq $serverProvider "traefik") (not .Values.server.ingress.auth.traefik.existingMiddleware) (.Capabilities.APIVersions.Has "traefik.io/v1alpha1/Middleware") -}}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "common.names.fullname" . }}-server-credentials
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+spec:
+  basicAuth:
+    secret: {{ include "chromium-bridge.ingressCredentials.secretName" (dict "context" . "component" "server" "ingress" .Values.server.ingress) }}
+---
+{{- end -}}
+{{- $novncProvider := include "chromium-bridge.ingressCredentials.provider" (dict "context" . "ingress" .Values.novnc.ingress) -}}
+{{- if and .Values.novnc.enabled .Values.novnc.ingress.enabled .Values.novnc.ingress.auth.enabled (eq $novncProvider "traefik") (not .Values.novnc.ingress.auth.traefik.existingMiddleware) (.Capabilities.APIVersions.Has "traefik.io/v1alpha1/Middleware") -}}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "common.names.fullname" . }}-novnc-credentials
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+spec:
+  basicAuth:
+    secret: {{ include "chromium-bridge.ingressCredentials.secretName" (dict "context" . "component" "novnc" "ingress" .Values.novnc.ingress) }}
+{{- end -}}

@@ -76,3 +76,25 @@ helm upgrade --install chromium-bridge oci://ghcr.io/ben-wangz/k8s-at-home-chart
   --set novnc.ingress.ingressClassName=traefik \
   --set novnc.ingress.hostname=chromium-bridge-novnc.example.com
 ```
+
+## Ingress auth
+
+When `server.ingress.enabled=true` or `novnc.ingress.enabled=true`, ingress auth is enabled by default.
+
+- Auto-detect provider: `*.ingress.auth.provider=auto` (Traefik first if CRD exists, otherwise NGINX)
+- Use existing secret: `*.ingress.auth.existingSecret=<secret-name>`
+- Override credentials: `*.ingress.auth.username` / `*.ingress.auth.password`
+
+Example (set explicit credentials for CDP ingress):
+
+```bash
+helm upgrade --install chromium-bridge oci://ghcr.io/ben-wangz/k8s-at-home-charts/chromium-bridge \
+  --version ${CHART_VERSION} \
+  --namespace chromium-bridge \
+  --create-namespace \
+  --set server.ingress.enabled=true \
+  --set server.ingress.ingressClassName=traefik \
+  --set server.ingress.hostname=chromium-bridge-cdp.example.com \
+  --set server.ingress.auth.username=admin \
+  --set server.ingress.auth.password='ChangeMeNow'
+```

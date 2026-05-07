@@ -5,9 +5,7 @@ metadata:
   name: {{ include "chromium-bridge.server.fullname" . }}
   namespace: {{ include "common.names.namespace" . | quote }}
   labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
-  {{- if .Values.server.ingress.annotations }}
-  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.server.ingress.annotations "context" $) | nindent 4 }}
-  {{- end }}
+  annotations: {{- include "chromium-bridge.ingress.annotations" (dict "context" . "component" "server" "ingress" .Values.server.ingress) | nindent 4 }}
 spec:
   {{- if .Values.server.ingress.ingressClassName }}
   ingressClassName: {{ .Values.server.ingress.ingressClassName }}

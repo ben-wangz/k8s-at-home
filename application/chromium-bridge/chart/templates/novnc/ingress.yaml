@@ -5,9 +5,7 @@ metadata:
   name: {{ include "chromium-bridge.novnc.fullname" . }}
   namespace: {{ include "common.names.namespace" . | quote }}
   labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
-  {{- if .Values.novnc.ingress.annotations }}
-  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.novnc.ingress.annotations "context" $) | nindent 4 }}
-  {{- end }}
+  annotations: {{- include "chromium-bridge.ingress.annotations" (dict "context" . "component" "novnc" "ingress" .Values.novnc.ingress) | nindent 4 }}
 spec:
   {{- if .Values.novnc.ingress.ingressClassName }}
   ingressClassName: {{ .Values.novnc.ingress.ingressClassName }}
