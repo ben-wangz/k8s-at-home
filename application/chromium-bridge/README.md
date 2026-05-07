@@ -36,3 +36,29 @@ curl -sS http://<server-host>:9222/json/version
 ```bash
 curl -I http://<novnc-host>:6080/
 ```
+
+## Ingress examples
+
+- Enable CDP ingress:
+
+```bash
+helm upgrade --install chromium-bridge oci://ghcr.io/ben-wangz/k8s-at-home-charts/chromium-bridge \
+  --version ${CHART_VERSION} \
+  --namespace chromium-bridge \
+  --create-namespace \
+  --set server.ingress.enabled=true \
+  --set server.ingress.ingressClassName=traefik \
+  --set server.ingress.hostname=chromium-bridge-cdp.example.com
+```
+
+- Enable noVNC ingress:
+
+```bash
+helm upgrade --install chromium-bridge oci://ghcr.io/ben-wangz/k8s-at-home-charts/chromium-bridge \
+  --version ${CHART_VERSION} \
+  --namespace chromium-bridge \
+  --create-namespace \
+  --set novnc.ingress.enabled=true \
+  --set novnc.ingress.ingressClassName=traefik \
+  --set novnc.ingress.hostname=chromium-bridge-novnc.example.com
+```

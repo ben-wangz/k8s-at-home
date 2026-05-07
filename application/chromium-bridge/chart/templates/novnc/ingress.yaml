@@ -23,6 +23,9 @@ spec:
                 name: {{ include "chromium-bridge.novnc.serviceName" . }}
                 port:
                   number: {{ .Values.novnc.service.port }}
+          {{- if .Values.novnc.ingress.extraPaths }}
+          {{- include "common.tplvalues.render" (dict "value" .Values.novnc.ingress.extraPaths "context" $) | nindent 10 }}
+          {{- end }}
     {{- range .Values.novnc.ingress.extraHosts }}
     - host: {{ .name | quote }}
       http:
@@ -34,6 +37,9 @@ spec:
                 name: {{ include "chromium-bridge.novnc.serviceName" $ }}
                 port:
                   number: {{ $.Values.novnc.service.port }}
+          {{- if $.Values.novnc.ingress.extraPaths }}
+          {{- include "common.tplvalues.render" (dict "value" $.Values.novnc.ingress.extraPaths "context" $) | nindent 10 }}
+          {{- end }}
     {{- end }}
     {{- if .Values.novnc.ingress.extraRules }}
     {{- include "common.tplvalues.render" (dict "value" .Values.novnc.ingress.extraRules "context" $) | nindent 4 }}

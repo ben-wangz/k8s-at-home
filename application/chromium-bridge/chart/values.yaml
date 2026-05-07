@@ -57,6 +57,20 @@ server:
     nodePorts:
       cdp: null
       vnc: null
+  ingress:
+    enabled: false
+    ingressClassName: ''
+    hostname: cdp.local
+    path: /
+    pathType: Prefix
+    annotations: {}
+    tls: false
+    tlsSecret: ''
+    selfSigned: false
+    extraHosts: []
+    extraPaths: []
+    extraTls: []
+    extraRules: []
   resourcesPreset: medium
   resources: {}
   probes:
