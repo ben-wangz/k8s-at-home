@@ -37,6 +37,20 @@ curl -sS http://<server-host>:9222/json/version
 curl -I http://<novnc-host>:6080/
 ```
 
+## CDP client note
+
+When using Playwright or other CDP clients, forward the CDP service to a local port (for example `127.0.0.1:9222`) and connect through localhost.
+
+If you connect with a domain host directly, Chromium may reject it with:
+
+`Host header is specified and is not an IP address or localhost`
+
+Example:
+
+```bash
+kubectl -n chromium-bridge port-forward svc/chromium-bridge-server 9222:9222
+```
+
 ## Ingress examples
 
 - Enable CDP ingress:
