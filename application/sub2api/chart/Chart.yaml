@@ -1,13 +1,18 @@
 apiVersion: v2
 name: sub2api
-version: 0.1.1
-appVersion: "0.1.111"
+version: 0.1.2
+appVersion: "0.1.125"
 description: Sub2API AI API gateway platform
 type: application
 keywords:
   - sub2api
   - ai
   - gateway
+annotations:
+  sub2api/images: |
+    - name: sub2api
+      path: application/sub2api/container
+      valuesKey: image.tag
 dependencies:
   - name: common
     repository: oci://registry-1.docker.io/bitnamicharts

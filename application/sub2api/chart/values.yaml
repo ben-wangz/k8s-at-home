@@ -43,7 +43,7 @@ tolerations: []
 
 image:
   repository: ghcr.io/wei-shaw/sub2api
-  tag: 0.1.111
+  tag: 0.1.125
   pullPolicy: IfNotPresent
 
 resourcesPreset: medium
