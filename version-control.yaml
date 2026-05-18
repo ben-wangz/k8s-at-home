@@ -11,5 +11,7 @@ charts:
     path: application/podman-in-container/chart
   - name: sub2api
     path: application/sub2api/chart
+  - name: sshpiper
+    path: application/sshpiper/chart
   - name: yacd
     path: application/yacd/chart

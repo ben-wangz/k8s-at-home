@@ -1,0 +1,22 @@
+apiVersion: v2
+name: sshpiper
+version: 0.1.0
+appVersion: "v1.5.3"
+description: SSH reverse proxy based on tg123/sshpiper
+type: application
+keywords:
+  - ssh
+  - proxy
+  - sshpiper
+dependencies:
+  - name: common
+    repository: oci://registry-1.docker.io/bitnamicharts
+    tags:
+      - bitnami-common
+    version: 2.x.x
+home: https://github.com/ben-wangz/k8s-at-home
+sources:
+  - https://github.com/ben-wangz/k8s-at-home/tree/main/application/sshpiper
+  - https://github.com/tg123/sshpiper
+maintainers:
+  - name: ben

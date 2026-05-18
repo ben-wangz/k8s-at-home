@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sshpiper.pluginConfigMapName" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+data:
+  routing.lua: |
+{{- if .Values.config.script }}
+{{ .Values.config.script | nindent 4 }}
+{{- else }}
+    local allowed = {
+      exact = {},
+      suffix = {}
+    }
+
+    do
+      local raw = os.getenv("SSHPIPER_ALLOWED_TARGETS") or ""
+      for token in string.gmatch(raw, "[^,]+") do
+        local t = token:gsub("^%s+", ""):gsub("%s+$", "")
+        if t ~= "" then
+          if string.sub(t, 1, 2) == "*." and #t > 2 then
+            table.insert(allowed.suffix, string.sub(t, 2))
+          else
+            allowed.exact[t] = true
+          end
+        end
+      end
+    end
+
+    local function parse_user(raw_user)
+      local parts = {}
+      for part in string.gmatch(raw_user or "", "[^+]+") do
+        table.insert(parts, part)
+      end
+
+      if #parts ~= 2 and #parts ~= 3 then
+        return nil
+      end
+
+      local upstream_user = parts[1]
+      local target = parts[2]
+      local port = 22
+
+      if #parts == 3 then
+        local p = tonumber(parts[3])
+        if not p or p < 1 or p > 65535 then
+          return nil
+        end
+        port = p
+      end
+
+      return upstream_user, target, port
+    end
+
+    local function is_allowed(target)
+      if allowed.exact[target] then
+        return true
+      end
+
+      for _, suffix in ipairs(allowed.suffix) do
+        if #target > #suffix and string.sub(target, -#suffix) == suffix then
+          return true
+        end
+      end
+
+      return false
+    end
+
+    function sshpiper_on_password(conn, password)
+      local upstream_user, target, port = parse_user(conn.sshpiper_user)
+      if not upstream_user then
+        return nil
+      end
+      if not is_allowed(target) then
+        return nil
+      end
+
+      return {
+        host = target .. ":" .. tostring(port),
+        username = upstream_user,
+      }
+    end
+
+    function sshpiper_on_publickey(conn, key)
+      local upstream_user, target, port = parse_user(conn.sshpiper_user)
+      if not upstream_user then
+        return nil
+      end
+      if not is_allowed(target) then
+        return nil
+      end
+
+      return {
+        host = target .. ":" .. tostring(port),
+        username = upstream_user,
+      }
+    end
+{{- end }}
