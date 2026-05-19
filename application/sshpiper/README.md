@@ -36,8 +36,8 @@ ssh root+alice.codespace@<node-ip> -p 32022
 ## Allowlist example
 
 ```yaml
-config:
-  authMode: key
+auth:
+  mode: key
   hostKeyPolicy: tofu
   allowedTargets:
     - gitea-ssh.basic-components
@@ -48,12 +48,41 @@ Notes:
 
 - Allowlist is validation-only.
 - Target is never rewritten. `alice.codespace` routes to upstream host `alice.codespace`.
-- `config.authMode` supports `password` and `key`.
+- `auth.mode` supports `password` and `key`.
 - Default mode is `key`.
 - `password` mode is password-only on both downstream and upstream paths.
 - `key` mode disables password auth and requires mounted key material for the custom plugin.
-- `hostKeyPolicy` defaults to `tofu`.
+- `auth.hostKeyPolicy` defaults to `tofu`.
 - Listener uses env vars (`SSHPIPERD_ADDRESS` and `SSHPIPERD_PORT`) from `listen.address` and `listen.port`.
+- The default generated server host key is `ed25519` and is stored under `ssh_host_ed25519_key`.
+
+## Key mode auth materials
+
+Downstream client keys are maintained as an array in values:
+
+```yaml
+auth:
+  authorizedKeys:
+    values:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... user1
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAJ... user2
+```
+
+The chart renders these entries into a dedicated `authorized_keys` Secret.
+
+Upstream SSH login uses a separate keypair Secret.
+
+If you do not provide one, the chart automatically generates an `ed25519` upstream keypair Secret.
+
+You can also provide an existing Secret:
+
+```yaml
+auth:
+  upstreamKeypair:
+    existingSecret: sshpiper-upstream-keypair
+```
+
+The upstream Secret only needs to contain `id_ed25519`. The plugin uses only the private key.
 
 ## Known hosts storage
 
@@ -62,16 +91,25 @@ Default behavior uses `emptyDir` for writable known hosts state:
 ```yaml
 storage:
   knownHosts:
-    type: emptyDir
+    enabled: false
     existingClaim: ""
 ```
 
-To persist TOFU state across pod recreation, use a PVC:
+To persist TOFU state across pod recreation, enable PVC-backed storage. By default the chart creates the PVC for you:
 
 ```yaml
 storage:
   knownHosts:
-    type: pvc
+    enabled: true
+    size: 1Gi
+```
+
+To reuse an existing PVC instead:
+
+```yaml
+storage:
+  knownHosts:
+    enabled: true
     existingClaim: sshpiper-known-hosts
 ```
 
@@ -83,9 +121,9 @@ For `strict` mode, you can also fully manage host key files yourself with `extra
 - The Go plugin source should live in `application/sshpiper/src/`.
 - The container files should live in `application/sshpiper/container/`.
 - The image build context should be `application/sshpiper/`.
-- The runtime image should be rebuilt from the upstream official image and include the custom plugin binary at `config.pluginPath`.
-- Default auth material paths exposed to the plugin are `authFiles.authorizedKeysPath` and `authFiles.upstreamPrivateKeyPath`.
-- In `key` mode, provide `authFiles.existingSecret` or mount equivalent files with `extraVolumes` and `extraVolumeMounts`.
+- The runtime image is rebuilt from the upstream official image and starts the bundled custom plugin through an internal `entrypoint.sh`.
+- Default auth material paths exposed to the plugin are `auth.authorizedKeys.filePath` and `auth.upstreamKeypair.privateKeyPath`.
+- In `key` mode, downstream `authorized_keys` and upstream keypair are managed as two separate Secrets.
 
 ## Troubleshooting
 

@@ -50,7 +50,7 @@ listen:
 serverKey:
   existingSecret: ""
   secretName: ""
-  secretKey: ssh_host_rsa_key
+  secretKey: ssh_host_ed25519_key
   privateKey: ""
 
 service:
@@ -68,24 +68,38 @@ service:
   loadBalancerClass: ""
   extraPorts: []
 
-config:
-  authMode: key
-  pluginPath: /sshpiperd/plugins/routeauth
+storage:
+  knownHosts:
+    enabled: false
+    storageClass: ""
+    existingClaim: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 1Gi
+    annotations: {}
+    selector: {}
+    dataSource: {}
+
+auth:
+  mode: key
   hostKeyPolicy: tofu
   allowedTargets:
     - gitea-ssh.basic-components
     - "*.codespace"
-
-storage:
-  knownHosts:
-    type: emptyDir
-    existingClaim: ""
-
-authFiles:
-  existingSecret: sshpiper-auth
-  mountPath: /auth
-  authorizedKeysPath: /auth/authorized_keys
-  upstreamPrivateKeyPath: /auth/id_rsa
+  authorizedKeys:
+    values:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGreplace-this-authorized-key-example sshpiper-user
+    existingSecret: ""
+    secretName: ""
+    secretKey: authorized_keys
+    mountPath: /auth
+    filePath: /auth/authorized_keys
+  upstreamKeypair:
+    existingSecret: sshpiper-upstream-keypair
+    secretName: ""
+    mountPath: /upstream-keypair
+    privateKeyPath: /upstream-keypair/id_ed25519
+    privateKeyKey: id_ed25519
 
 resources: {}
 resourcesPreset: nano

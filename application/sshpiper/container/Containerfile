@@ -12,3 +12,6 @@ RUN go mod download && CGO_ENABLED=0 GOOS=linux GOARCH=$(go env GOARCH) go build
 FROM ${SSHPIPER_IMAGE}
 
 COPY --from=builder /out/routeauth /sshpiperd/plugins/routeauth
+COPY --chmod=0755 container/entrypoint.sh /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]

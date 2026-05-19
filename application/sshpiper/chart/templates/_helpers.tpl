@@ -1,5 +1,5 @@
 {{- define "sshpiper.allowedTargetsCSV" -}}
-{{- join "," .Values.config.allowedTargets -}}
+{{- join "," .Values.auth.allowedTargets -}}
 {{- end -}}
 
 {{- define "sshpiper.serverKeySecretName" -}}
@@ -10,11 +10,30 @@
 {{- end -}}
 {{- end -}}
 
-{{- define "sshpiper.validateValues" -}}
-{{- if and (eq .Values.config.authMode "key") (not .Values.authFiles.existingSecret) -}}
-{{- fail "authFiles.existingSecret is required when config.authMode is key" -}}
+{{- define "sshpiper.authorizedKeysSecretName" -}}
+{{- if .Values.auth.authorizedKeys.existingSecret -}}
+{{- .Values.auth.authorizedKeys.existingSecret -}}
+{{- else -}}
+{{- default (printf "%s-authorized-keys" (include "common.names.fullname" .)) .Values.auth.authorizedKeys.secretName -}}
 {{- end -}}
-{{- if and (eq .Values.storage.knownHosts.type "pvc") (not .Values.storage.knownHosts.existingClaim) -}}
-{{- fail "storage.knownHosts.existingClaim is required when storage.knownHosts.type is pvc" -}}
+{{- end -}}
+
+{{- define "sshpiper.upstreamKeypairSecretName" -}}
+{{- if .Values.auth.upstreamKeypair.existingSecret -}}
+{{- .Values.auth.upstreamKeypair.existingSecret -}}
+{{- else -}}
+{{- default (printf "%s-upstream-keypair" (include "common.names.fullname" .)) .Values.auth.upstreamKeypair.secretName -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "sshpiper.validateValues" -}}
+{{- if and (eq .Values.auth.mode "key") (and (not .Values.auth.authorizedKeys.existingSecret) (eq (len .Values.auth.authorizedKeys.values) 0)) -}}
+{{- fail "auth.authorizedKeys.values or auth.authorizedKeys.existingSecret is required when auth.mode is key" -}}
+{{- end -}}
+{{- if and .Values.auth.authorizedKeys.existingSecret (gt (len .Values.auth.authorizedKeys.values) 0) -}}
+{{- fail "auth.authorizedKeys.values and auth.authorizedKeys.existingSecret are mutually exclusive" -}}
+{{- end -}}
+{{- if and .Values.storage.knownHosts.enabled .Values.storage.knownHosts.selector (not (kindIs "map" .Values.storage.knownHosts.selector)) -}}
+{{- fail "storage.knownHosts.selector must be a map when provided" -}}
 {{- end -}}
 {{- end -}}

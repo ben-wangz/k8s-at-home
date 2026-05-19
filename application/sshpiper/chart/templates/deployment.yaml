@@ -51,10 +51,6 @@ spec:
           {{- if .Values.containerSecurityContext.enabled }}
           securityContext: {{- include "common.compatibility.renderSecurityContext" ( dict "secContext" .Values.containerSecurityContext "context" $ ) | nindent 12 }}
           {{- end }}
-          command:
-            - /sshpiperd/sshpiperd
-          args:
-            - {{ .Values.config.pluginPath }}
           ports:
             - name: ssh
               containerPort: {{ .Values.listen.port }}
@@ -70,15 +66,15 @@ spec:
             - name: SSHPIPER_ALLOWED_TARGETS
               value: {{ include "sshpiper.allowedTargetsCSV" . | quote }}
             - name: SSHPIPER_AUTH_MODE
-              value: {{ .Values.config.authMode | quote }}
+              value: {{ .Values.auth.mode | quote }}
             - name: SSHPIPER_HOSTKEY_POLICY
-              value: {{ .Values.config.hostKeyPolicy | quote }}
+              value: {{ .Values.auth.hostKeyPolicy | quote }}
             - name: SSHPIPER_KNOWN_HOSTS_PATH
               value: /var/sshpiper/known_hosts/known_hosts
             - name: SSHPIPER_AUTHORIZED_KEYS_PATH
-              value: {{ .Values.authFiles.authorizedKeysPath | quote }}
+              value: {{ .Values.auth.authorizedKeys.filePath | quote }}
             - name: SSHPIPER_UPSTREAM_PRIVATE_KEY_PATH
-              value: {{ .Values.authFiles.upstreamPrivateKeyPath | quote }}
+              value: {{ .Values.auth.upstreamKeypair.privateKeyPath | quote }}
             {{- if .Values.extraEnvVars }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraEnvVars "context" $) | nindent 12 }}
             {{- end }}
@@ -93,9 +89,14 @@ spec:
               readOnly: true
             - name: known-hosts
               mountPath: /var/sshpiper/known_hosts
-            {{- if .Values.authFiles.existingSecret }}
-            - name: auth-files
-              mountPath: {{ .Values.authFiles.mountPath | quote }}
+            {{- if or .Values.auth.authorizedKeys.existingSecret (gt (len .Values.auth.authorizedKeys.values) 0) }}
+            - name: authorized-keys
+              mountPath: {{ .Values.auth.authorizedKeys.mountPath | quote }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.auth.upstreamKeypair.existingSecret }}
+            - name: upstream-keypair
+              mountPath: {{ .Values.auth.upstreamKeypair.mountPath | quote }}
               readOnly: true
             {{- end }}
             {{- if .Values.extraVolumeMounts }}
@@ -138,16 +139,21 @@ spec:
           secret:
             secretName: {{ include "sshpiper.serverKeySecretName" . }}
         - name: known-hosts
-          {{- if eq .Values.storage.knownHosts.type "pvc" }}
+          {{- if .Values.storage.knownHosts.enabled }}
           persistentVolumeClaim:
-            claimName: {{ required "storage.knownHosts.existingClaim is required when storage.knownHosts.type is pvc" .Values.storage.knownHosts.existingClaim }}
+            claimName: {{ default (printf "%s-known-hosts" (include "common.names.fullname" .)) .Values.storage.knownHosts.existingClaim }}
           {{- else }}
           emptyDir: {}
           {{- end }}
-        {{- if .Values.authFiles.existingSecret }}
-        - name: auth-files
+        {{- if or .Values.auth.authorizedKeys.existingSecret (gt (len .Values.auth.authorizedKeys.values) 0) }}
+        - name: authorized-keys
           secret:
-            secretName: {{ .Values.authFiles.existingSecret }}
+            secretName: {{ include "sshpiper.authorizedKeysSecretName" . }}
+        {{- end }}
+        {{- if .Values.auth.upstreamKeypair.existingSecret }}
+        - name: upstream-keypair
+          secret:
+            secretName: {{ include "sshpiper.upstreamKeypairSecretName" . }}
         {{- end }}
         {{- if .Values.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 8 }}

@@ -45,7 +45,7 @@ func main() {
 				Name:    "upstream-private-key-path",
 				Usage:   "private key path for upstream public key auth",
 				EnvVars: []string{"SSHPIPER_UPSTREAM_PRIVATE_KEY_PATH"},
-				Value:   "/auth/id_rsa",
+				Value:   "/upstream-keypair/id_ed25519",
 			},
 		},
 		CreateConfig: func(c *cli.Context) (*libplugin.SshPiperPluginConfig, error) {

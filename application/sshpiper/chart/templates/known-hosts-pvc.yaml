@@ -1,0 +1,29 @@
+{{- if and .Values.storage.knownHosts.enabled (not .Values.storage.knownHosts.existingClaim) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "common.names.fullname" . }}-known-hosts
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+  {{- with .Values.storage.knownHosts.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.storage.knownHosts.accessModes | nindent 4 }}
+  {{- if .Values.storage.knownHosts.selector }}
+  selector:
+    {{- toYaml .Values.storage.knownHosts.selector | nindent 4 }}
+  {{- end }}
+  {{- if .Values.storage.knownHosts.storageClass }}
+  storageClassName: {{ .Values.storage.knownHosts.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.knownHosts.size }}
+  {{- if .Values.storage.knownHosts.dataSource }}
+  dataSource:
+    {{- toYaml .Values.storage.knownHosts.dataSource | nindent 4 }}
+  {{- end }}
+{{- end -}}
