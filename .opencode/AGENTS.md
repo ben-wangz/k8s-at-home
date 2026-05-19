@@ -29,5 +29,10 @@
 - Do not include unrelated metadata.
 - Never create a commit or push changes without explicit user approval.
 
+## Version Management
+- Only use `forgekit` to modify chart, image, or module version numbers.
+- Do not manually edit version fields such as `Chart.yaml` `version`, `appVersion`, `values.yaml` image tags, or `container/VERSION` files.
+- When a chart version bump should also update image references, use the appropriate `forgekit` sync flow instead of manual edits.
+
 ## File Operations
 - Prefer `mv` over create-then-delete for rename/move operations.
