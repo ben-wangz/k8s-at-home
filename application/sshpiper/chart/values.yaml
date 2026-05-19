@@ -39,8 +39,8 @@ tolerations: []
 
 image:
   registry: ghcr.io
-  repository: tg123/sshpiperd
-  tag: full-v1.5.3
+  repository: ben-wangz/k8s-at-home-sshpiper
+  tag: 0.1.0
   pullPolicy: IfNotPresent
 
 listen:
@@ -69,11 +69,23 @@ service:
   extraPorts: []
 
 config:
-  plugin: lua
+  authMode: key
+  pluginPath: /sshpiperd/plugins/routeauth
+  hostKeyPolicy: tofu
   allowedTargets:
     - gitea-ssh.basic-components
     - "*.codespace"
-  script: ""
+
+storage:
+  knownHosts:
+    type: emptyDir
+    existingClaim: ""
+
+authFiles:
+  existingSecret: sshpiper-auth
+  mountPath: /auth
+  authorizedKeysPath: /auth/authorized_keys
+  upstreamPrivateKeyPath: /auth/id_rsa
 
 resources: {}
 resourcesPreset: nano

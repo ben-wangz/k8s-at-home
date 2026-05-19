@@ -26,6 +26,11 @@ declare -A IMAGES=(
   ["aria2"]="application/aria2/container/aria2"
   ["aria-ng"]="application/aria2/container/aria-ng"
   ["podman-in-container"]="application/podman-in-container/container"
+  ["sshpiper"]="application/sshpiper/container"
+)
+
+declare -A BUILD_CONTEXTS=(
+  ["sshpiper"]="application/sshpiper"
 )
 
 # Parse command line arguments
@@ -172,6 +177,10 @@ validate_semver() {
 build_image() {
   local name=$1
   local context_path="${REPO_ROOT}/${IMAGES[$name]}"
+  local build_context="${REPO_ROOT}/${IMAGES[$name]}"
+  if [ -n "${BUILD_CONTEXTS[$name]:-}" ]; then
+    build_context="${REPO_ROOT}/${BUILD_CONTEXTS[$name]}"
+  fi
   local containerfile="${context_path}/Containerfile"
   local version_file="${context_path}/VERSION"
 
@@ -191,7 +200,7 @@ build_image() {
     echo -e "${YELLOW}Building ${name}...${NC}"
   fi
 
-  echo "  Context: ${context_path}"
+  echo "  Context: ${build_context}"
   echo "  Containerfile: ${containerfile}"
   echo "  Tag: ${image_tag}"
 
@@ -215,7 +224,7 @@ build_image() {
   fi
 
   # Build the image with collected build args
-  if podman build -t "${image_tag}" -f "${containerfile}" "${build_args_array[@]}" "${context_path}"; then
+  if podman build -t "${image_tag}" -f "${containerfile}" "${build_args_array[@]}" "${build_context}"; then
     echo -e "${GREEN}✓ Successfully built ${image_tag}${NC}"
 
     # Push if requested

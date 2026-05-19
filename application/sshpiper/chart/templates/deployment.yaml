@@ -1,3 +1,4 @@
+{{- include "sshpiper.validateValues" . }}
 apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
 kind: Deployment
 metadata:
@@ -22,7 +23,6 @@ spec:
         {{- if .Values.podAnnotations }}
         {{- include "common.tplvalues.render" ( dict "value" .Values.podAnnotations "context" $ ) | nindent 8 }}
         {{- end }}
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       {{- if .Values.imagePullSecrets }}
       imagePullSecrets: {{- include "common.tplvalues.render" ( dict "value" .Values.imagePullSecrets "context" $ ) | nindent 8 }}
@@ -54,9 +54,7 @@ spec:
           command:
             - /sshpiperd/sshpiperd
           args:
-            - /sshpiperd/plugins/{{ .Values.config.plugin }}
-            - --script
-            - /config/routing.lua
+            - {{ .Values.config.pluginPath }}
           ports:
             - name: ssh
               containerPort: {{ .Values.listen.port }}
@@ -71,6 +69,16 @@ spec:
               value: disable
             - name: SSHPIPER_ALLOWED_TARGETS
               value: {{ include "sshpiper.allowedTargetsCSV" . | quote }}
+            - name: SSHPIPER_AUTH_MODE
+              value: {{ .Values.config.authMode | quote }}
+            - name: SSHPIPER_HOSTKEY_POLICY
+              value: {{ .Values.config.hostKeyPolicy | quote }}
+            - name: SSHPIPER_KNOWN_HOSTS_PATH
+              value: /var/sshpiper/known_hosts/known_hosts
+            - name: SSHPIPER_AUTHORIZED_KEYS_PATH
+              value: {{ .Values.authFiles.authorizedKeysPath | quote }}
+            - name: SSHPIPER_UPSTREAM_PRIVATE_KEY_PATH
+              value: {{ .Values.authFiles.upstreamPrivateKeyPath | quote }}
             {{- if .Values.extraEnvVars }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraEnvVars "context" $) | nindent 12 }}
             {{- end }}
@@ -80,12 +88,16 @@ spec:
                 name: {{ .Values.extraEnvVarsSecret }}
           {{- end }}
           volumeMounts:
-            - name: plugin-config
-              mountPath: /config
-              readOnly: true
             - name: server-key
               mountPath: /keys
               readOnly: true
+            - name: known-hosts
+              mountPath: /var/sshpiper/known_hosts
+            {{- if .Values.authFiles.existingSecret }}
+            - name: auth-files
+              mountPath: {{ .Values.authFiles.mountPath | quote }}
+              readOnly: true
+            {{- end }}
             {{- if .Values.extraVolumeMounts }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 12 }}
             {{- end }}
@@ -122,12 +134,21 @@ spec:
             periodSeconds: 10
           {{- end }}
       volumes:
-        - name: plugin-config
-          configMap:
-            name: {{ include "sshpiper.pluginConfigMapName" . }}
         - name: server-key
           secret:
             secretName: {{ include "sshpiper.serverKeySecretName" . }}
+        - name: known-hosts
+          {{- if eq .Values.storage.knownHosts.type "pvc" }}
+          persistentVolumeClaim:
+            claimName: {{ required "storage.knownHosts.existingClaim is required when storage.knownHosts.type is pvc" .Values.storage.knownHosts.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.authFiles.existingSecret }}
+        - name: auth-files
+          secret:
+            secretName: {{ .Values.authFiles.existingSecret }}
+        {{- end }}
         {{- if .Values.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 8 }}
         {{- end }}
