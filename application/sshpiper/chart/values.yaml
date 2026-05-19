@@ -43,8 +43,15 @@ image:
   tag: v1.5.3
   pullPolicy: IfNotPresent
 
-ports:
-  ssh: 22
+listen:
+  address: 0.0.0.0
+  port: 22
+
+serverKey:
+  existingSecret: ""
+  secretName: ""
+  secretKey: ssh_host_rsa_key
+  privateKey: ""
 
 service:
   type: NodePort

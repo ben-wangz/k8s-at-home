@@ -54,17 +54,21 @@ spec:
           command:
             - /sshpiperd/sshpiperd
           args:
-            - --address
-            - 0.0.0.0:{{ .Values.ports.ssh }}
             - /sshpiperd/plugins/{{ .Values.config.plugin }}
             - --script
             - /config/routing.lua
           ports:
             - name: ssh
-              containerPort: {{ .Values.ports.ssh }}
+              containerPort: {{ .Values.listen.port }}
           env:
+            - name: SSHPIPERD_ADDRESS
+              value: {{ .Values.listen.address | quote }}
+            - name: SSHPIPERD_PORT
+              value: {{ .Values.listen.port | quote }}
+            - name: SSHPIPERD_SERVER_KEY
+              value: /keys/{{ .Values.serverKey.secretKey }}
             - name: SSHPIPERD_SERVER_KEY_GENERATE_MODE
-              value: notexist
+              value: disable
             - name: SSHPIPER_ALLOWED_TARGETS
               value: {{ include "sshpiper.allowedTargetsCSV" . | quote }}
             {{- if .Values.extraEnvVars }}
@@ -78,6 +82,9 @@ spec:
           volumeMounts:
             - name: plugin-config
               mountPath: /config
+              readOnly: true
+            - name: server-key
+              mountPath: /keys
               readOnly: true
             {{- if .Values.extraVolumeMounts }}
             {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 12 }}
@@ -118,6 +125,9 @@ spec:
         - name: plugin-config
           configMap:
             name: {{ include "sshpiper.pluginConfigMapName" . }}
+        - name: server-key
+          secret:
+            secretName: {{ include "sshpiper.serverKeySecretName" . }}
         {{- if .Values.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 8 }}
         {{- end }}

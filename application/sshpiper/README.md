@@ -48,6 +48,7 @@ Notes:
 - Target is never rewritten. `alice.codespace` routes to upstream host `alice.codespace`.
 - Built-in default Lua script is embedded in chart `ConfigMap`.
 - Set `config.script` to a non-empty value if you want to fully override routing logic.
+- Listener uses env vars (`SSHPIPERD_ADDRESS` and `SSHPIPERD_PORT`) from `listen.address` and `listen.port`.
 
 ## Troubleshooting
 

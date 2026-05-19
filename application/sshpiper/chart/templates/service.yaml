@@ -37,7 +37,7 @@ spec:
     - protocol: TCP
       name: ssh
       port: {{ .Values.service.ports.ssh }}
-      targetPort: {{ .Values.ports.ssh }}
+      targetPort: {{ .Values.listen.port }}
       {{- if and (eq .Values.service.type "NodePort") (not (empty .Values.service.ports.sshNodePort)) }}
       nodePort: {{ .Values.service.ports.sshNodePort }}
       {{- end }}
