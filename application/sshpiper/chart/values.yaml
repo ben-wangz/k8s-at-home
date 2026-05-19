@@ -40,7 +40,7 @@ tolerations: []
 image:
   registry: ghcr.io
   repository: tg123/sshpiperd
-  tag: v1.5.3
+  tag: full-v1.5.3
   pullPolicy: IfNotPresent
 
 listen:
