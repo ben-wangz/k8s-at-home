@@ -111,11 +111,31 @@ func newRouteAuthPlugin(cfg routeAuthConfig) (*routeAuthPlugin, error) {
 
 func (p *routeAuthPlugin) CreateConfig() *libplugin.SshPiperPluginConfig {
 	return &libplugin.SshPiperPluginConfig{
-		NextAuthMethodsCallback: p.supportedMethods,
-		PasswordCallback:        p.passwordAuth,
-		PublicKeyCallback:       p.publicKeyAuth,
-		VerifyHostKeyCallback:   p.verifyHostKey,
+		NextAuthMethodsCallback:     p.supportedMethods,
+		PasswordCallback:            p.passwordAuth,
+		PublicKeyCallback:           p.publicKeyAuth,
+		UpstreamAuthFailureCallback: p.upstreamAuthFailure,
+		PipeStartCallback:           p.pipeStart,
+		PipeErrorCallback:           p.pipeError,
+		PipeCreateErrorCallback:     p.pipeCreateError,
+		VerifyHostKeyCallback:       p.verifyHostKey,
 	}
+}
+
+func (p *routeAuthPlugin) upstreamAuthFailure(conn libplugin.ConnMetadata, method string, err error, allowmethods []string) {
+	log.Errorf("upstreamAuthFailure: user=%q method=%q err=%v allowed=%q", conn.User(), method, err, allowmethods)
+}
+
+func (p *routeAuthPlugin) pipeStart(conn libplugin.ConnMetadata) {
+	log.Infof("pipeStart: user=%q remote=%q", conn.User(), conn.RemoteAddr())
+}
+
+func (p *routeAuthPlugin) pipeError(conn libplugin.ConnMetadata, err error) {
+	log.Errorf("pipeError: user=%q remote=%q err=%v", conn.User(), conn.RemoteAddr(), err)
+}
+
+func (p *routeAuthPlugin) pipeCreateError(remoteAddr string, err error) {
+	log.Errorf("pipeCreateError: remote=%q err=%v", remoteAddr, err)
 }
 
 func (p *routeAuthPlugin) supportedMethods(conn libplugin.ConnMetadata) ([]string, error) {
@@ -137,6 +157,7 @@ func (p *routeAuthPlugin) passwordAuth(conn libplugin.ConnMetadata, password []b
 
 	r, err := p.parseAndValidate(conn)
 	if err != nil {
+		log.Errorf("passwordAuth: parse failed for user=%q: %v", conn.User(), err)
 		return nil, err
 	}
 
@@ -156,6 +177,7 @@ func (p *routeAuthPlugin) publicKeyAuth(conn libplugin.ConnMetadata, key []byte)
 
 	r, err := p.parseAndValidate(conn)
 	if err != nil {
+		log.Errorf("publicKeyAuth: parse failed for user=%q: %v", conn.User(), err)
 		return nil, err
 	}
 
@@ -187,7 +209,8 @@ func (p *routeAuthPlugin) publicKeyAuth(conn libplugin.ConnMetadata, key []byte)
 }
 
 func (p *routeAuthPlugin) parseAndValidate(conn libplugin.ConnMetadata) (route, error) {
-	r, err := parseRoute(conn.User())
+	rawUser := conn.User()
+	r, err := parseRoute(rawUser)
 	if err != nil {
 		return route{}, err
 	}

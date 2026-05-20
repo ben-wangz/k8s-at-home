@@ -1,5 +1,5 @@
 ARG SSHPIPER_IMAGE=ghcr.io/tg123/sshpiperd:full-v1.5.3
-ARG GO_IMAGE=golang:1.25-bookworm
+ARG GO_IMAGE=docker.io/library/golang:1.25-bookworm
 
 FROM ${GO_IMAGE} AS builder
 
