@@ -139,10 +139,6 @@ func (p *routeAuthPlugin) pipeCreateError(remoteAddr string, err error) {
 }
 
 func (p *routeAuthPlugin) supportedMethods(conn libplugin.ConnMetadata) ([]string, error) {
-	if _, err := p.parseAndValidate(conn); err != nil {
-		return nil, err
-	}
-
 	if p.mode == authModeKey {
 		return []string{"publickey"}, nil
 	}
