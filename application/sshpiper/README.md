@@ -130,3 +130,7 @@ For `strict` mode, you can also fully manage host key files yourself with `extra
 - Invalid username format (must be `user+target` or `user+target+port`) will be rejected.
 - Non-allowlisted target will be rejected.
 - Invalid port in username will be rejected.
+
+## Acknowledgements
+
+Thanks to GitHub user [`qipan2333`](https://github.com/qipan2333) for the initial technical feasibility validation of this approach.
