@@ -1,7 +1,7 @@
 apiVersion: v2
 name: sshpiper
-version: 0.2.2
-appVersion: "0.2.2"
+version: 0.2.3
+appVersion: "0.2.3"
 description: SSH reverse proxy based on tg123/sshpiper
 type: application
 keywords:
