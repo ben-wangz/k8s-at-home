@@ -17,6 +17,8 @@ export type Task = {
 	parent?: string
 	subtasks?: string[]
 	acceptance?: string[]
+	comments?: { id: string; body: string; updatedAt: string }[]
+	activities?: ActivityItem[]
 }
 
 export type Project = {

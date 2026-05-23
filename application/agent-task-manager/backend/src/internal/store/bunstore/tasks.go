@@ -13,6 +13,43 @@ import (
 	"github.com/ben-wangz/k8s-at-home/application/agent-task-manager/backend/src/internal/store"
 )
 
+func (s *Store) ListTasks(ctx context.Context, filter store.TaskFilter) ([]domain.Task, error) {
+	rows := make([]taskRow, 0)
+	query := s.db.NewSelect().Model(&rows)
+	if filter.Status != "" {
+		query.Where("status = ?", filter.Status)
+	}
+	if filter.Priority != "" {
+		query.Where("priority = ?", filter.Priority)
+	}
+	if filter.AssigneeID != "" {
+		query.Where("assignee_id = ?", filter.AssigneeID)
+	}
+	if filter.Query != "" {
+		pattern := "%" + strings.ToLower(filter.Query) + "%"
+		query.Where("(LOWER(title) LIKE ? OR LOWER(description) LIKE ?)", pattern, pattern)
+	}
+	if filter.Label != "" {
+		query.Where("id IN (?)", s.labelTaskSubquery(filter.Label))
+	}
+	if err := query.Order("updated_at DESC").Scan(ctx); err != nil {
+		return nil, err
+	}
+	taskIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
+		taskIDs = append(taskIDs, row.ID)
+	}
+	labelsByTask, err := s.labelMap(ctx, taskIDs)
+	if err != nil {
+		return nil, err
+	}
+	tasks := make([]domain.Task, 0, len(rows))
+	for _, row := range rows {
+		tasks = append(tasks, toTask(row, labelsByTask[row.ID]))
+	}
+	return tasks, nil
+}
+
 func (s *Store) ListProjectTasks(ctx context.Context, projectID string, filter store.TaskFilter) ([]domain.Task, error) {
 	rows := make([]taskRow, 0)
 	query := s.db.NewSelect().Model(&rows).Where("project_id = ?", projectID)

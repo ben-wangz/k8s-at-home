@@ -2,6 +2,8 @@ package bunstore
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"strings"
 
 	"github.com/google/uuid"
@@ -47,6 +49,17 @@ func addFilter(query *bun.SelectQuery, column, value string, negate bool) {
 		operator = "<>"
 	}
 	query.Where(column+" "+operator+" ?", value)
+}
+
+func (s *Store) GetActivity(ctx context.Context, id string) (domain.Activity, error) {
+	row := new(activityRow)
+	if err := s.db.NewSelect().Model(row).Where("id = ?", id).Scan(ctx); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.Activity{}, ErrNotFound
+		}
+		return domain.Activity{}, err
+	}
+	return toActivity(*row), nil
 }
 
 func (s *Store) CreateActivity(ctx context.Context, input domain.Activity) (domain.Activity, error) {

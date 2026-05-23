@@ -105,6 +105,16 @@ type APIKeyCreate struct {
 	Name   string
 }
 
+type ProjectOverview struct {
+	Project          domain.Project
+	Open             int
+	InProgress       int
+	InReview         int
+	RecentTasks      []domain.Task
+	RecentSessions   []domain.Session
+	RecentActivities []domain.Activity
+}
+
 type Store interface {
 	Ping(context.Context) error
 	Close() error
@@ -112,9 +122,11 @@ type Store interface {
 	ListProjects(context.Context) ([]domain.Project, error)
 	CreateProject(context.Context, ProjectCreate) (domain.Project, error)
 	GetProject(context.Context, string) (domain.Project, error)
+	GetProjectOverview(context.Context, string) (ProjectOverview, error)
 	UpdateProject(context.Context, string, ProjectUpdate) (domain.Project, error)
 	DeleteProject(context.Context, string) error
 
+	ListTasks(context.Context, TaskFilter) ([]domain.Task, error)
 	ListProjectTasks(context.Context, string, TaskFilter) ([]domain.Task, error)
 	CreateTask(context.Context, TaskCreate) (domain.Task, error)
 	GetTask(context.Context, string) (domain.TaskDetail, error)
@@ -134,6 +146,7 @@ type Store interface {
 	DeleteSession(context.Context, string) error
 
 	ListActivities(context.Context, ActivityFilter) ([]domain.Activity, error)
+	GetActivity(context.Context, string) (domain.Activity, error)
 	CreateActivity(context.Context, domain.Activity) (domain.Activity, error)
 
 	ListUsers(context.Context) ([]domain.User, error)

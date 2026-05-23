@@ -50,11 +50,19 @@ func (s *Store) UpdateUser(ctx context.Context, id string, input store.UserUpdat
 func (s *Store) GetUserByAPIKey(ctx context.Context, token string) (domain.User, error) {
 	row := new(userRow)
 	hash := hashToken(token)
-	err := s.db.NewSelect().Model(row).
-		Join("JOIN api_keys ON api_keys.user_id = users.id").
+	err := s.db.NewSelect().
+		TableExpr("users AS user_row").
+		ColumnExpr("user_row.id").
+		ColumnExpr("user_row.email").
+		ColumnExpr("user_row.name").
+		ColumnExpr("user_row.role").
+		ColumnExpr("user_row.active").
+		ColumnExpr("user_row.created_at").
+		ColumnExpr("user_row.updated_at").
+		Join("JOIN api_keys ON api_keys.user_id = user_row.id").
 		Where("api_keys.key_hash = ?", hash).
 		Where("api_keys.revoked_at IS NULL").
-		Scan(ctx)
+		Scan(ctx, row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.User{}, ErrNotFound

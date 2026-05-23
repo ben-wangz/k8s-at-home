@@ -266,9 +266,19 @@ func toProject(row projectRow) domain.Project {
 		Title:       row.Title,
 		Description: row.Description,
 		State:       row.State,
+		Open:        0,
+		InProgress:  0,
+		InReview:    0,
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
 	}
+}
+
+func withProjectCounts(project domain.Project, open, inProgress, inReview int) domain.Project {
+	project.Open = open
+	project.InProgress = inProgress
+	project.InReview = inReview
+	return project
 }
 
 func toComment(row commentRow) domain.Comment {

@@ -31,6 +31,31 @@ The current implementation uses Bun with the pure-Go `modernc.org/sqlite` driver
 - `ATM_DATA_DIR`: local data root for sqlite and artifacts, default `/var/lib/agent-task-manager`
 - `ATM_ARTIFACTS_DIR`: upload storage path for session artifacts
 - `ATM_AUTH_MODE`: `disabled` or `apikey`, default `disabled`
+- `ATM_API_KEY`: optional CLI bearer token
+- `ATM_API_URL`: optional CLI API base URL, default `http://127.0.0.1:8080/api/v1`
+
+## API Notes
+
+- list endpoints now return `{ "items": [...] }`
+- error responses now return `{ "code": "...", "error": "..." }`
+- in `apikey` mode, protected endpoints require `Authorization: Bearer <token>`
+
+## CLI
+
+The minimal CLI lives under `cli/src/cmd/atmctl`.
+
+Current commands:
+
+- `atmctl projects list`
+- `atmctl tasks list|get|create|update|comment|subtasks|reparent`
+- `atmctl sessions list|get|register|upload|download`
+- `atmctl activities list`
+
+Output modes:
+
+- default: pretty JSON
+- `--raw`: single-line JSON
+- `ATM_OUTPUT=raw`: default raw JSON mode for automation
 
 ### Example sqlite setup
 

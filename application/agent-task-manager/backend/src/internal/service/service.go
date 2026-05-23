@@ -44,6 +44,10 @@ func (s *Service) DeleteProject(ctx context.Context, id string) error {
 	return s.store.DeleteProject(ctx, id)
 }
 
+func (s *Service) GetProjectOverview(ctx context.Context, id string) (store.ProjectOverview, error) {
+	return s.store.GetProjectOverview(ctx, id)
+}
+
 func (s *Service) CreateTask(ctx context.Context, input store.TaskCreate) (domain.Task, error) {
 	task, err := s.store.CreateTask(ctx, input)
 	if err != nil {

@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties, type RefObject } from 'react'
 
 import { priorityMeta, statusMeta, taskViewItems } from './ui-config'
 import {
@@ -185,7 +185,7 @@ export function ProjectsView({
 										<td style={tableCellStyle}>{project.inProgress}</td>
 										<td style={tableCellStyle}>{project.inReview}</td>
 										<td style={tableCellStyle}>{project.updatedAt}</td>
-										<td style={tableCellStyle}><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button style={inlineActionButtonStyle} onClick={() => onSelectProject(project.slug)}>Open Tasks</button><button style={inlineGhostActionButtonStyle}>Copy ID</button></div></td>
+										<td style={tableCellStyle}><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button style={inlineActionButtonStyle} onClick={() => onSelectProject(project.slug)}>Open Tasks</button><button style={inlineGhostActionButtonStyle} onClick={() => navigator.clipboard.writeText(project.id)}>Copy ID</button></div></td>
 									</tr>
 								)
 							})}
@@ -211,8 +211,18 @@ export function TasksWorkspace(props: {
 	selectedTask: Task
 	onSelectTask: (taskId: string) => void
 	onClearFilters: () => void
+	onCreateTask: () => void
+	taskDraftTitle: string
+	onTaskDraftTitleChange: (value: string) => void
+	taskDraftDescription: string
+	onTaskDraftDescriptionChange: (value: string) => void
+	taskDraftPriority: Priority
+	onTaskDraftPriorityChange: (value: Priority) => void
+	taskDraftLabels: string
+	onTaskDraftLabelsChange: (value: string) => void
+	onUpdateTask: (input: { taskId: string; title: string; description: string; status: TaskStatus; priority: Priority; assignee: string; labels: string[] }) => void
 }) {
-	const { taskView, onChangeTaskView, selectedProject, onSelectProject, selectedLabel, onSelectLabel, projects, labels, filters, tasks, selectedTask, onSelectTask, onClearFilters } = props
+	const { taskView, onChangeTaskView, selectedProject, onSelectProject, selectedLabel, onSelectLabel, projects, labels, filters, tasks, selectedTask, onSelectTask, onClearFilters, onCreateTask, taskDraftTitle, onTaskDraftTitleChange, taskDraftDescription, onTaskDraftDescriptionChange, taskDraftPriority, onTaskDraftPriorityChange, taskDraftLabels, onTaskDraftLabelsChange, onUpdateTask } = props
 	const grouped = taskView === 'board' ? {
 		backlog: tasks.filter((task) => task.status === 'backlog'),
 		todo: tasks.filter((task) => task.status === 'todo'),
@@ -234,7 +244,27 @@ export function TasksWorkspace(props: {
 							const active = item.id === taskView
 							return <button key={item.id} onClick={() => onChangeTaskView(item.id)} style={{ ...segmentedButtonStyle, background: active ? palette.text : palette.panel, color: active ? '#ffffff' : palette.text, borderColor: active ? palette.text : palette.border }}>{item.label}</button>
 						})}
-						<button style={primaryActionButtonStyle}>Create Task</button>
+						<button style={primaryActionButtonStyle} onClick={onCreateTask}>Create Task</button>
+					</div>
+				</div>
+				<div style={editorPanelStyle}>
+					<div style={metaLabelStyle}>Create task</div>
+					<input value={taskDraftTitle} onChange={(event) => onTaskDraftTitleChange(event.target.value)} placeholder="Task title" style={textInputStyle} />
+					<textarea value={taskDraftDescription} onChange={(event) => onTaskDraftDescriptionChange(event.target.value)} placeholder="Short description" rows={3} style={textAreaStyle} />
+					<div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr) auto', gap: 10, alignItems: 'end' }}>
+						<div>
+							<div style={metaLabelStyle}>Priority</div>
+							<select value={taskDraftPriority} onChange={(event) => onTaskDraftPriorityChange(event.target.value as Priority)} style={selectStyle}>
+								<option value="P0">P0</option>
+								<option value="P1">P1</option>
+								<option value="P2">P2</option>
+							</select>
+						</div>
+						<div>
+							<div style={metaLabelStyle}>Labels</div>
+							<input value={taskDraftLabels} onChange={(event) => onTaskDraftLabelsChange(event.target.value)} placeholder="Comma-separated labels" style={textInputStyle} />
+						</div>
+						<button style={primaryActionButtonStyle} onClick={onCreateTask}>Create Task</button>
 					</div>
 				</div>
 				<div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
@@ -250,17 +280,102 @@ export function TasksWorkspace(props: {
 				) : (
 					<div style={{ overflowX: 'auto' }}><table style={tableStyle}><thead><tr>{['ID', 'Title', 'Status', 'Priority', 'Labels', 'Assignee', 'Updated'].map((header) => <th key={header} style={tableHeadStyle}>{header}</th>)}</tr></thead><tbody>{tasks.map((task) => { const active = selectedTask.id === task.id; return <tr key={task.id} onClick={() => onSelectTask(task.id)} style={{ cursor: 'pointer', background: active ? palette.accentSoft : 'transparent' }}><td style={{ ...tableCellStyle, fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{task.id}</td><td style={tableCellStyle}><div style={{ fontWeight: 700 }}>{task.title}</div><div style={{ color: palette.muted, fontSize: 13, marginTop: 4 }}>{task.summary}</div></td><td style={tableCellStyle}><StatusPill status={task.status} /></td><td style={tableCellStyle}><PriorityPill priority={task.priority} /></td><td style={tableCellStyle}><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{task.labels.map((label) => <LabelChip key={label} label={label} />)}</div></td><td style={tableCellStyle}>{task.assignee}</td><td style={tableCellStyle}>{task.updatedAt}</td></tr> })}</tbody></table></div>
 				)}
-				<div style={{ marginTop: 18 }}><TaskDetail task={selectedTask} compact /></div>
+				<div style={{ marginTop: 18 }}><TaskDetail task={selectedTask} compact onSave={onUpdateTask} /></div>
 			</div>
 		</div>
 	)
 }
 
-export function SessionsView({ sessions, onPreview }: { sessions: Session[]; onPreview: (snapshotId: string) => void }) {
+export function SessionsView(props: {
+	sessions: Session[]
+	onPreview: (snapshotId: string) => void
+	onDownload: (snapshotId: string) => void
+	sessionMode: 'upload' | 'register' | null
+	onSessionModeChange: (value: 'upload' | 'register' | null) => void
+	sessionTitle: string
+	onSessionTitleChange: (value: string) => void
+	sessionDescription: string
+	onSessionDescriptionChange: (value: string) => void
+	sessionArtifactName: string
+	onSessionArtifactNameChange: (value: string) => void
+	sessionArtifactPath: string
+	onSessionArtifactPathChange: (value: string) => void
+	sessionFile: File | null
+	onSessionFileChange: (file: File | null) => void
+	onSubmitSession: () => void
+	onCancelSession: () => void
+	fileInputRef: RefObject<HTMLInputElement | null>
+}) {
+	const { sessions, onPreview, onDownload, sessionMode, onSessionModeChange, sessionTitle, onSessionTitleChange, sessionDescription, onSessionDescriptionChange, sessionArtifactName, onSessionArtifactNameChange, sessionArtifactPath, onSessionArtifactPathChange, sessionFile, onSessionFileChange, onSubmitSession, onCancelSession, fileInputRef } = props
 	return (
 		<div style={{ display: 'grid', gap: 18 }}>
 			<WorkspaceHeader eyebrow="Sessions" title="Registry for imported agent session snapshots" description="A document-registry mental model: upload, register, inspect metadata, and download artifacts without pretending these are task cards." />
-			<div style={surfaceStyle}><div style={toolbarStyle}><div style={toolbarTitleStyle}>Snapshot Registry</div><div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}><button style={primaryActionButtonStyle}>Upload Artifact</button><button style={ghostActionButtonStyle}>Register Existing Path</button></div></div><div style={{ overflowX: 'auto' }}><table style={tableStyle}><thead><tr>{['Title', 'Snapshot ID', 'Description', 'Artifact Name', 'Artifact Path', 'Updated', 'Actions'].map((header) => <th key={header} style={tableHeadStyle}>{header}</th>)}</tr></thead><tbody>{sessions.map((session) => <tr key={session.snapshotId}><td style={tableCellStyle}><div style={{ fontWeight: 700 }}>{session.title}</div></td><td style={{ ...tableCellStyle, fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: 12 }}>{session.snapshotId}</td><td style={tableCellStyle}>{session.description}</td><td style={tableCellStyle}>{session.artifactName}</td><td style={{ ...tableCellStyle, maxWidth: 280 }}><div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: 12 }}>{session.artifactPath}</div></td><td style={tableCellStyle}>{session.updatedAt}</td><td style={tableCellStyle}><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button style={inlineActionButtonStyle} onClick={() => onPreview(session.snapshotId)}>Preview</button><button style={inlineGhostActionButtonStyle}>Download</button></div></td></tr>)}</tbody></table></div></div>
+			<div style={surfaceStyle}>
+				<div style={toolbarStyle}>
+					<div style={toolbarTitleStyle}>Snapshot Registry</div>
+					<div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+						<button style={primaryActionButtonStyle} onClick={() => onSessionModeChange('upload')}>Upload Artifact</button>
+						<button style={ghostActionButtonStyle} onClick={() => onSessionModeChange('register')}>Register Existing Path</button>
+					</div>
+				</div>
+				{sessionMode && (
+					<div style={editorPanelStyle}>
+						<div style={metaLabelStyle}>{sessionMode === 'upload' ? 'Upload session artifact' : 'Register existing artifact path'}</div>
+						<div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10 }}>
+							<input value={sessionTitle} onChange={(event) => onSessionTitleChange(event.target.value)} placeholder="Session title" style={textInputStyle} />
+							<input value={sessionArtifactName} onChange={(event) => onSessionArtifactNameChange(event.target.value)} placeholder="Artifact name" style={textInputStyle} disabled={sessionMode === 'upload'} />
+						</div>
+						<textarea value={sessionDescription} onChange={(event) => onSessionDescriptionChange(event.target.value)} placeholder="Description" rows={3} style={textAreaStyle} />
+						{sessionMode === 'upload' ? (
+							<div style={{ display: 'grid', gap: 8 }}>
+								<input
+									ref={fileInputRef}
+									type="file"
+									accept=".json,application/json"
+									onChange={(event) => {
+										const file = event.target.files?.[0] ?? null
+										onSessionFileChange(file)
+										if (file) {
+											onSessionArtifactNameChange(file.name)
+											if (!sessionTitle) onSessionTitleChange(file.name.replace(/\.json$/i, ''))
+										}
+									}}
+									style={textInputStyle}
+								/>
+								<div style={{ color: palette.muted, fontSize: 13 }}>{sessionFile ? `Selected: ${sessionFile.name}` : 'Select an exported session artifact file.'}</div>
+							</div>
+						) : (
+							<input value={sessionArtifactPath} onChange={(event) => onSessionArtifactPathChange(event.target.value)} placeholder="s3://... or /path/to/session.json" style={textInputStyle} />
+						)}
+						<div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+							<button style={primaryActionButtonStyle} onClick={onSubmitSession}>Save Session</button>
+							<button style={ghostActionButtonStyle} onClick={onCancelSession}>Cancel</button>
+						</div>
+					</div>
+				)}
+				<div style={{ overflowX: 'auto' }}>
+					<table style={tableStyle}>
+						<thead>
+							<tr>
+								{['Title', 'Snapshot ID', 'Description', 'Artifact Name', 'Artifact Path', 'Updated', 'Actions'].map((header) => <th key={header} style={tableHeadStyle}>{header}</th>)}
+							</tr>
+						</thead>
+						<tbody>
+							{sessions.map((session) => (
+								<tr key={session.snapshotId}>
+									<td style={tableCellStyle}><div style={{ fontWeight: 700 }}>{session.title}</div></td>
+									<td style={{ ...tableCellStyle, fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: 12 }}>{session.snapshotId}</td>
+									<td style={tableCellStyle}>{session.description}</td>
+									<td style={tableCellStyle}>{session.artifactName}</td>
+									<td style={{ ...tableCellStyle, maxWidth: 280 }}><div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: 12 }}>{session.artifactPath}</div></td>
+									<td style={tableCellStyle}>{session.updatedAt}</td>
+									<td style={tableCellStyle}><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><button style={inlineActionButtonStyle} onClick={() => onPreview(session.snapshotId)}>Preview</button><button style={inlineGhostActionButtonStyle} onClick={() => onDownload(session.snapshotId)}>Download</button></div></td>
+								</tr>
+							))}
+						</tbody>
+					</table>
+				</div>
+			</div>
 		</div>
 	)
 }
@@ -292,18 +407,107 @@ export function ActivityView(props: {
 	return (
 		<div style={{ display: 'grid', gap: 18 }}>
 			<WorkspaceHeader eyebrow="Activity" title="Global audit timeline with explicit combined filters" description="Project, task, and label filters share one visible filter model with removable chips, NOT state, and explicit sort direction." />
-			<div style={surfaceStyle}><div style={toolbarStyle}><div style={toolbarTitleStyle}>Activity Timeline</div><button style={ghostActionButtonStyle} onClick={onToggleSort}>Sort: {sort === 'asc' ? 'Ascending' : 'Descending'}</button></div><div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}><select value={project} onChange={(event) => onProjectChange(event.target.value)} style={selectStyle}><option value="">Project</option>{projects.map((item) => <option key={item} value={item}>{item}</option>)}</select><ToggleChip label="NOT" active={notProject} onClick={onToggleNotProject} /><select value={task} onChange={(event) => onTaskChange(event.target.value)} style={selectStyle}><option value="">Task</option>{tasks.map((item) => <option key={item} value={item}>{item}</option>)}</select><ToggleChip label="NOT" active={notTask} onClick={onToggleNotTask} /><select value={label} onChange={(event) => onLabelChange(event.target.value)} style={selectStyle}><option value="">Label</option>{labels.map((item) => <option key={item} value={item}>{item}</option>)}</select><ToggleChip label="NOT" active={notLabel} onClick={onToggleNotLabel} />{activeFilters.map((filter) => <FilterChip key={filter} label={filter} />)}{activeFilters.length > 0 && <button style={clearActionButtonStyle} onClick={onClear}>Clear all</button>}</div>{activities.length === 0 ? <EmptyState title="No activity matches this filter set" detail="The current combined filter state removed all timeline rows. Clear filters or invert one condition to continue." /> : <div style={{ display: 'grid', gap: 12 }}>{activities.map((activity) => <button key={activity.id} onClick={() => onPreview(activity.id)} style={timelineButtonStyle}><div style={timelineDotStyle} /><div style={{ minWidth: 0 }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 4 }}><div style={{ fontWeight: 700 }}>{activity.title}</div><div style={metaTextStyle}>{activity.updatedAt}</div></div><div style={{ color: palette.muted, lineHeight: 1.55, marginBottom: 8 }}>{activity.detail}</div><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><MetaBadge label={activity.projectName} /><MetaBadge label={activity.task} />{activity.labels.map((item) => <LabelChip key={item} label={item} />)}</div></div></button>)}</div>}</div>
+			<div style={surfaceStyle}>
+				<div style={toolbarStyle}><div style={toolbarTitleStyle}>Activity Timeline</div><button style={ghostActionButtonStyle} onClick={onToggleSort}>Sort: {sort === 'asc' ? 'Ascending' : 'Descending'}</button></div>
+				<div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+					<select value={project} onChange={(event) => onProjectChange(event.target.value)} style={selectStyle}><option value="">Project</option>{projects.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+					<ToggleChip label="NOT" active={notProject} onClick={onToggleNotProject} />
+					<select value={task} onChange={(event) => onTaskChange(event.target.value)} style={selectStyle}><option value="">Task</option>{tasks.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+					<ToggleChip label="NOT" active={notTask} onClick={onToggleNotTask} />
+					<select value={label} onChange={(event) => onLabelChange(event.target.value)} style={selectStyle}><option value="">Label</option>{labels.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+					<ToggleChip label="NOT" active={notLabel} onClick={onToggleNotLabel} />
+					{activeFilters.map((filter) => <FilterChip key={filter} label={filter} />)}
+					{activeFilters.length > 0 && <button style={clearActionButtonStyle} onClick={onClear}>Clear all</button>}
+				</div>
+				{activities.length === 0 ? <EmptyState title="No activity matches this filter set" detail="The current combined filter state removed all timeline rows. Clear filters or invert one condition to continue." /> : <div style={{ display: 'grid', gap: 12 }}>{activities.map((activity) => <button key={activity.id} onClick={() => onPreview(activity.id)} style={timelineButtonStyle}><div style={timelineDotStyle} /><div style={{ minWidth: 0 }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 4 }}><div style={{ fontWeight: 700 }}>{activity.title}</div><div style={metaTextStyle}>{activity.updatedAt}</div></div><div style={{ color: palette.muted, lineHeight: 1.55, marginBottom: 8 }}>{activity.detail}</div><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><MetaBadge label={activity.projectName || 'No project'} /><MetaBadge label={activity.task || 'No task'} />{activity.labels.map((item) => <LabelChip key={item} label={item} />)}</div></div></button>)}</div>}
+			</div>
 		</div>
 	)
 }
 
-export function TaskDetail({ task, compact = false }: { task: Task; compact?: boolean }) {
+export function TaskDetail({ task, compact = false, onSave }: { task: Task; compact?: boolean; onSave?: (input: { taskId: string; title: string; description: string; status: TaskStatus; priority: Priority; assignee: string; labels: string[] }) => void }) {
+	const [editing, setEditing] = useState(false)
+	const [title, setTitle] = useState(task.title)
+	const [description, setDescription] = useState(task.summary)
+	const [status, setStatus] = useState<TaskStatus>(task.status)
+	const [priority, setPriority] = useState<Priority>(task.priority)
+	const [assignee, setAssignee] = useState(task.assignee)
+	const [labels, setLabels] = useState(task.labels.join(', '))
+
+	useEffect(() => {
+		setTitle(task.title)
+		setDescription(task.summary)
+		setStatus(task.status)
+		setPriority(task.priority)
+		setAssignee(task.assignee)
+		setLabels(task.labels.join(', '))
+		setEditing(false)
+	}, [task])
+
 	return (
-		<div style={{ ...surfaceStyle, padding: compact ? 18 : 22, gap: 0 }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 16 }}><div><div style={eyebrowStyle}>Task Detail</div><div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}><div style={{ fontSize: compact ? 22 : 28, fontWeight: 800, lineHeight: 1.15 }}>{task.title}</div><IdPill value={task.id} /></div><div style={{ color: palette.muted, maxWidth: 760, lineHeight: 1.6 }}>{task.summary}</div></div><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><StatusPill status={task.status} /><PriorityPill priority={task.priority} /><MetaBadge label={task.assignee} /><button style={inlineGhostActionButtonStyle}>Copy ID</button></div></div><div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr 1fr' : '1.2fr 1fr', gap: 16, marginBottom: 16 }}><div style={detailBlockStyle}><div style={detailBlockTitleStyle}>Description and metadata</div><div style={{ color: palette.muted, lineHeight: 1.6, marginBottom: 12 }}>Task structure, labels, assignee state, and activity should stay explicit near the top of the detail view.</div><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{task.labels.map((label) => <LabelChip key={label} label={label} />)}</div></div><div style={detailBlockStyle}><div style={detailBlockTitleStyle}>Parent and subtask structure</div><div style={{ display: 'grid', gap: 10 }}><div><div style={metaLabelStyle}>Parent</div><div style={{ fontWeight: 700 }}>{task.parent ?? 'No parent task'}</div></div><div><div style={metaLabelStyle}>Subtasks</div><div style={{ display: 'grid', gap: 6 }}>{task.subtasks?.map((subtask) => <div key={subtask} style={subtaskRowStyle}>{subtask}</div>) ?? <div style={{ color: palette.muted }}>No subtasks</div>}</div></div></div></div></div><div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr 1fr' : '1fr 1fr', gap: 16 }}><div style={detailBlockStyle}><div style={detailBlockTitleStyle}>Comments</div><div style={{ display: 'grid', gap: 10 }}><div style={commentRowStyle}><div style={{ fontWeight: 700, marginBottom: 4 }}>admin</div><div style={{ color: palette.muted, lineHeight: 1.55 }}>Parent changes should be explicit in both API responses and UI detail surfaces.</div></div><div style={commentRowStyle}><div style={{ fontWeight: 700, marginBottom: 4 }}>builder-agent</div><div style={{ color: palette.muted, lineHeight: 1.55 }}>Repository interfaces now isolate storage concerns from transport and service logic.</div></div></div></div><div style={detailBlockStyle}><div style={detailBlockTitleStyle}>Recent activity</div><div style={{ display: 'grid', gap: 10 }}>{task.acceptance?.map((item) => <div key={item} style={activityNoteStyle}>{item}</div>)}</div></div></div></div>
+		<div style={{ ...surfaceStyle, padding: compact ? 18 : 22, gap: 0 }}>
+			<div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 16 }}>
+				<div>
+					<div style={eyebrowStyle}>Task Detail</div>
+					<div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+						<div style={{ fontSize: compact ? 22 : 28, fontWeight: 800, lineHeight: 1.15 }}>{task.title}</div>
+						<IdPill value={task.id} />
+					</div>
+					<div style={{ color: palette.muted, maxWidth: 760, lineHeight: 1.6 }}>{task.summary}</div>
+				</div>
+				<div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+					<StatusPill status={task.status} />
+					<PriorityPill priority={task.priority} />
+					<MetaBadge label={task.assignee} />
+					<button style={inlineGhostActionButtonStyle} onClick={() => navigator.clipboard.writeText(task.id)}>Copy ID</button>
+					{onSave && <button style={inlineActionButtonStyle} onClick={() => setEditing((value) => !value)}>{editing ? 'Close Edit' : 'Edit Task'}</button>}
+				</div>
+			</div>
+			{editing && onSave && (
+				<div style={{ ...editorPanelStyle, marginBottom: 16 }}>
+					<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Task title" style={textInputStyle} />
+					<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Task description" rows={4} style={textAreaStyle} />
+					<div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr 1fr' : '1fr 1fr 1fr', gap: 10 }}>
+						<select value={status} onChange={(event) => setStatus(event.target.value as TaskStatus)} style={selectStyle}><option value="backlog">Backlog</option><option value="todo">Todo</option><option value="in_progress">In Progress</option><option value="in_review">In Review</option></select>
+						<select value={priority} onChange={(event) => setPriority(event.target.value as Priority)} style={selectStyle}><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option></select>
+						<input value={assignee} onChange={(event) => setAssignee(event.target.value)} placeholder="Assignee or unassigned" style={textInputStyle} />
+					</div>
+					<input value={labels} onChange={(event) => setLabels(event.target.value)} placeholder="Comma-separated labels" style={textInputStyle} />
+					<div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+						<button style={primaryActionButtonStyle} onClick={() => onSave({ taskId: task.id, title: title.trim(), description: description.trim(), status, priority, assignee: assignee.trim() || 'unassigned', labels: labels.split(',').map((label) => label.trim()).filter(Boolean) })}>Save Changes</button>
+						<button style={ghostActionButtonStyle} onClick={() => setEditing(false)}>Cancel</button>
+					</div>
+				</div>
+			)}
+			<div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr 1fr' : '1.2fr 1fr', gap: 16, marginBottom: 16 }}>
+				<div style={detailBlockStyle}>
+					<div style={detailBlockTitleStyle}>Description and metadata</div>
+					<div style={{ color: palette.muted, lineHeight: 1.6, marginBottom: 12 }}>Task structure, labels, assignee state, and activity should stay explicit near the top of the detail view.</div>
+					<div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>{task.labels.map((label) => <LabelChip key={label} label={label} />)}</div>
+				</div>
+				<div style={detailBlockStyle}>
+					<div style={detailBlockTitleStyle}>Parent and subtask structure</div>
+					<div style={{ display: 'grid', gap: 10 }}>
+						<div><div style={metaLabelStyle}>Parent</div><div style={{ fontWeight: 700 }}>{task.parent ?? 'No parent task'}</div></div>
+						<div><div style={metaLabelStyle}>Subtasks</div><div style={{ display: 'grid', gap: 6 }}>{task.subtasks?.length ? task.subtasks.map((subtask) => <div key={subtask} style={subtaskRowStyle}>{subtask}</div>) : <div style={{ color: palette.muted }}>No subtasks</div>}</div></div>
+					</div>
+				</div>
+			</div>
+			<div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr 1fr' : '1fr 1fr', gap: 16 }}>
+				<div style={detailBlockStyle}>
+					<div style={detailBlockTitleStyle}>Comments</div>
+					<div style={{ display: 'grid', gap: 10 }}>{task.comments?.length ? task.comments.map((comment) => <div key={comment.id} style={commentRowStyle}><div style={metaTextStyle}>{comment.updatedAt}</div><div style={{ marginTop: 6, lineHeight: 1.55 }}>{comment.body}</div></div>) : <div style={{ color: palette.muted }}>No comments yet</div>}</div>
+				</div>
+				<div style={detailBlockStyle}>
+					<div style={detailBlockTitleStyle}>Recent activity</div>
+					<div style={{ display: 'grid', gap: 10 }}>{task.activities?.length ? task.activities.map((activity) => <div key={activity.id} style={activityNoteStyle}><div style={{ fontWeight: 700, marginBottom: 4 }}>{activity.title}</div><div>{activity.detail}</div><div style={{ marginTop: 6, ...metaTextStyle }}>{activity.updatedAt}</div></div>) : <div style={{ color: palette.muted }}>No recent activity</div>}</div>
+				</div>
+			</div>
+		</div>
 	)
 }
 
-export function PreviewPanel({ preview, tasks, activities, sessions, onClose, onOpenTaskDetail }: { preview: PreviewState; tasks: Task[]; activities: ActivityItem[]; sessions: Session[]; onClose: () => void; onOpenTaskDetail: (taskId: string) => void }) {
+export function PreviewPanel({ preview, tasks, activities, sessions, onClose, onOpenTaskDetail, onDownloadSession }: { preview: PreviewState; tasks: Task[]; activities: ActivityItem[]; sessions: Session[]; onClose: () => void; onOpenTaskDetail: (taskId: string) => void; onDownloadSession: (snapshotId: string) => void }) {
 	const content = (() => {
 		if (preview?.kind === 'task') {
 			const task = tasks.find((item) => item.id === preview.taskId)
@@ -318,12 +522,12 @@ export function PreviewPanel({ preview, tasks, activities, sessions, onClose, on
 		if (preview?.kind === 'session') {
 			const session = sessions.find((item) => item.snapshotId === preview.snapshotId)
 			if (!session) return null
-			return <><div style={previewHeaderStyle}><div><div style={eyebrowStyle}>Session Preview</div><div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{session.title}</div></div><button style={closeButtonStyle} onClick={onClose}>Close</button></div><div style={{ color: palette.muted, lineHeight: 1.6, marginBottom: 16 }}>{session.description}</div><div style={{ display: 'grid', gap: 8, marginBottom: 14 }}><PreviewMeta label="Snapshot ID" value={session.snapshotId} mono /><PreviewMeta label="Artifact Name" value={session.artifactName} mono /><PreviewMeta label="Artifact Path" value={session.artifactPath} mono /></div><div style={{ display: 'flex', gap: 8 }}><button style={primaryActionButtonStyle}>Download Artifact</button><button style={ghostActionButtonStyle}>Copy Path</button></div></>
+			return <><div style={previewHeaderStyle}><div><div style={eyebrowStyle}>Session Preview</div><div style={{ fontSize: 22, fontWeight: 800, marginTop: 6 }}>{session.title}</div></div><button style={closeButtonStyle} onClick={onClose}>Close</button></div><div style={{ color: palette.muted, lineHeight: 1.6, marginBottom: 16 }}>{session.description}</div><div style={{ display: 'grid', gap: 8, marginBottom: 14 }}><PreviewMeta label="Snapshot ID" value={session.snapshotId} mono /><PreviewMeta label="Artifact Name" value={session.artifactName} mono /><PreviewMeta label="Artifact Path" value={session.artifactPath} mono /></div><div style={{ display: 'flex', gap: 8 }}><button style={primaryActionButtonStyle} onClick={() => onDownloadSession(session.snapshotId)}>Download Artifact</button><button style={ghostActionButtonStyle} onClick={() => navigator.clipboard.writeText(session.artifactPath)}>Copy Path</button></div></>
 		}
 		return null
 	})()
 	if (!content) return null
-	return <div style={{ position: 'fixed', top: 24, right: 24, width: 380, maxWidth: 'calc(100vw - 48px)', background: palette.panel, border: `1px solid ${palette.border}`, borderRadius: 18, boxShadow: palette.shadow, padding: 18, zIndex: 30 }}>{content}</div>
+	return <div style={previewSurfaceStyle}>{content}</div>
 }
 
 export function WorkspaceHeader({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
@@ -381,3 +585,6 @@ function EmptyState({ title, detail }: { title: string; detail: string }) {
 }
 
 const previewSurfaceStyle: CSSProperties = { position: 'fixed', top: 24, right: 24, width: 380, maxWidth: 'calc(100vw - 48px)', background: palette.panel, border: `1px solid ${palette.border}`, borderRadius: 18, boxShadow: palette.shadow, padding: 18, zIndex: 30 }
+const editorPanelStyle: CSSProperties = { display: 'grid', gap: 10, marginBottom: 16, padding: 14, borderRadius: 14, border: `1px solid ${palette.border}`, background: palette.panelAlt }
+const textInputStyle: CSSProperties = { border: `1px solid ${palette.border}`, borderRadius: 12, padding: '10px 12px', background: palette.panel, color: palette.text, width: '100%', boxSizing: 'border-box' }
+const textAreaStyle: CSSProperties = { ...textInputStyle, resize: 'vertical', fontFamily: 'inherit' }

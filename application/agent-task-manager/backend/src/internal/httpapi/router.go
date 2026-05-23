@@ -25,6 +25,18 @@ type Server struct {
 	authMode     string
 }
 
+type listResponse[T any] struct {
+	Items []T `json:"items"`
+}
+
+type artifactUploadResponse struct {
+	ArtifactName string `json:"artifact_name"`
+	ArtifactPath string `json:"artifact_path"`
+}
+
+var errMissingBearerToken = errors.New("missing bearer token")
+var errInvalidAPIKey = errors.New("invalid api key")
+
 func New(service *service.Service, artifactsDir, authMode string) *Server {
 	return &Server{service: service, artifactsDir: artifactsDir, authMode: authMode}
 }
@@ -38,20 +50,24 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/users/", s.wrapAuth(s.handleUserSubresources))
 	mux.HandleFunc("/api/v1/projects", s.wrapAuth(s.handleProjects))
 	mux.HandleFunc("/api/v1/projects/", s.wrapAuth(s.handleProjectSubresources))
+	mux.HandleFunc("/api/v1/tasks", s.wrapAuth(s.handleTasks))
 	mux.HandleFunc("/api/v1/tasks/", s.wrapAuth(s.handleTaskSubresources))
 	mux.HandleFunc("/api/v1/comments/", s.wrapAuth(s.handleCommentSubresources))
 	mux.HandleFunc("/api/v1/sessions", s.wrapAuth(s.handleSessions))
 	mux.HandleFunc("/api/v1/sessions/uploads", s.wrapAuth(s.handleSessionUpload))
 	mux.HandleFunc("/api/v1/sessions/", s.wrapAuth(s.handleSessionSubresources))
 	mux.HandleFunc("/api/v1/activities", s.wrapAuth(s.handleActivities))
+	mux.HandleFunc("/api/v1/activities/", s.wrapAuth(s.handleActivitySubresources))
+	mux.HandleFunc("/api/v1/search", s.wrapAuth(s.handleSearch))
 	return mux
 }
 
 func (s *Server) wrapAuth(next func(http.ResponseWriter, *http.Request, *domain.User)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Agent-Task-Manager-Auth-Mode", s.authMode)
 		user, err := s.currentUser(r.Context(), r)
 		if err != nil {
-			writeError(w, http.StatusUnauthorized, err.Error())
+			writeAuthError(w, err)
 			return
 		}
 		next(w, r, user)
@@ -65,12 +81,21 @@ func (s *Server) currentUser(ctx context.Context, r *http.Request) (*domain.User
 	}
 	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
 	if !strings.HasPrefix(strings.ToLower(authorization), "bearer ") {
-		return nil, errors.New("missing bearer token")
+		return nil, errMissingBearerToken
 	}
 	token := strings.TrimSpace(authorization[7:])
+	if token == "" {
+		return nil, errMissingBearerToken
+	}
 	user, err := s.service.Store().GetUserByAPIKey(ctx, token)
 	if err != nil {
+		if errors.Is(err, bunstore.ErrNotFound) {
+			return nil, errInvalidAPIKey
+		}
 		return nil, err
+	}
+	if !user.Active {
+		return nil, errors.New("api key user is inactive")
 	}
 	return &user, nil
 }
@@ -81,7 +106,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	if err := s.service.Store().Ping(r.Context()); err != nil {
-		writeError(w, http.StatusServiceUnavailable, err.Error())
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
@@ -96,10 +121,10 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request, _ *domain.U
 	case http.MethodGet:
 		users, err := s.service.Store().ListUsers(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, users)
+		writeJSON(w, http.StatusOK, listResponse[domain.User]{Items: users})
 	case http.MethodPost:
 		var input struct {
 			Email  string `json:"email"`
@@ -107,12 +132,12 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request, _ *domain.U
 			Role   string `json:"role"`
 			Active *bool  `json:"active"`
 		}
-		if !decodeJSON(w, r, &input) {
+	if !decodeJSON(w, r, &input) {
 			return
 		}
 		user, err := s.service.CreateUser(r.Context(), store.UserCreate{Email: input.Email, Name: input.Name, Role: input.Role, Active: input.Active == nil || *input.Active})
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 			return
 		}
 		writeJSON(w, http.StatusCreated, user)
@@ -166,7 +191,11 @@ func (s *Server) handleUserAPIKeys(w http.ResponseWriter, r *http.Request, userI
 	switch r.Method {
 	case http.MethodGet:
 		keys, err := s.service.Store().ListAPIKeys(r.Context(), userID)
-		writeStoreResult(w, http.StatusOK, keys, err)
+		if err != nil {
+			writeStoreResult(w, http.StatusOK, nil, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, listResponse[domain.APIKey]{Items: keys})
 	case http.MethodPost:
 		var input struct {
 			Name string `json:"name"`
@@ -185,7 +214,11 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request, _ *domai
 	switch r.Method {
 	case http.MethodGet:
 		projects, err := s.service.Store().ListProjects(r.Context())
-		writeStoreResult(w, http.StatusOK, projects, err)
+		if err != nil {
+			writeStoreResult(w, http.StatusOK, nil, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, listResponse[domain.Project]{Items: projects})
 	case http.MethodPost:
 		var input struct {
 			Slug        string `json:"slug"`
@@ -218,7 +251,30 @@ func (s *Server) handleProjectSubresources(w http.ResponseWriter, r *http.Reques
 		s.handleProjectTasks(w, r, projectID)
 		return
 	}
+	if len(parts) == 5 && parts[4] == "overview" {
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w)
+			return
+		}
+		overview, err := s.service.GetProjectOverview(r.Context(), projectID)
+		writeStoreResult(w, http.StatusOK, overview, err)
+		return
+	}
 	writeNotFound(w)
+}
+
+func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request, _ *domain.User) {
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w)
+		return
+	}
+	filter := store.TaskFilter{Status: r.URL.Query().Get("status"), Priority: r.URL.Query().Get("priority"), Label: r.URL.Query().Get("label"), Query: r.URL.Query().Get("q"), AssigneeID: r.URL.Query().Get("assignee_id")}
+	tasks, err := s.service.Store().ListTasks(r.Context(), filter)
+	if err != nil {
+		writeStoreResult(w, http.StatusOK, nil, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, listResponse[domain.Task]{Items: tasks})
 }
 
 func (s *Server) handleProject(w http.ResponseWriter, r *http.Request, projectID string) {
@@ -250,7 +306,11 @@ func (s *Server) handleProjectTasks(w http.ResponseWriter, r *http.Request, proj
 	case http.MethodGet:
 		filter := store.TaskFilter{Status: r.URL.Query().Get("status"), Priority: r.URL.Query().Get("priority"), Label: r.URL.Query().Get("label"), Query: r.URL.Query().Get("q"), AssigneeID: r.URL.Query().Get("assignee_id")}
 		tasks, err := s.service.Store().ListProjectTasks(r.Context(), projectID, filter)
-		writeStoreResult(w, http.StatusOK, tasks, err)
+		if err != nil {
+			writeStoreResult(w, http.StatusOK, nil, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, listResponse[domain.Task]{Items: tasks})
 	case http.MethodPost:
 		var input struct {
 			ParentTaskID *string  `json:"parent_task_id"`
@@ -328,7 +388,11 @@ func (s *Server) handleTaskComments(w http.ResponseWriter, r *http.Request, task
 	switch r.Method {
 	case http.MethodGet:
 		comments, err := s.service.Store().ListTaskComments(r.Context(), taskID)
-		writeStoreResult(w, http.StatusOK, comments, err)
+		if err != nil {
+			writeStoreResult(w, http.StatusOK, nil, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, listResponse[domain.Comment]{Items: comments})
 	case http.MethodPost:
 		var input struct {
 			AuthorID *string `json:"author_id"`
@@ -372,12 +436,12 @@ func (s *Server) handleTaskSubtasks(w http.ResponseWriter, r *http.Request, task
 		parentID := taskID
 		task, createErr := s.service.CreateTask(r.Context(), store.TaskCreate{ProjectID: parent.ProjectID, ParentTaskID: &parentID, Title: item.Title, Description: item.Description, Status: item.Status, Priority: item.Priority, AssigneeID: item.AssigneeID, Labels: item.Labels})
 		if createErr != nil {
-			writeError(w, http.StatusBadRequest, createErr.Error())
+			writeError(w, http.StatusBadRequest, "invalid_request", createErr.Error())
 			return
 		}
 		created = append(created, task)
 	}
-	writeJSON(w, http.StatusCreated, created)
+	writeJSON(w, http.StatusCreated, listResponse[domain.Task]{Items: created})
 }
 
 func (s *Server) handleTaskReparent(w http.ResponseWriter, r *http.Request, taskID string) {
@@ -423,7 +487,11 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request, _ *domai
 	switch r.Method {
 	case http.MethodGet:
 		sessions, err := s.service.Store().ListSessions(r.Context())
-		writeStoreResult(w, http.StatusOK, sessions, err)
+		if err != nil {
+			writeStoreResult(w, http.StatusOK, nil, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, listResponse[domain.Session]{Items: sessions})
 	case http.MethodPost:
 		var input struct {
 			SnapshotID   string `json:"snapshot_id"`
@@ -452,22 +520,22 @@ func (s *Server) handleSessionUpload(w http.ResponseWriter, r *http.Request, _ *
 		return
 	}
 	if err := r.ParseMultipartForm(64 << 20); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	defer file.Close()
 
 	artifactPath, err := s.storeArtifact(file, header)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"artifact_name": header.Filename, "artifact_path": artifactPath})
+	writeJSON(w, http.StatusCreated, artifactUploadResponse{ArtifactName: header.Filename, ArtifactPath: artifactPath})
 }
 
 func (s *Server) handleSessionSubresources(w http.ResponseWriter, r *http.Request, _ *domain.User) {
@@ -515,7 +583,7 @@ func (s *Server) handleSessionDownload(w http.ResponseWriter, r *http.Request, s
 		return
 	}
 	if strings.HasPrefix(session.ArtifactPath, "s3://") {
-		writeError(w, http.StatusNotImplemented, "s3 artifact download redirect is not implemented yet")
+		writeError(w, http.StatusNotImplemented, "not_implemented", "s3 artifact download redirect is not implemented yet")
 		return
 	}
 	http.ServeFile(w, r, session.ArtifactPath)
@@ -538,7 +606,39 @@ func (s *Server) handleActivities(w http.ResponseWriter, r *http.Request, _ *dom
 		Limit:      limit,
 	}
 	activities, err := s.service.Store().ListActivities(r.Context(), filter)
-	writeStoreResult(w, http.StatusOK, activities, err)
+	if err != nil {
+		writeStoreResult(w, http.StatusOK, nil, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, listResponse[domain.Activity]{Items: activities})
+}
+
+func (s *Server) handleActivitySubresources(w http.ResponseWriter, r *http.Request, _ *domain.User) {
+	parts := splitPath(r.URL.Path)
+	if len(parts) != 4 {
+		writeNotFound(w)
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w)
+		return
+	}
+	activity, err := s.service.Store().GetActivity(r.Context(), parts[3])
+	writeStoreResult(w, http.StatusOK, activity, err)
+}
+
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request, _ *domain.User) {
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w)
+		return
+	}
+	filter := store.TaskFilter{Query: r.URL.Query().Get("q"), Label: r.URL.Query().Get("label"), Status: r.URL.Query().Get("status"), Priority: r.URL.Query().Get("priority"), AssigneeID: r.URL.Query().Get("assignee_id")}
+	tasks, err := s.service.Store().ListTasks(r.Context(), filter)
+	if err != nil {
+		writeStoreResult(w, http.StatusOK, nil, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, listResponse[domain.Task]{Items: tasks})
 }
 
 func (s *Server) storeArtifact(file multipart.File, header *multipart.FileHeader) (string, error) {
@@ -574,7 +674,7 @@ func parseBool(value string) bool {
 func decodeJSON(w http.ResponseWriter, r *http.Request, out any) bool {
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return false
 	}
 	return true
@@ -586,10 +686,10 @@ func writeStoreResult(w http.ResponseWriter, status int, payload any, err error)
 		return
 	}
 	if errors.Is(err, bunstore.ErrNotFound) {
-		writeError(w, http.StatusNotFound, err.Error())
+		writeError(w, http.StatusNotFound, "not_found", err.Error())
 		return
 	}
-	writeError(w, http.StatusBadRequest, err.Error())
+	writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 }
 
 func writeDeleteResult(w http.ResponseWriter, err error) {
@@ -601,15 +701,28 @@ func writeDeleteResult(w http.ResponseWriter, err error) {
 }
 
 func writeMethodNotAllowed(w http.ResponseWriter) {
-	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 }
 
 func writeNotFound(w http.ResponseWriter) {
-	writeError(w, http.StatusNotFound, "not found")
+	writeError(w, http.StatusNotFound, "not_found", "not found")
 }
 
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
+func writeAuthError(w http.ResponseWriter, err error) {
+	w.Header().Set("WWW-Authenticate", `Bearer realm="agent-task-manager"`)
+	if errors.Is(err, errMissingBearerToken) {
+		writeError(w, http.StatusUnauthorized, "missing_bearer_token", err.Error())
+		return
+	}
+	if errors.Is(err, errInvalidAPIKey) {
+		writeError(w, http.StatusUnauthorized, "invalid_api_key", err.Error())
+		return
+	}
+	writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
+}
+
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, map[string]string{"code": code, "error": message})
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

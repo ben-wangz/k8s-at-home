@@ -18,7 +18,7 @@ func (s *Store) ListProjects(ctx context.Context) ([]domain.Project, error) {
 	}
 	projects := make([]domain.Project, 0, len(rows))
 	for _, row := range rows {
-		projects = append(projects, toProject(row))
+		projects = append(projects, s.decorateProjectCounts(ctx, toProject(row)))
 	}
 	return projects, nil
 }
@@ -39,7 +39,7 @@ func (s *Store) GetProject(ctx context.Context, id string) (domain.Project, erro
 		}
 		return domain.Project{}, err
 	}
-	return toProject(*row), nil
+	return s.decorateProjectCounts(ctx, toProject(*row)), nil
 }
 
 func (s *Store) UpdateProject(ctx context.Context, id string, input store.ProjectUpdate) (domain.Project, error) {
@@ -66,4 +66,64 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 	}
 	affected, err := result.RowsAffected()
 	return expectRowsAffected(affected, err)
+}
+
+func (s *Store) decorateProjectCounts(ctx context.Context, project domain.Project) domain.Project {
+	tasks, err := s.ListProjectTasks(ctx, project.ID, store.TaskFilter{})
+	if err != nil {
+		return project
+	}
+	for _, task := range tasks {
+		switch task.Status {
+		case "in_progress":
+			project.InProgress++
+		case "in_review":
+			project.InReview++
+		default:
+			project.Open++
+		}
+	}
+	return project
+}
+
+func (s *Store) GetProjectOverview(ctx context.Context, projectID string) (store.ProjectOverview, error) {
+	project, err := s.GetProject(ctx, projectID)
+	if err != nil {
+		return store.ProjectOverview{}, err
+	}
+	tasks, err := s.ListProjectTasks(ctx, projectID, store.TaskFilter{})
+	if err != nil {
+		return store.ProjectOverview{}, err
+	}
+	activities, err := s.ListActivities(ctx, store.ActivityFilter{Project: projectID, Sort: "desc", Limit: 10})
+	if err != nil {
+		return store.ProjectOverview{}, err
+	}
+	sessions, err := s.ListSessions(ctx)
+	if err != nil {
+		return store.ProjectOverview{}, err
+	}
+	overview := store.ProjectOverview{Project: project}
+	for _, task := range tasks {
+		switch task.Status {
+		case "in_progress":
+			overview.InProgress++
+		case "in_review":
+			overview.InReview++
+		default:
+			overview.Open++
+		}
+	}
+	if len(tasks) > 4 {
+		overview.RecentTasks = tasks[:4]
+	} else {
+		overview.RecentTasks = tasks
+	}
+	if len(sessions) > 4 {
+		overview.RecentSessions = sessions[:4]
+	} else {
+		overview.RecentSessions = sessions
+	}
+	overview.RecentActivities = activities
+	return overview, nil
 }

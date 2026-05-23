@@ -126,6 +126,12 @@ Purpose:
 - list all visible projects
 - powers the top-level `Projects` page
 - should support light filtering and sorting later, but first implementation can be a simple list
+- response should include the summary fields the current frontend expects:
+  - project name
+  - slug
+  - open / in progress / in review counts
+  - updated timestamp
+  - short summary text
 
 #### `POST /projects`
 
@@ -138,6 +144,22 @@ Purpose:
 Purpose:
 
 - return a single project's metadata and high-level summary
+
+### 3.1 Project Overview
+
+The current frontend `Home` screen needs a project-scoped overview surface.
+
+#### `GET /projects/:projectId/overview`
+
+Purpose:
+
+- return a compact dashboard payload for the selected project
+- power the `Home` screen without forcing the frontend to assemble many unrelated calls
+- should include:
+  - project summary counts
+  - recent tasks
+  - recent sessions
+  - recent activities
 
 #### `PATCH /projects/:projectId`
 
@@ -164,6 +186,19 @@ Purpose:
 - list tasks within a project
 - powers board view and task lists
 - should support filtering by status, priority, assignee, label, and text query
+- should support returning the fields the current frontend uses directly:
+  - task id
+  - title
+  - project slug and display name
+  - status
+  - priority
+  - assignee
+  - labels
+  - summary
+  - updated timestamp
+  - parent task reference
+  - subtasks
+  - acceptance notes
 
 #### `POST /projects/:projectId/tasks`
 
@@ -261,12 +296,17 @@ Purpose:
   - artifact name
   - artifact path
 
+The current frontend also needs the registry rows to include `updatedAt` for recency sorting.
+
 #### `POST /sessions`
 
 Purpose:
 
 - create a new session snapshot record
 - used after uploading or registering a session export artifact
+- should accept either:
+  - an uploaded artifact reference from `POST /sessions/uploads`
+  - a direct `artifact_path` for registering an existing local path or `s3://...` object
 
 #### `GET /sessions/:snapshotId`
 
@@ -293,6 +333,7 @@ Purpose:
 
 - accept a session export artifact upload
 - return enough information to create or update a session snapshot record
+- should return the stored artifact name/path plus the metadata needed to create the snapshot record
 
 This endpoint is for file ingestion. It should support backend-managed storage targets.
 
@@ -322,6 +363,14 @@ Purpose:
   - combining multiple filters
   - `NOT` mode for those filters
   - ascending or descending sort by activity time
+- response should include the current frontend fields directly:
+  - activity id
+  - title
+  - detail text
+  - project slug and display name
+  - task id
+  - labels
+  - updated timestamp
 
 #### `GET /activities/:activityId`
 
@@ -396,6 +445,10 @@ List endpoints should consistently support:
 - stable ordering
 - machine-readable response structure
 
+Current implementation rule:
+
+- list responses use `{ "items": [...] }`
+
 ### Error behavior
 
 Errors should be:
@@ -403,6 +456,11 @@ Errors should be:
 - explicit
 - stable for CLI parsing
 - easy for frontend to surface without guessing
+
+Current implementation rule:
+
+- error responses use `{ "code": "...", "error": "..." }`
+- auth failures use stable codes such as `missing_bearer_token` and `invalid_api_key`
 
 ### IDs
 
@@ -470,7 +528,67 @@ The current frontend mock implies these backend priorities:
 - `NOT` filtering support
 - ascending/descending sort control
 
-## 14. Out Of Scope For This Document
+## 14. Frontend To API Mapping
+
+This section maps the current frontend shell directly to backend calls.
+
+### Global Shell
+
+- top search input should call `GET /search`
+- `Quick Create` should open a create flow that eventually uses one of:
+  - `POST /projects/:projectId/tasks`
+  - `POST /tasks/:taskId/comments`
+  - `POST /sessions`
+- `Command` is a client-side UI affordance for now and does not require a backend endpoint yet
+
+### Home
+
+- should load from `GET /projects/:projectId/overview`
+- preview navigation can reuse `GET /tasks/:taskId`, `GET /activities/:activityId`, and `GET /sessions/:snapshotId`
+
+### Projects
+
+- `GET /projects`
+- selecting a project should navigate to `GET /projects/:projectId/tasks`
+- `Open Tasks` can be a pure navigation action
+- `Copy ID` is client-side clipboard behavior
+
+### Tasks
+
+- list mode should call `GET /projects/:projectId/tasks`
+- board mode should use the same endpoint with status grouping done client-side or via a `groupBy=status` query later
+- task detail should call `GET /tasks/:taskId`
+- `Create Task` should use `POST /projects/:projectId/tasks`
+- future inline task edits should use `PATCH /tasks/:taskId`
+- future `Copy ID` is client-side clipboard behavior
+
+### Sessions
+
+- registry should call `GET /sessions`
+- `Upload Artifact` should use `POST /sessions/uploads`
+- `Register Existing Path` should use `POST /sessions`
+- `Download` should use `GET /sessions/:snapshotId/download`
+- preview should use `GET /sessions/:snapshotId`
+
+### Activity
+
+- timeline should call `GET /activities`
+- project/task/label selectors map to query params on the same endpoint
+- `NOT` chips map to boolean query params on the same endpoint
+- `Sort` maps to ascending/descending order on the same endpoint
+- preview should use `GET /activities/:activityId`
+
+## 15. Current Action Contracts
+
+The frontend currently implies these backend action contracts:
+
+- task creation returns the created task and its identifier immediately
+- session upload returns a stored artifact reference before snapshot registration
+- session registration can either create a new record or update an existing snapshot's metadata
+- list endpoints should return enough summary data to avoid extra round trips in table and board views
+- detail endpoints should return the full display payload needed by the preview panel
+
+## 16. Out Of Scope For This Document
 
 This document intentionally does not lock down:
 
