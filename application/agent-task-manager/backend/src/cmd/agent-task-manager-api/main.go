@@ -1,33 +1,45 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
-	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/ben-wangz/k8s-at-home/application/agent-task-manager/backend/src/internal/config"
+	"github.com/ben-wangz/k8s-at-home/application/agent-task-manager/backend/src/internal/httpapi"
+	"github.com/ben-wangz/k8s-at-home/application/agent-task-manager/backend/src/internal/service"
+	"github.com/ben-wangz/k8s-at-home/application/agent-task-manager/backend/src/internal/store/bunstore"
 )
 
 func main() {
-	addr := envOrDefault("ATM_API_ADDR", ":8080")
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok\n"))
-	})
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ready\n"))
-	})
-
-	log.Printf("agent-task-manager API listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	cfg := config.Load()
+	store, err := bunstore.Open(cfg.Database)
+	if err != nil {
 		log.Fatal(err)
 	}
-}
+	defer store.Close()
 
-func envOrDefault(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
+	server := &http.Server{
+		Addr:              cfg.ListenAddr,
+		Handler:           httpapi.New(service.New(store), cfg.ArtifactsDir, cfg.AuthMode).Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
 	}
-	return fallback
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+	}()
+
+	log.Printf("agent-task-manager API listening on %s using %s", cfg.ListenAddr, cfg.Database.Driver)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatal(err)
+	}
 }

@@ -45,7 +45,13 @@ backend:
       repository: ben-wangz/k8s-at-home-agent-task-manager-api
       tag: 0.1.0
       pullPolicy: IfNotPresent
-    env: []
+    env:
+      - name: ATM_DATABASE_DRIVER
+        value: sqlite
+      - name: ATM_DATA_DIR
+        value: /var/lib/agent-task-manager
+      - name: ATM_ARTIFACTS_DIR
+        value: /var/lib/agent-task-manager/artifacts
     extraEnvVarsSecret: ""
     resources: {}
 

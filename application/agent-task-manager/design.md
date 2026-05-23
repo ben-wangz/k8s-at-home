@@ -18,7 +18,7 @@ The current `pith` product includes these major surfaces:
 - REST API for projects, tasks, comments, sessions, analytics, users, auth, and webhooks.
 - Web UI for board/list/detail/activity/session views.
 - CLI for task, project, config, search, and session workflows.
-- PostgreSQL-backed persistence.
+- Bun-backed SQL persistence with switchable SQLite or PostgreSQL storage.
 
 The rebuild should preserve the product intent, but not the TypeScript monorepo structure.
 
@@ -51,7 +51,7 @@ The rebuild should preserve the product intent, but not the TypeScript monorepo 
 
 - Home overview
 - Projects index
-- Board view
+- Tasks workspace with board/list modes
 - Task detail
 - Sessions page
 - Activity page
@@ -85,7 +85,7 @@ Use a separated architecture with three deployable/runtime concerns:
 
 1. Go API server
 2. Web frontend SPA
-3. PostgreSQL database
+3. SQL database, defaulting to SQLite and optionally PostgreSQL
 
 The backend remains the system of record. The web UI and CLI both talk to the backend API.
 
@@ -115,7 +115,7 @@ Recommended internal layering:
 - `backend/src/internal/auth/`: API key and token auth
 - `backend/src/internal/domain/`: core entities and business rules
 - `backend/src/internal/store/`: repository interfaces
-- `backend/src/internal/store/postgres/`: PostgreSQL implementation
+- `backend/src/internal/store/bunstore/`: Bun-backed SQL implementation
 - `backend/src/internal/search/`: task search query builder
 - `backend/src/internal/events/`: domain event model
 - `backend/src/internal/integrations/webhook/`: webhook delivery
@@ -140,12 +140,15 @@ Responsibilities:
 - authentication UI
 - home overview
 - projects index
-- task board/detail
+- tasks workspace with board/list flows
+- task detail and contextual preview flows
 - session snapshot views
 - activity views with filtering
 - copy-ID and similar workflow helpers
 
 The frontend must only depend on the API contract, not backend implementation details.
+
+The frontend should follow the UI redesign in `ui.md`, not the earlier mock-navigation approach.
 
 ### CLI
 
@@ -175,7 +178,13 @@ Reference direction: `/root/code/github/bot-cli/`
 
 ### Database
 
-Use PostgreSQL as the only primary datastore.
+Use Bun as the database access layer.
+
+Default runtime storage should be SQLite for local persistence.
+
+The same backend should also support PostgreSQL through configuration.
+
+The compatibility boundary should live in the repository/store layer so domain and HTTP code do not depend on a specific SQL engine.
 
 Recommended initial model groups:
 
@@ -195,8 +204,8 @@ Recommended conventions:
 - UUID primary keys
 - `created_at`, `updated_at`
 - soft delete only where truly needed
-- status and priority as constrained text enums or PostgreSQL enums
-- full-text search based on PostgreSQL built-ins first
+- status and priority as constrained text values managed at the application layer
+- avoid database-specific features in the first cut so SQLite and PostgreSQL stay interchangeable
 
 ## Deployment Model
 
@@ -395,7 +404,7 @@ Recommended roles initially:
 
 ## Search Design
 
-Use PostgreSQL full-text search first.
+Use Bun as the common query layer and keep the first search implementation database-neutral.
 
 Search targets:
 
@@ -406,7 +415,7 @@ Search targets:
 
 Optional later evolution:
 
-- trigram indexes
+- database-specific search indexes only if later usage justifies them
 - ranking improvements
 - semantic search sidecar, if real use cases justify it
 
@@ -473,10 +482,31 @@ This preserves the auditability that agents need.
 
 - Home
 - Projects
-- Task board
+- Tasks workspace
 - Task detail page
 - Sessions
 - Activity
+
+### Application shell
+
+The web UI should use a stable application shell instead of top-banner demo navigation.
+
+Primary shell structure:
+
+- left sidebar navigation
+- persistent top utility bar
+- main workspace region
+- optional contextual right-side detail panel
+
+Navigation order:
+
+1. Home
+2. Projects
+3. Tasks
+4. Sessions
+5. Activity
+
+`Board` should live inside the `Tasks` workspace as a view mode, not as a primary top-level section.
 
 ### Frontend rules
 
@@ -484,15 +514,22 @@ This preserves the auditability that agents need.
 - no hidden local-only state that changes domain truth
 - explicit empty, loading, and auth-error states
 - task IDs should be easy to copy anywhere task references appear
+- preserve context when moving between list/board selection, preview, and full task detail
+- prefer dense operational layouts over oversized showcase cards
+- use one shared filter interaction model across Tasks and Activity
 
 ### Initial UI feature expectations
 
-- top banner tab navigation for `Home`, `Projects`, `Board`, `Sessions`, and `Activity`
-- copy task ID button on task cards and task detail page
+- sidebar navigation with top utility bar
+- tasks workspace with internal view switching for `Board`, `List`, and assigned-task focused flows
+- optional right-side contextual preview panel for task and activity inspection
+- copy task ID button on task cards, rows, and task detail page
 - visible auth failure states instead of silent empty lists
-- parent/subtask visibility in task detail
-- session snapshot upload/download affordances
+- parent/subtask visibility near the top of task detail
+- session snapshot upload/download affordances in a registry-style view
 - activity filtering by project, task, and label with `NOT` support and sort direction control
+- active filters represented explicitly as removable chips
+- clear empty states that explain scope and next actions
 
 ## Migration Strategy From Pith
 
@@ -545,13 +582,16 @@ If migration from an existing `pith` database becomes necessary later:
 ### Phase 3: web MVP
 
 - login
+- application shell with sidebar and top utility bar
 - home overview
 - projects index
-- task cards
+- tasks list view
+- task preview panel
 - task detail
 - sessions snapshot registry
 - activity filtering and sorting
 - copy-ID UX
+- board view after list/detail structure is stable
 
 ### Phase 4: integrations
 
@@ -562,7 +602,7 @@ If migration from an existing `pith` database becomes necessary later:
 
 1. Use Go for backend and CLI.
 2. Use a separate SPA frontend rooted at `frontend/`.
-3. Use PostgreSQL as the single source of truth.
+3. Use the backend API as the system of record, with SQLite by default and PostgreSQL available by configuration.
 4. Use one Helm chart with multiple deployments.
 5. Follow `sshpiper` conventions for `chart/`, `container/`, and `src/`, adapted to separate backend/frontend roots.
 6. Keep the CLI as a standalone agent CLI, not a containerized runtime component.
