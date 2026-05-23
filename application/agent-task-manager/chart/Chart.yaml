@@ -16,12 +16,6 @@ annotations:
     - name: agent-task-manager/frontend
       path: application/agent-task-manager/frontend/container
       valuesKey: frontend.image.tag
-dependencies:
-  - name: common
-    repository: oci://registry-1.docker.io/bitnamicharts
-    tags:
-      - bitnami-common
-    version: 2.x.x
 home: https://github.com/ben-wangz/k8s-at-home
 sources:
   - https://github.com/ben-wangz/k8s-at-home/tree/main/application/agent-task-manager

@@ -33,6 +33,11 @@ spec:
       imagePullSecrets:
         {{- toYaml .Values.imagePullSecrets | nindent 8 }}
       {{- end }}
+      {{- if .Values.frontend.podSecurityContext.enabled }}
+      securityContext:
+        fsGroup: {{ .Values.podSecurityContext.fsGroup }}
+        fsGroupChangePolicy: {{ .Values.podSecurityContext.fsGroupChangePolicy }}
+      {{- end }}
       containers:
         - name: frontend
           image: {{ include "agent-task-manager.frontendImage" . | quote }}
@@ -79,7 +84,7 @@ spec:
               port: http
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
-          {{- if .Values.containerSecurityContext.enabled }}
+          {{- if .Values.frontend.containerSecurityContext.enabled }}
           securityContext:
             runAsUser: {{ .Values.containerSecurityContext.runAsUser }}
             runAsGroup: {{ .Values.containerSecurityContext.runAsGroup }}
