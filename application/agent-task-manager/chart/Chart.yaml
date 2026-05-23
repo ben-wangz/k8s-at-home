@@ -1,0 +1,29 @@
+apiVersion: v2
+name: agent-task-manager
+version: 0.1.0
+appVersion: "0.1.0"
+description: Go-based task management system for humans and agents
+type: application
+keywords:
+  - tasks
+  - agents
+  - workflow
+annotations:
+  agent-task-manager/images: |
+    - name: agent-task-manager/backend
+      path: application/agent-task-manager/backend/container
+      valuesKey: backend.api.image.tag
+    - name: agent-task-manager/frontend
+      path: application/agent-task-manager/frontend/container
+      valuesKey: frontend.image.tag
+dependencies:
+  - name: common
+    repository: oci://registry-1.docker.io/bitnamicharts
+    tags:
+      - bitnami-common
+    version: 2.x.x
+home: https://github.com/ben-wangz/k8s-at-home
+sources:
+  - https://github.com/ben-wangz/k8s-at-home/tree/main/application/agent-task-manager
+maintainers:
+  - name: ben

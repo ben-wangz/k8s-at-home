@@ -1,0 +1,17 @@
+{{- if .Values.backend.api.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "agent-task-manager.fullname" . }}-api
+  labels:
+    {{- include "agent-task-manager.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.api.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "agent-task-manager.name" . }}
+    app.kubernetes.io/component: api
+  ports:
+    - name: http
+      port: {{ .Values.service.api.port }}
+      targetPort: http
+{{- end }}
