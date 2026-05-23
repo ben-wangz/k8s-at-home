@@ -5,10 +5,15 @@ metadata:
   name: {{ include "agent-task-manager.fullname" . }}-api
   labels:
     {{- include "agent-task-manager.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  {{- with .Values.service.api.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   type: {{ .Values.service.api.type }}
   selector:
-    app.kubernetes.io/name: {{ include "agent-task-manager.name" . }}
+    {{- include "agent-task-manager.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: api
   ports:
     - name: http

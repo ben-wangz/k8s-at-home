@@ -1,5 +1,8 @@
 replicas: 1
 
+nameOverride: ""
+fullnameOverride: ""
+
 commonLabels: {}
 commonAnnotations: {}
 podLabels: {}
@@ -40,12 +43,17 @@ tolerations: []
 backend:
   api:
     enabled: true
+    replicaCount: 1
     image:
       registry: ghcr.io
       repository: ben-wangz/k8s-at-home-agent-task-manager-api
       tag: 0.1.0
       pullPolicy: IfNotPresent
+    command: []
+    args: []
     env:
+      - name: ATM_API_ADDR
+        value: :8080
       - name: ATM_DATABASE_DRIVER
         value: sqlite
       - name: ATM_DATA_DIR
@@ -53,15 +61,30 @@ backend:
       - name: ATM_ARTIFACTS_DIR
         value: /var/lib/agent-task-manager/artifacts
     extraEnvVarsSecret: ""
+    extraEnvVars: []
     resources: {}
+    persistence:
+      enabled: true
+      accessModes:
+        - ReadWriteOnce
+      size: 10Gi
+      storageClass: ""
+    serviceAccountName: ""
 
 frontend:
+  enabled: true
+  replicaCount: 1
   image:
     registry: ghcr.io
     repository: ben-wangz/k8s-at-home-agent-task-manager-frontend
     tag: 0.1.0
     pullPolicy: IfNotPresent
+  apiBaseURL: ""
+  command: []
+  args: []
+  extraEnvVars: []
   resources: {}
+  serviceAccountName: ""
 
 service:
   api:
@@ -79,6 +102,8 @@ ingress:
   annotations: {}
   hosts: []
   tls: []
+  path: /
+  pathType: Prefix
 
 resourcesPreset: nano
 

@@ -6,7 +6,7 @@
 {{- if .Values.fullnameOverride -}}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
-{{- include "agent-task-manager.name" . -}}
+{{- printf "%s-%s" .Release.Name (include "agent-task-manager.name" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 {{- end -}}
 
@@ -15,4 +15,17 @@ app.kubernetes.io/name: {{ include "agent-task-manager.name" . }}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end -}}
+
+{{- define "agent-task-manager.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "agent-task-manager.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end -}}
+
+{{- define "agent-task-manager.apiImage" -}}
+{{- printf "%s/%s:%s" .Values.backend.api.image.registry .Values.backend.api.image.repository .Values.backend.api.image.tag -}}
+{{- end -}}
+
+{{- define "agent-task-manager.frontendImage" -}}
+{{- printf "%s/%s:%s" .Values.frontend.image.registry .Values.frontend.image.repository .Values.frontend.image.tag -}}
 {{- end -}}
