@@ -63,7 +63,7 @@ func runTasks(cli client, raw bool, args []string) error {
 		if *projectID == "" || *title == "" {
 			return errors.New("tasks create requires --project <project-id> and --title")
 		}
-		body := map[string]any{"title": *title, "description": *description, "status": "todo", "priority": *priority, "labels": splitCSV(*labels)}
+		body := map[string]any{"title": *title, "description": *description, "status": "backlog", "priority": *priority, "labels": splitCSV(*labels)}
 		var response task
 		if err := cli.postJSON("/projects/"+*projectID+"/tasks", body, &response); err != nil {
 			return err
@@ -120,7 +120,7 @@ func runTasks(cli client, raw bool, args []string) error {
 		fs := flag.NewFlagSet("tasks subtasks", flag.ContinueOnError)
 		title := fs.String("title", "", "subtask title")
 		description := fs.String("description", "", "description")
-		status := fs.String("status", "todo", "status")
+		status := fs.String("status", "backlog", "status")
 		priority := fs.String("priority", "P1", "priority")
 		labels := fs.String("labels", "", "comma-separated labels")
 		subtaskArgs := normalizeCommandArgs(args[1:])

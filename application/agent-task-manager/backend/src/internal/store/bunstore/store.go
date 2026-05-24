@@ -318,13 +318,17 @@ func toActivity(row activityRow) domain.Activity {
 }
 
 func toTask(row taskRow, labels []string) domain.Task {
+	status, err := normalizeTaskStatus(row.Status)
+	if err != nil {
+		status = "backlog"
+	}
 	return domain.Task{
 		ID:           row.ID,
 		ProjectID:    row.ProjectID,
 		ParentTaskID: row.ParentTaskID,
 		Title:        row.Title,
 		Description:  row.Description,
-		Status:       row.Status,
+		Status:       status,
 		Priority:     row.Priority,
 		AssigneeID:   row.AssigneeID,
 		Labels:       labels,

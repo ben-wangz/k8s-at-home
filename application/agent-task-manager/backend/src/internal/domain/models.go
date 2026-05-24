@@ -36,6 +36,8 @@ type Project struct {
 	Open        int       `json:"open"`
 	InProgress  int       `json:"in_progress"`
 	InReview    int       `json:"in_review"`
+	Done        int       `json:"done"`
+	Cancelled   int       `json:"cancelled"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

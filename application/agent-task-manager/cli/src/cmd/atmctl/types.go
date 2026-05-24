@@ -37,6 +37,8 @@ type project struct {
 	Open        int    `json:"open"`
 	InProgress  int    `json:"in_progress"`
 	InReview    int    `json:"in_review"`
+	Done        int    `json:"done"`
+	Cancelled   int    `json:"cancelled"`
 }
 
 type task struct {

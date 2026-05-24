@@ -39,9 +39,10 @@ export const taskViewItems: { id: TaskView; label: string }[] = [
 
 export const statusMeta: Record<TaskStatus, { label: string; color: string; soft: string }> = {
 	backlog: { label: 'Backlog', color: '#6f7e95', soft: '#eef1f6' },
-	todo: { label: 'Todo', color: '#1c9bff', soft: '#e7f4ff' },
 	in_progress: { label: 'In Progress', color: '#cc8a10', soft: '#fff4df' },
 	in_review: { label: 'In Review', color: '#1f9d62', soft: '#e6f7ef' },
+	done: { label: 'Done', color: '#147d5b', soft: '#dff5ec' },
+	cancelled: { label: 'Cancelled', color: '#8c5a2b', soft: '#f8eadb' },
 }
 
 export const priorityMeta: Record<Priority, { color: string; soft: string }> = {

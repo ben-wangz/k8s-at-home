@@ -13,10 +13,12 @@ export function HomeView({ project, tasks, activities, sessions, onOpenTask, loa
 						<div style={{ fontSize: 24, fontWeight: 800, marginBottom: 6 }}>{project.name}</div>
 						<div style={{ color: palette.muted, maxWidth: 720 }}>{project.summary}</div>
 					</div>
-					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(110px, 1fr))', gap: 10, minWidth: 360 }}>
+					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(110px, 1fr))', gap: 10, minWidth: 600 }}>
 						<CompactMetric label="Open" value={String(project.open)} />
 						<CompactMetric label="In Progress" value={String(project.inProgress)} />
 						<CompactMetric label="In Review" value={String(project.inReview)} />
+						<CompactMetric label="Done" value={String(project.done)} />
+						<CompactMetric label="Cancelled" value={String(project.cancelled)} />
 					</div>
 				</div>
 				{loading && <div style={{ color: palette.muted, fontSize: 14 }}>Loading project overview...</div>}

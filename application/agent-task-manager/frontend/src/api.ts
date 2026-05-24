@@ -28,7 +28,7 @@ async function requestForm<T>(path: string, formData: FormData): Promise<T> {
 }
 
 export async function loadProjects(): Promise<Project[]> {
-	const response = await request<{ items: Array<{ id: string; slug: string; title: string; description: string; open: number; in_progress: number; in_review: number; updated_at: string }> }>('/projects')
+	const response = await request<{ items: Array<{ id: string; slug: string; title: string; description: string; open: number; in_progress: number; in_review: number; done: number; cancelled: number; updated_at: string }> }>('/projects')
 	const items = response.items
 	return items.map((item) => ({
 		id: item.id,
@@ -37,6 +37,8 @@ export async function loadProjects(): Promise<Project[]> {
 		open: item.open ?? 0,
 		inProgress: item.in_progress ?? 0,
 		inReview: item.in_review ?? 0,
+		done: item.done ?? 0,
+		cancelled: item.cancelled ?? 0,
 		updatedAt: item.updated_at,
 		summary: item.description,
 	}))
@@ -105,7 +107,7 @@ export async function loadTaskDetail(taskId: string, projectSlug: string, projec
 }
 
 export async function loadProjectOverview(projectId: string): Promise<{ project: Project; recentTasks: Task[]; recentSessions: Session[]; recentActivities: ActivityItem[] }> {
-	const item = await request<{ project: { id: string; slug: string; title: string; description: string; open: number; in_progress: number; in_review: number; updated_at: string }; recent_tasks: Array<{ id: string; project_id: string; title: string; description: string; status: string; priority: string; assignee_id?: string | null; labels?: string[]; updated_at: string; parent_task_id?: string | null }>; recent_sessions: Array<{ snapshot_id: string; title: string; description: string; artifact_name: string; artifact_path: string; updated_at: string }>; recent_activities: Array<{ id: string; label: string; kind: string; message: string; created_at: string; project_id?: string | null; task_id?: string | null }> }>(`/projects/${projectId}/overview`)
+	const item = await request<{ project: { id: string; slug: string; title: string; description: string; open: number; in_progress: number; in_review: number; done: number; cancelled: number; updated_at: string }; recent_tasks: Array<{ id: string; project_id: string; title: string; description: string; status: string; priority: string; assignee_id?: string | null; labels?: string[]; updated_at: string; parent_task_id?: string | null }>; recent_sessions: Array<{ snapshot_id: string; title: string; description: string; artifact_name: string; artifact_path: string; updated_at: string }>; recent_activities: Array<{ id: string; label: string; kind: string; message: string; created_at: string; project_id?: string | null; task_id?: string | null }> }>(`/projects/${projectId}/overview`)
 	return {
 		project: {
 			id: item.project.id,
@@ -114,6 +116,8 @@ export async function loadProjectOverview(projectId: string): Promise<{ project:
 			open: item.project.open ?? 0,
 			inProgress: item.project.in_progress ?? 0,
 			inReview: item.project.in_review ?? 0,
+			done: item.project.done ?? 0,
+			cancelled: item.project.cancelled ?? 0,
 			updatedAt: item.project.updated_at,
 			summary: item.project.description,
 		},
@@ -187,7 +191,7 @@ export async function createTask(projectId: string, input: { title: string; desc
 		body: JSON.stringify({
 			title: input.title,
 			description: input.description,
-			status: 'todo',
+			status: 'backlog',
 			priority: input.priority,
 			labels: input.labels,
 		}),

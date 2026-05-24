@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -13,11 +14,36 @@ import (
 	"github.com/ben-wangz/k8s-at-home/application/agent-task-manager/backend/src/internal/store"
 )
 
+var validTaskStatuses = map[string]string{
+	"backlog":    "backlog",
+	"todo":       "backlog",
+	"in_progress": "in_progress",
+	"in_review":  "in_review",
+	"done":       "done",
+	"cancelled":  "cancelled",
+}
+
+func normalizeTaskStatus(status string) (string, error) {
+	value := strings.TrimSpace(strings.ToLower(status))
+	if value == "" {
+		return "backlog", nil
+	}
+	normalized, ok := validTaskStatuses[value]
+	if !ok {
+		return "", fmt.Errorf("invalid status %q", status)
+	}
+	return normalized, nil
+}
+
 func (s *Store) ListTasks(ctx context.Context, filter store.TaskFilter) ([]domain.Task, error) {
 	rows := make([]taskRow, 0)
 	query := s.db.NewSelect().Model(&rows)
 	if filter.Status != "" {
-		query.Where("status = ?", filter.Status)
+		status, err := normalizeTaskStatus(filter.Status)
+		if err != nil {
+			return nil, err
+		}
+		query.Where("status = ?", status)
 	}
 	if filter.Priority != "" {
 		query.Where("priority = ?", filter.Priority)
@@ -54,7 +80,11 @@ func (s *Store) ListProjectTasks(ctx context.Context, projectID string, filter s
 	rows := make([]taskRow, 0)
 	query := s.db.NewSelect().Model(&rows).Where("project_id = ?", projectID)
 	if filter.Status != "" {
-		query.Where("status = ?", filter.Status)
+		status, err := normalizeTaskStatus(filter.Status)
+		if err != nil {
+			return nil, err
+		}
+		query.Where("status = ?", status)
 	}
 	if filter.Priority != "" {
 		query.Where("priority = ?", filter.Priority)
@@ -93,7 +123,11 @@ func (s *Store) labelTaskSubquery(label string) *bun.SelectQuery {
 
 func (s *Store) CreateTask(ctx context.Context, input store.TaskCreate) (domain.Task, error) {
 	now := s.now()
-	row := taskRow{ID: uuid.NewString(), ProjectID: input.ProjectID, ParentTaskID: input.ParentTaskID, Title: input.Title, Description: input.Description, Status: defaultString(input.Status, "todo"), Priority: defaultString(input.Priority, "medium"), AssigneeID: input.AssigneeID, CreatedAt: now, UpdatedAt: now}
+	status, err := normalizeTaskStatus(input.Status)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	row := taskRow{ID: uuid.NewString(), ProjectID: input.ProjectID, ParentTaskID: input.ParentTaskID, Title: input.Title, Description: input.Description, Status: status, Priority: defaultString(input.Priority, "medium"), AssigneeID: input.AssigneeID, CreatedAt: now, UpdatedAt: now}
 	if _, err := s.db.NewInsert().Model(&row).Exec(ctx); err != nil {
 		return domain.Task{}, err
 	}
@@ -148,7 +182,13 @@ func (s *Store) UpdateTask(ctx context.Context, id string, input store.TaskUpdat
 	}
 	row.Title = derefString(input.Title, row.Title)
 	row.Description = derefString(input.Description, row.Description)
-	row.Status = derefString(input.Status, row.Status)
+	if input.Status != nil {
+		status, err := normalizeTaskStatus(*input.Status)
+		if err != nil {
+			return domain.Task{}, err
+		}
+		row.Status = status
+	}
 	row.Priority = derefString(input.Priority, row.Priority)
 	row.UpdatedAt = s.now()
 	if _, err := s.db.NewUpdate().Model(row).WherePK().Column("parent_task_id", "title", "description", "status", "priority", "assignee_id", "updated_at").Exec(ctx); err != nil {

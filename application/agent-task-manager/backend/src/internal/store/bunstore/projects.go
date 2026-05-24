@@ -79,6 +79,10 @@ func (s *Store) decorateProjectCounts(ctx context.Context, project domain.Projec
 			project.InProgress++
 		case "in_review":
 			project.InReview++
+		case "done":
+			project.Done++
+		case "cancelled":
+			project.Cancelled++
 		default:
 			project.Open++
 		}
@@ -110,6 +114,10 @@ func (s *Store) GetProjectOverview(ctx context.Context, projectID string) (store
 			overview.InProgress++
 		case "in_review":
 			overview.InReview++
+		case "done":
+			overview.Done++
+		case "cancelled":
+			overview.Cancelled++
 		default:
 			overview.Open++
 		}

@@ -1,6 +1,6 @@
 export type View = 'home' | 'projects' | 'tasks' | 'task-detail' | 'sessions' | 'activity'
 export type TaskView = 'list' | 'board'
-export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review'
+export type TaskStatus = 'backlog' | 'in_progress' | 'in_review' | 'done' | 'cancelled'
 export type Priority = 'P0' | 'P1' | 'P2'
 
 export type Task = {
@@ -28,6 +28,8 @@ export type Project = {
 	open: number
 	inProgress: number
 	inReview: number
+	done: number
+	cancelled: number
 	updatedAt: string
 	summary: string
 }
