@@ -120,6 +120,13 @@ Recommended direction:
 - add direct container image app entries for standalone image apps without charts
 - if a charted app has container images, they belong to the chart and must not be duplicated as the same app name in `version-control.yaml`
 - if a same-named container image appears in `version-control.yaml`, treat it as a separate standalone app
+- app names must be unique across charted apps, standalone image apps, and binary apps
+
+Recommended standalone image app entry:
+
+- name: `podman-in-container`
+- path: `application/podman-in-container/container`
+- versionFile: `VERSION`
 
 Recommended binary entry:
 
@@ -127,8 +134,9 @@ Recommended binary entry:
 - path: `application/agent-task-manager/cli`
 - versionFile: `VERSION`
 
-This implies a repo change that should be treated as part of the CI/CD upgrade:
+This implies repo changes that should be treated as part of the CI/CD upgrade:
 
+- add standalone image app entries for apps without charts
 - add `application/agent-task-manager/cli/VERSION`
 
 For containers, use the chart definition when a chart exists.
@@ -139,6 +147,13 @@ Reason:
 - `forgekit get` can read chart-defined image relationships
 - workflows remain thin callers over shared cascade logic
 
+Standalone image app rules:
+
+- the app name is unique and identifies a single image release target
+- `path` points to the `container/` directory
+- `versionFile` lives under the same `container/` directory
+- one standalone image app corresponds to one image only
+
 ### 2. Treat chart annotations as first-class release metadata
 
 The repository already has a strong pattern in `Chart.yaml` annotations mapping image modules to:
@@ -147,7 +162,7 @@ The repository already has a strong pattern in `Chart.yaml` annotations mapping 
 - version file path
 - `values.yaml` key
 
-That metadata is useful repository metadata, but it should not become a hard dependency of the release mechanism itself.
+That metadata is useful repository metadata for charted apps, but it should not become a hard dependency of the release mechanism itself.
 
 Practical use:
 
@@ -352,11 +367,11 @@ The design should not merely copy `bot-cli`'s tag-triggered release. It should u
 That means:
 
 - `lint.yaml` should define repository quality policy
-- `version-control.yaml` should define chart inventory
-- `version-control.yaml` should also define binary inventory
+- `version-control.yaml` should define charted app inventory, standalone image app inventory, and binary app inventory
 - app tags should be the shared trigger across independent artifact workflows
 - cascade rules should live in shared code, not in workflow YAML
 - chart-defined images should be resolved from the chart when a chart exists
+- standalone image apps should be resolved from `version-control.yaml`
 - binaries should be treated as independent app triggers when they do not belong to a charted app
 - `forgekit publish ... --semver --multi-tag` should be the canonical release action
 - tags should trigger release only after file-based version truth is already committed
@@ -376,13 +391,13 @@ Target end state:
 5. Each workflow releases only the artifacts it owns.
 6. Workflows with no matching artifact for the tagged app exit immediately.
 7. Repo quality policy that fits `forgekit lint` lives in `lint.yaml` and is executed through `forgekit lint`.
-8. All releasable charts and binaries are declared in repository metadata, including `agent-task-manager`.
+8. All releasable charted apps, standalone image apps, and binaries are declared in repository metadata, including `agent-task-manager`.
 
 Concrete changes:
 
 1. Upgrade `setup/forgekit.sh` to `v0.4.1`.
 2. Add `lint.yaml` at repo root.
-3. Update `version-control.yaml` so every managed chart is registered and `atmctl` is registered under `binaries`.
+3. Update `version-control.yaml` so every charted app, standalone image app, and binary app is registered.
 4. Add `application/agent-task-manager/cli/VERSION`.
 5. Delete `workflow_dispatch` and `push.branches` release triggers from current publish workflows.
 6. Replace current publish workflows with tag-triggered `release-chart.yaml`, `release-image.yaml`, and `release-binary.yaml`, all listening to the same app tag format where applicable.
@@ -410,7 +425,7 @@ The best next design for this repository is:
 
 1. upgrade to `forgekit v0.4.1`
 2. add repo-level `lint.yaml` for `forgekit lint`
-3. register `atmctl` as a binary in `version-control.yaml` and add its `VERSION` file
+3. register charted apps, standalone image apps, and binary apps in `version-control.yaml`
 4. convert release to tag-triggered workflows for chart, image, and binary artifacts
 5. use the same app tag to trigger every artifact workflow for that app
 6. remove `workflow_dispatch` and `main`-push publishing entirely
