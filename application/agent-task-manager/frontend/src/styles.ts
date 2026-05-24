@@ -189,6 +189,16 @@ export const ghostFieldStyle: CSSProperties = {
 	minWidth: 200,
 }
 
+export const textInputStyle: CSSProperties = {
+	border: `1px solid ${palette.border}`,
+	borderRadius: 12,
+	padding: '10px 12px',
+	background: palette.panel,
+	color: palette.text,
+	width: '100%',
+	boxSizing: 'border-box',
+}
+
 export const listButtonStyle: CSSProperties = {
 	textAlign: 'left',
 	border: `1px solid ${palette.border}`,
