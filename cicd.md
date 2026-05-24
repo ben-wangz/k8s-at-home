@@ -117,6 +117,7 @@ Recommended direction:
 - keep `charts` as the source of truth for chart paths
 - ensure every releasable chart is included, including `agent-task-manager`
 - add `binaries` for standalone apps, starting with `atmctl`
+- add direct container image app entries for standalone image apps without charts
 - if a charted app has container images, they belong to the chart and must not be duplicated as the same app name in `version-control.yaml`
 - if a same-named container image appears in `version-control.yaml`, treat it as a separate standalone app
 
