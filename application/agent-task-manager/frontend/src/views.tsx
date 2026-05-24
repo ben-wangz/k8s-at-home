@@ -45,12 +45,16 @@ export function HomeView({
 	activities,
 	sessions,
 	onOpenTask,
+	loading = false,
+	error = '',
 }: {
 	project: Project
 	tasks: Task[]
 	activities: ActivityItem[]
 	sessions: Session[]
 	onOpenTask: (taskId: string) => void
+	loading?: boolean
+	error?: string
 }) {
 	return (
 		<div style={{ display: 'grid', gap: 18 }}>
@@ -72,12 +76,15 @@ export function HomeView({
 						<CompactMetric label="In Review" value={String(project.inReview)} />
 					</div>
 				</div>
+				{loading && <div style={{ color: palette.muted, fontSize: 14 }}>Loading project overview...</div>}
+				{!loading && error && <div style={{ color: palette.warning, fontSize: 14 }}>{error}</div>}
 			</div>
 			<div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 18, alignItems: 'start' }}>
 				<div style={{ display: 'grid', gap: 18 }}>
 					<div style={surfaceStyle}>
 						<SectionHeading title="My open tasks" subtitle="The first screen should answer what needs attention now." />
 						<div style={{ display: 'grid', gap: 10 }}>
+							{tasks.length === 0 && <div style={{ color: palette.muted }}>No recent tasks yet.</div>}
 							{tasks.slice(0, 4).map((task) => (
 								<button key={task.id} onClick={() => onOpenTask(task.id)} style={listButtonStyle}>
 									<div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
@@ -96,6 +103,7 @@ export function HomeView({
 					<div style={surfaceStyle}>
 						<SectionHeading title="Recent activity" subtitle="Audit-oriented updates with clear project and task context." />
 						<div style={{ display: 'grid', gap: 12 }}>
+							{activities.length === 0 && <div style={{ color: palette.muted }}>No recent activity yet.</div>}
 							{activities.slice(0, 4).map((activity) => (
 								<div key={activity.id} style={timelineRowStyle}>
 									<div style={timelineDotStyle} />
@@ -119,6 +127,7 @@ export function HomeView({
 					<div style={surfaceStyle}>
 						<SectionHeading title="Recent sessions" subtitle="Snapshot registry entries with direct artifact awareness." />
 						<div style={{ display: 'grid', gap: 10 }}>
+							{sessions.length === 0 && <div style={{ color: palette.muted }}>No recent sessions yet.</div>}
 							{sessions.map((session) => (
 								<div key={session.snapshotId} style={registryCardStyle}>
 									<div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 6 }}>

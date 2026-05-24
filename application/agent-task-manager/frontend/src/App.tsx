@@ -9,7 +9,7 @@ import { ActivityView, HomeView, PreviewPanel, ProjectsView, SessionsView, Tasks
 export default function App() {
 	const [activeView, setActiveView] = useState<View>('tasks')
 	const [taskView, setTaskView] = useState<TaskView>('list')
-	const [selectedProject, setSelectedProject] = useState<string>('agent-task-manager')
+	const [selectedProject, setSelectedProject] = useState<string>('')
 	const [selectedTaskId, setSelectedTaskId] = useState<string>('ATM-101')
 	const [preview, setPreview] = useState<PreviewState>({ kind: 'task', taskId: 'ATM-101' })
 	const [taskFilterProject, setTaskFilterProject] = useState<string>('agent-task-manager')
@@ -42,6 +42,8 @@ export default function App() {
 	const [homeTasks, setHomeTasks] = useState<Task[]>([])
 	const [homeSessions, setHomeSessions] = useState<Session[]>([])
 	const [homeActivities, setHomeActivities] = useState<ActivityItem[]>([])
+	const [homeLoading, setHomeLoading] = useState(false)
+	const [homeError, setHomeError] = useState<string>('')
 	const sessionFileInputRef = useRef<HTMLInputElement | null>(null)
 	const projectBySlug = useMemo(() => new Map(projects.map((project) => [project.slug, project])), [projects])
 	const projectByID = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects])
@@ -147,6 +149,12 @@ export default function App() {
 	}, [])
 
 	useEffect(() => {
+		if (selectedProject || projects.length === 0) return
+		setSelectedProject(projects[0].slug)
+		setTaskFilterProject(projects[0].slug)
+	}, [projects, selectedProject])
+
+	useEffect(() => {
 		const params = new URLSearchParams()
 		if (activityProject) params.set('project', activityProject)
 		if (activityTask) params.set('task', activityTask)
@@ -162,7 +170,13 @@ export default function App() {
 	const activeProject = projects.find((project) => project.slug === selectedProject) ?? projects[0] ?? null
 
 	useEffect(() => {
+		setHomeError('')
+	}, [activeProject?.id])
+
+	useEffect(() => {
 		if (!activeProject?.id) return
+		setHomeLoading(true)
+		setHomeError('')
 		loadTasks(activeProject.id, activeProject.slug, activeProject.name).then(setTasks).catch(() => setTasks([]))
 		loadProjectOverview(activeProject.id)
 			.then((overview) => {
@@ -171,12 +185,15 @@ export default function App() {
 				setHomeSessions(overview.recentSessions)
 				setHomeActivities(overview.recentActivities)
 				setProjects((current) => current.map((project) => (project.id === overview.project.id ? overview.project : project)))
+				setHomeLoading(false)
 			})
 			.catch(() => {
-				setHomeProject(null)
+				setHomeProject(activeProject)
 				setHomeTasks([])
 				setHomeSessions([])
 				setHomeActivities([])
+				setHomeError('Failed to load project overview.')
+				setHomeLoading(false)
 			})
 	}, [activeProject?.id])
 
@@ -271,7 +288,7 @@ export default function App() {
 						<div style={{ display: 'flex', gap: 10 }}><button style={topbarGhostButtonStyle}>Command</button><button style={topbarPrimaryButtonStyle} onClick={() => setActiveView('tasks')}>Quick Create</button></div>
 					</header>
 					<div style={{ padding: 20 }}>
-						{activeView === 'home' && homeProject && <HomeView project={homeProject} tasks={homeTasks} activities={homeActivities} sessions={homeSessions} onOpenTask={(taskId) => { setSelectedTaskId(taskId); setPreview({ kind: 'task', taskId }); setActiveView('tasks') }} />}
+						{activeView === 'home' && (homeProject ?? activeProject) && <HomeView project={homeProject ?? activeProject!} tasks={homeTasks} activities={homeActivities} sessions={homeSessions} onOpenTask={(taskId) => { setSelectedTaskId(taskId); setPreview({ kind: 'task', taskId }); setActiveView('tasks') }} loading={homeLoading} error={homeError} />}
 						{activeView === 'projects' && <ProjectsView projects={projects} selectedProject={selectedProject} onSelectProject={(slug) => { setSelectedProject(slug); setTaskFilterProject(slug); setActiveView('tasks') }} />}
 						{activeView === 'tasks' && selectedTask && <TasksWorkspace taskView={taskView} onChangeTaskView={setTaskView} selectedProject={taskFilterProject} onSelectProject={setTaskFilterProject} selectedLabel={taskFilterLabel} onSelectLabel={setTaskFilterLabel} projects={taskProjects} labels={taskLabels} filters={activeTaskFilters} tasks={filteredTasks} selectedTask={selectedTask} onSelectTask={(taskId) => { setSelectedTaskId(taskId); setPreview({ kind: 'task', taskId }) }} onClearFilters={() => { setTaskFilterProject(selectedProject); setTaskFilterLabel('') }} onCreateTask={handleCreateTask} taskDraftTitle={taskDraftTitle} onTaskDraftTitleChange={setTaskDraftTitle} taskDraftDescription={taskDraftDescription} onTaskDraftDescriptionChange={setTaskDraftDescription} taskDraftPriority={taskDraftPriority} onTaskDraftPriorityChange={setTaskDraftPriority} taskDraftLabels={taskDraftLabels} onTaskDraftLabelsChange={setTaskDraftLabels} onUpdateTask={(input) => { void handleUpdateTask(input) }} />}
 						{activeView === 'sessions' && <SessionsView sessions={sessions} onPreview={(snapshotId) => setPreview({ kind: 'session', snapshotId })} onDownload={(snapshotId) => window.open(sessionDownloadURL(snapshotId), '_blank', 'noopener,noreferrer')} sessionMode={sessionMode} onSessionModeChange={setSessionMode} sessionTitle={sessionTitle} onSessionTitleChange={setSessionTitle} sessionDescription={sessionDescription} onSessionDescriptionChange={setSessionDescription} sessionArtifactName={sessionArtifactName} onSessionArtifactNameChange={setSessionArtifactName} sessionArtifactPath={sessionArtifactPath} onSessionArtifactPathChange={setSessionArtifactPath} sessionFile={sessionFile} onSessionFileChange={setSessionFile} onSubmitSession={() => { void handleSubmitSession() }} onCancelSession={resetSessionForm} fileInputRef={sessionFileInputRef} />}

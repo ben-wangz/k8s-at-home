@@ -173,11 +173,12 @@ func runTasks(cli client, raw bool, args []string) error {
 		}
 		return printOutput(raw, response.Items)
 	case "get":
-		if len(args) < 2 {
+		getArgs := normalizeCommandArgs(args[1:])
+		if len(getArgs) == 0 {
 			return errors.New("tasks get requires task id")
 		}
 		var response any
-		if err := cli.get("/tasks/"+args[1], &response); err != nil {
+		if err := cli.get("/tasks/"+getArgs[0], &response); err != nil {
 			return err
 		}
 		return printOutput(raw, response)
@@ -208,10 +209,11 @@ func runTasks(cli client, raw bool, args []string) error {
 		priority := fs.String("priority", "", "priority")
 		assignee := fs.String("assignee", "", "assignee id or unassigned")
 		labels := fs.String("labels", "", "comma-separated labels")
-		if err := fs.Parse(args[1:]); err != nil {
+		updateArgs := normalizeCommandArgs(args[1:])
+		if err := fs.Parse(updateArgs[1:]); err != nil {
 			return err
 		}
-		if fs.NArg() < 1 {
+		if len(updateArgs) == 0 {
 			return errors.New("tasks update requires task id")
 		}
 		body := map[string]any{}
@@ -238,7 +240,7 @@ func runTasks(cli client, raw bool, args []string) error {
 			body["labels"] = splitCSV(*labels)
 		}
 		var response task
-		if err := cli.patchJSON("/tasks/"+fs.Arg(0), body, &response); err != nil {
+		if err := cli.patchJSON("/tasks/"+updateArgs[0], body, &response); err != nil {
 			return err
 		}
 		return printOutput(raw, response)
