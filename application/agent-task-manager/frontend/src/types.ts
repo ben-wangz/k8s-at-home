@@ -1,5 +1,5 @@
-export type View = 'home' | 'projects' | 'tasks' | 'sessions' | 'activity'
-export type TaskView = 'list' | 'board' | 'mine'
+export type View = 'home' | 'projects' | 'tasks' | 'task-detail' | 'sessions' | 'activity'
+export type TaskView = 'list' | 'board'
 export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review'
 export type Priority = 'P0' | 'P1' | 'P2'
 

@@ -239,7 +239,10 @@ export const boardColumnStyle: CSSProperties = {
 	border: `1px solid ${palette.border}`,
 	borderRadius: 16,
 	padding: 12,
-	minWidth: 260,
+	minWidth: 280,
+	width: 280,
+	maxWidth: 280,
+	boxSizing: 'border-box',
 	alignSelf: 'start',
 }
 
@@ -264,6 +267,9 @@ export const boardCardStyle: CSSProperties = {
 	padding: 12,
 	color: palette.text,
 	cursor: 'pointer',
+	width: '100%',
+	boxSizing: 'border-box',
+	overflow: 'hidden',
 }
 
 export const detailBlockStyle: CSSProperties = {

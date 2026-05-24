@@ -27,14 +27,14 @@ export const navItems: { id: View; label: string; short: string }[] = [
 	{ id: 'home', label: 'Home', short: 'HM' },
 	{ id: 'projects', label: 'Projects', short: 'PR' },
 	{ id: 'tasks', label: 'Tasks', short: 'TK' },
+	{ id: 'task-detail', label: 'Task Detail', short: 'TD' },
 	{ id: 'sessions', label: 'Sessions', short: 'SN' },
 	{ id: 'activity', label: 'Activity', short: 'AC' },
 ]
 
 export const taskViewItems: { id: TaskView; label: string }[] = [
-	{ id: 'list', label: 'List' },
 	{ id: 'board', label: 'Board' },
-	{ id: 'mine', label: 'Mine' },
+	{ id: 'list', label: 'List' },
 ]
 
 export const statusMeta: Record<TaskStatus, { label: string; color: string; soft: string }> = {

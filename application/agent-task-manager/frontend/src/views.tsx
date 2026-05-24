@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type RefObject } from 'react'
+import type { CSSProperties } from 'react'
 
 import { priorityMeta, statusMeta, taskViewItems } from './ui-config'
 import {
@@ -13,7 +13,6 @@ import {
 	detailBlockTitleStyle,
 	eyebrowStyle,
 	ghostActionButtonStyle,
-	ghostFieldStyle,
 	inlineActionButtonStyle,
 	inlineGhostActionButtonStyle,
 	listButtonStyle,
@@ -157,10 +156,16 @@ export function HomeView({
 export function ProjectsView({
 	projects,
 	selectedProject,
+	searchValue,
+	onSearchValueChange,
+	onSearch,
 	onSelectProject,
 }: {
 	projects: Project[]
 	selectedProject: string
+	searchValue: string
+	onSearchValueChange: (value: string) => void
+	onSearch: () => void
 	onSelectProject: (slug: string) => void
 }) {
 	return (
@@ -170,11 +175,13 @@ export function ProjectsView({
 				<div style={toolbarStyle}>
 					<div style={toolbarTitleStyle}>Project Registry</div>
 					<div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-						<div style={ghostFieldStyle}>Search projects</div>
-						<button style={ghostActionButtonStyle}>Sort: Updated</button>
+						<input value={searchValue} onChange={(event) => onSearchValueChange(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSearch() }} placeholder="Search project name" style={textInputStyle} />
+						<button style={ghostActionButtonStyle} onClick={onSearch}>GO</button>
 					</div>
 				</div>
 				<div style={{ overflowX: 'auto' }}>
+					{projects.length === 0 && <EmptyState title="No projects match this search" detail="Refine the project name query or clear it to see all projects sorted by project name." />}
+					{projects.length > 0 && (
 					<table style={tableStyle}>
 						<thead>
 							<tr>
@@ -200,6 +207,7 @@ export function ProjectsView({
 							})}
 						</tbody>
 					</table>
+					)}
 				</div>
 			</div>
 		</div>
@@ -213,25 +221,15 @@ export function TasksWorkspace(props: {
 	onSelectProject: (project: string) => void
 	selectedLabel: string
 	onSelectLabel: (label: string) => void
-	projects: string[]
+	projects: Array<{ slug: string; name: string }>
 	labels: string[]
 	filters: string[]
 	tasks: Task[]
-	selectedTask: Task
+	selectedTaskId: string
 	onSelectTask: (taskId: string) => void
 	onClearFilters: () => void
-	onCreateTask: () => void
-	taskDraftTitle: string
-	onTaskDraftTitleChange: (value: string) => void
-	taskDraftDescription: string
-	onTaskDraftDescriptionChange: (value: string) => void
-	taskDraftPriority: Priority
-	onTaskDraftPriorityChange: (value: Priority) => void
-	taskDraftLabels: string
-	onTaskDraftLabelsChange: (value: string) => void
-	onUpdateTask: (input: { taskId: string; title: string; description: string; status: TaskStatus; priority: Priority; assignee: string; labels: string[] }) => void
 }) {
-	const { taskView, onChangeTaskView, selectedProject, onSelectProject, selectedLabel, onSelectLabel, projects, labels, filters, tasks, selectedTask, onSelectTask, onClearFilters, onCreateTask, taskDraftTitle, onTaskDraftTitleChange, taskDraftDescription, onTaskDraftDescriptionChange, taskDraftPriority, onTaskDraftPriorityChange, taskDraftLabels, onTaskDraftLabelsChange, onUpdateTask } = props
+	const { taskView, onChangeTaskView, selectedProject, onSelectProject, selectedLabel, onSelectLabel, projects, labels, filters, tasks, selectedTaskId, onSelectTask, onClearFilters } = props
 	const grouped = taskView === 'board' ? {
 		backlog: tasks.filter((task) => task.status === 'backlog'),
 		todo: tasks.filter((task) => task.status === 'todo'),
@@ -253,43 +251,23 @@ export function TasksWorkspace(props: {
 							const active = item.id === taskView
 							return <button key={item.id} onClick={() => onChangeTaskView(item.id)} style={{ ...segmentedButtonStyle, background: active ? palette.text : palette.panel, color: active ? '#ffffff' : palette.text, borderColor: active ? palette.text : palette.border }}>{item.label}</button>
 						})}
-						<button style={primaryActionButtonStyle} onClick={onCreateTask}>Create Task</button>
-					</div>
-				</div>
-				<div style={editorPanelStyle}>
-					<div style={metaLabelStyle}>Create task</div>
-					<input value={taskDraftTitle} onChange={(event) => onTaskDraftTitleChange(event.target.value)} placeholder="Task title" style={textInputStyle} />
-					<textarea value={taskDraftDescription} onChange={(event) => onTaskDraftDescriptionChange(event.target.value)} placeholder="Short description" rows={3} style={textAreaStyle} />
-					<div style={{ display: 'grid', gridTemplateColumns: '180px minmax(0, 1fr) auto', gap: 10, alignItems: 'end' }}>
-						<div>
-							<div style={metaLabelStyle}>Priority</div>
-							<select value={taskDraftPriority} onChange={(event) => onTaskDraftPriorityChange(event.target.value as Priority)} style={selectStyle}>
-								<option value="P0">P0</option>
-								<option value="P1">P1</option>
-								<option value="P2">P2</option>
-							</select>
-						</div>
-						<div>
-							<div style={metaLabelStyle}>Labels</div>
-							<input value={taskDraftLabels} onChange={(event) => onTaskDraftLabelsChange(event.target.value)} placeholder="Comma-separated labels" style={textInputStyle} />
-						</div>
-						<button style={primaryActionButtonStyle} onClick={onCreateTask}>Create Task</button>
 					</div>
 				</div>
 				<div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-					<select value={selectedProject} onChange={(event) => onSelectProject(event.target.value)} style={selectStyle}>{projects.map((project) => <option key={project} value={project}>{project}</option>)}</select>
+					<select value={selectedProject} onChange={(event) => onSelectProject(event.target.value)} style={selectStyle}>{projects.map((project) => <option key={project.slug} value={project.slug}>{project.name}</option>)}</select>
 					<select value={selectedLabel} onChange={(event) => onSelectLabel(event.target.value)} style={selectStyle}><option value="">All labels</option>{labels.map((label) => <option key={label} value={label}>{label}</option>)}</select>
 					<button style={ghostActionButtonStyle}>Filter rail</button>
 					{filters.length > 0 && <><>{filters.map((filter) => <FilterChip key={filter} label={filter} />)}</><button style={clearActionButtonStyle} onClick={onClearFilters}>Clear filters</button></>}
 				</div>
 				{tasks.length === 0 ? <EmptyState title="No tasks match this scope" detail="The current project or label filters removed all visible tasks. Clear filters or switch scope to continue." /> : taskView === 'board' && grouped ? (
-					<div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(260px, 1fr))', gap: 14, overflowX: 'auto' }}>
-						{Object.entries(grouped).map(([key, columnTasks]) => <div key={key} style={boardColumnStyle}><div style={boardColumnHeaderStyle}><span>{statusMeta[key as TaskStatus].label}</span><span style={metaTextStyle}>{columnTasks.length}</span></div><div style={{ display: 'grid', gap: 10 }}>{columnTasks.map((task) => <button key={task.id} onClick={() => onSelectTask(task.id)} style={boardCardStyle}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}><IdPill value={task.id} /><PriorityPill priority={task.priority} /></div><div style={{ fontWeight: 700, lineHeight: 1.35, marginBottom: 8 }}>{task.title}</div><div style={{ color: palette.muted, fontSize: 13, lineHeight: 1.5, marginBottom: 10 }}>{task.summary}</div><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>{task.labels.slice(0, 2).map((label) => <LabelChip key={label} label={label} />)}</div><div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, color: palette.subtle, fontSize: 12 }}><span>{task.assignee}</span><span>{task.updatedAt}</span></div></button>)}</div></div>)}
+					<div style={{ overflowX: 'auto', paddingBottom: 4 }}>
+						<div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 280px)', gap: 14, minWidth: 'max-content', alignItems: 'start' }}>
+							{Object.entries(grouped).map(([key, columnTasks]) => <div key={key} style={boardColumnStyle}><div style={boardColumnHeaderStyle}><span>{statusMeta[key as TaskStatus].label}</span><span style={metaTextStyle}>{columnTasks.length}</span></div><div style={{ display: 'grid', gap: 10 }}>{columnTasks.map((task) => <button key={task.id} onClick={() => onSelectTask(task.id)} style={boardCardStyle}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}><IdPill value={task.id} /><PriorityPill priority={task.priority} /></div><div style={{ fontWeight: 700, lineHeight: 1.35, marginBottom: 8, overflowWrap: 'anywhere' }}>{task.title}</div><div style={{ color: palette.muted, fontSize: 13, lineHeight: 1.5, marginBottom: 10, overflowWrap: 'anywhere' }}>{task.summary}</div><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>{task.labels.slice(0, 2).map((label) => <LabelChip key={label} label={label} />)}</div><div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, color: palette.subtle, fontSize: 12 }}><span style={{ overflowWrap: 'anywhere' }}>{task.assignee}</span><span>{task.updatedAt}</span></div></button>)}</div></div>)}
+						</div>
 					</div>
 				) : (
-					<div style={{ overflowX: 'auto' }}><table style={tableStyle}><thead><tr>{['ID', 'Title', 'Status', 'Priority', 'Labels', 'Assignee', 'Updated'].map((header) => <th key={header} style={tableHeadStyle}>{header}</th>)}</tr></thead><tbody>{tasks.map((task) => { const active = selectedTask.id === task.id; return <tr key={task.id} onClick={() => onSelectTask(task.id)} style={{ cursor: 'pointer', background: active ? palette.accentSoft : 'transparent' }}><td style={{ ...tableCellStyle, fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{task.id}</td><td style={tableCellStyle}><div style={{ fontWeight: 700 }}>{task.title}</div><div style={{ color: palette.muted, fontSize: 13, marginTop: 4 }}>{task.summary}</div></td><td style={tableCellStyle}><StatusPill status={task.status} /></td><td style={tableCellStyle}><PriorityPill priority={task.priority} /></td><td style={tableCellStyle}><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{task.labels.map((label) => <LabelChip key={label} label={label} />)}</div></td><td style={tableCellStyle}>{task.assignee}</td><td style={tableCellStyle}>{task.updatedAt}</td></tr> })}</tbody></table></div>
+					<div style={{ overflowX: 'auto' }}><table style={tableStyle}><thead><tr>{['ID', 'Title', 'Status', 'Priority', 'Labels', 'Assignee', 'Updated'].map((header) => <th key={header} style={tableHeadStyle}>{header}</th>)}</tr></thead><tbody>{tasks.map((task) => { const active = selectedTaskId === task.id; return <tr key={task.id} onClick={() => onSelectTask(task.id)} style={{ cursor: 'pointer', background: active ? palette.accentSoft : 'transparent' }}><td style={{ ...tableCellStyle, fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>{task.id}</td><td style={tableCellStyle}><div style={{ fontWeight: 700 }}>{task.title}</div><div style={{ color: palette.muted, fontSize: 13, marginTop: 4 }}>{task.summary}</div></td><td style={tableCellStyle}><StatusPill status={task.status} /></td><td style={tableCellStyle}><PriorityPill priority={task.priority} /></td><td style={tableCellStyle}><div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{task.labels.map((label) => <LabelChip key={label} label={label} />)}</div></td><td style={tableCellStyle}>{task.assignee}</td><td style={tableCellStyle}>{task.updatedAt}</td></tr> })}</tbody></table></div>
 				)}
-				<div style={{ marginTop: 18 }}><TaskDetail task={selectedTask} compact onSave={onUpdateTask} /></div>
 			</div>
 		</div>
 	)
@@ -299,69 +277,15 @@ export function SessionsView(props: {
 	sessions: Session[]
 	onPreview: (snapshotId: string) => void
 	onDownload: (snapshotId: string) => void
-	sessionMode: 'upload' | 'register' | null
-	onSessionModeChange: (value: 'upload' | 'register' | null) => void
-	sessionTitle: string
-	onSessionTitleChange: (value: string) => void
-	sessionDescription: string
-	onSessionDescriptionChange: (value: string) => void
-	sessionArtifactName: string
-	onSessionArtifactNameChange: (value: string) => void
-	sessionArtifactPath: string
-	onSessionArtifactPathChange: (value: string) => void
-	sessionFile: File | null
-	onSessionFileChange: (file: File | null) => void
-	onSubmitSession: () => void
-	onCancelSession: () => void
-	fileInputRef: RefObject<HTMLInputElement | null>
 }) {
-	const { sessions, onPreview, onDownload, sessionMode, onSessionModeChange, sessionTitle, onSessionTitleChange, sessionDescription, onSessionDescriptionChange, sessionArtifactName, onSessionArtifactNameChange, sessionArtifactPath, onSessionArtifactPathChange, sessionFile, onSessionFileChange, onSubmitSession, onCancelSession, fileInputRef } = props
+	const { sessions, onPreview, onDownload } = props
 	return (
 		<div style={{ display: 'grid', gap: 18 }}>
 			<WorkspaceHeader eyebrow="Sessions" title="Registry for imported agent session snapshots" description="A document-registry mental model: upload, register, inspect metadata, and download artifacts without pretending these are task cards." />
 			<div style={surfaceStyle}>
 				<div style={toolbarStyle}>
 					<div style={toolbarTitleStyle}>Snapshot Registry</div>
-					<div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-						<button style={primaryActionButtonStyle} onClick={() => onSessionModeChange('upload')}>Upload Artifact</button>
-						<button style={ghostActionButtonStyle} onClick={() => onSessionModeChange('register')}>Register Existing Path</button>
-					</div>
 				</div>
-				{sessionMode && (
-					<div style={editorPanelStyle}>
-						<div style={metaLabelStyle}>{sessionMode === 'upload' ? 'Upload session artifact' : 'Register existing artifact path'}</div>
-						<div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10 }}>
-							<input value={sessionTitle} onChange={(event) => onSessionTitleChange(event.target.value)} placeholder="Session title" style={textInputStyle} />
-							<input value={sessionArtifactName} onChange={(event) => onSessionArtifactNameChange(event.target.value)} placeholder="Artifact name" style={textInputStyle} disabled={sessionMode === 'upload'} />
-						</div>
-						<textarea value={sessionDescription} onChange={(event) => onSessionDescriptionChange(event.target.value)} placeholder="Description" rows={3} style={textAreaStyle} />
-						{sessionMode === 'upload' ? (
-							<div style={{ display: 'grid', gap: 8 }}>
-								<input
-									ref={fileInputRef}
-									type="file"
-									accept=".json,application/json"
-									onChange={(event) => {
-										const file = event.target.files?.[0] ?? null
-										onSessionFileChange(file)
-										if (file) {
-											onSessionArtifactNameChange(file.name)
-											if (!sessionTitle) onSessionTitleChange(file.name.replace(/\.json$/i, ''))
-										}
-									}}
-									style={textInputStyle}
-								/>
-								<div style={{ color: palette.muted, fontSize: 13 }}>{sessionFile ? `Selected: ${sessionFile.name}` : 'Select an exported session artifact file.'}</div>
-							</div>
-						) : (
-							<input value={sessionArtifactPath} onChange={(event) => onSessionArtifactPathChange(event.target.value)} placeholder="s3://... or /path/to/session.json" style={textInputStyle} />
-						)}
-						<div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-							<button style={primaryActionButtonStyle} onClick={onSubmitSession}>Save Session</button>
-							<button style={ghostActionButtonStyle} onClick={onCancelSession}>Cancel</button>
-						</div>
-					</div>
-				)}
 				<div style={{ overflowX: 'auto' }}>
 					<table style={tableStyle}>
 						<thead>
@@ -391,8 +315,8 @@ export function SessionsView(props: {
 
 export function ActivityView(props: {
 	activities: ActivityItem[]
-	projects: string[]
-	tasks: string[]
+	projects: Array<{ id: string; name: string }>
+	tasks: Array<{ id: string; name: string }>
 	labels: string[]
 	project: string
 	task: string
@@ -419,9 +343,9 @@ export function ActivityView(props: {
 			<div style={surfaceStyle}>
 				<div style={toolbarStyle}><div style={toolbarTitleStyle}>Activity Timeline</div><button style={ghostActionButtonStyle} onClick={onToggleSort}>Sort: {sort === 'asc' ? 'Ascending' : 'Descending'}</button></div>
 				<div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-					<select value={project} onChange={(event) => onProjectChange(event.target.value)} style={selectStyle}><option value="">Project</option>{projects.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+					<select value={project} onChange={(event) => onProjectChange(event.target.value)} style={selectStyle}><option value="">Project</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
 					<ToggleChip label="NOT" active={notProject} onClick={onToggleNotProject} />
-					<select value={task} onChange={(event) => onTaskChange(event.target.value)} style={selectStyle}><option value="">Task</option>{tasks.map((item) => <option key={item} value={item}>{item}</option>)}</select>
+					<select value={task} onChange={(event) => onTaskChange(event.target.value)} style={selectStyle}><option value="">Task</option>{tasks.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
 					<ToggleChip label="NOT" active={notTask} onClick={onToggleNotTask} />
 					<select value={label} onChange={(event) => onLabelChange(event.target.value)} style={selectStyle}><option value="">Label</option>{labels.map((item) => <option key={item} value={item}>{item}</option>)}</select>
 					<ToggleChip label="NOT" active={notLabel} onClick={onToggleNotLabel} />
@@ -434,25 +358,19 @@ export function ActivityView(props: {
 	)
 }
 
-export function TaskDetail({ task, compact = false, onSave }: { task: Task; compact?: boolean; onSave?: (input: { taskId: string; title: string; description: string; status: TaskStatus; priority: Priority; assignee: string; labels: string[] }) => void }) {
-	const [editing, setEditing] = useState(false)
-	const [title, setTitle] = useState(task.title)
-	const [description, setDescription] = useState(task.summary)
-	const [status, setStatus] = useState<TaskStatus>(task.status)
-	const [priority, setPriority] = useState<Priority>(task.priority)
-	const [assignee, setAssignee] = useState(task.assignee)
-	const [labels, setLabels] = useState(task.labels.join(', '))
+export function TaskDetailPage({ task, onBack }: { task: Task; onBack: () => void }) {
+	return (
+		<div style={{ display: 'grid', gap: 18 }}>
+			<div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+				<WorkspaceHeader eyebrow="Task Detail" title={task.title} description="Standalone task detail page for human review. Task creation and editing remain agent-driven through the API and CLI." />
+				<button style={ghostActionButtonStyle} onClick={onBack}>Back to Tasks</button>
+			</div>
+			<TaskDetail task={task} />
+		</div>
+	)
+}
 
-	useEffect(() => {
-		setTitle(task.title)
-		setDescription(task.summary)
-		setStatus(task.status)
-		setPriority(task.priority)
-		setAssignee(task.assignee)
-		setLabels(task.labels.join(', '))
-		setEditing(false)
-	}, [task])
-
+export function TaskDetail({ task, compact = false }: { task: Task; compact?: boolean }) {
 	return (
 		<div style={{ ...surfaceStyle, padding: compact ? 18 : 22, gap: 0 }}>
 			<div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 16 }}>
@@ -469,25 +387,8 @@ export function TaskDetail({ task, compact = false, onSave }: { task: Task; comp
 					<PriorityPill priority={task.priority} />
 					<MetaBadge label={task.assignee} />
 					<button style={inlineGhostActionButtonStyle} onClick={() => navigator.clipboard.writeText(task.id)}>Copy ID</button>
-					{onSave && <button style={inlineActionButtonStyle} onClick={() => setEditing((value) => !value)}>{editing ? 'Close Edit' : 'Edit Task'}</button>}
 				</div>
 			</div>
-			{editing && onSave && (
-				<div style={{ ...editorPanelStyle, marginBottom: 16 }}>
-					<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Task title" style={textInputStyle} />
-					<textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Task description" rows={4} style={textAreaStyle} />
-					<div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr 1fr' : '1fr 1fr 1fr', gap: 10 }}>
-						<select value={status} onChange={(event) => setStatus(event.target.value as TaskStatus)} style={selectStyle}><option value="backlog">Backlog</option><option value="todo">Todo</option><option value="in_progress">In Progress</option><option value="in_review">In Review</option></select>
-						<select value={priority} onChange={(event) => setPriority(event.target.value as Priority)} style={selectStyle}><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option></select>
-						<input value={assignee} onChange={(event) => setAssignee(event.target.value)} placeholder="Assignee or unassigned" style={textInputStyle} />
-					</div>
-					<input value={labels} onChange={(event) => setLabels(event.target.value)} placeholder="Comma-separated labels" style={textInputStyle} />
-					<div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-						<button style={primaryActionButtonStyle} onClick={() => onSave({ taskId: task.id, title: title.trim(), description: description.trim(), status, priority, assignee: assignee.trim() || 'unassigned', labels: labels.split(',').map((label) => label.trim()).filter(Boolean) })}>Save Changes</button>
-						<button style={ghostActionButtonStyle} onClick={() => setEditing(false)}>Cancel</button>
-					</div>
-				</div>
-			)}
 			<div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr 1fr' : '1.2fr 1fr', gap: 16, marginBottom: 16 }}>
 				<div style={detailBlockStyle}>
 					<div style={detailBlockTitleStyle}>Description and metadata</div>
@@ -594,6 +495,4 @@ function EmptyState({ title, detail }: { title: string; detail: string }) {
 }
 
 const previewSurfaceStyle: CSSProperties = { position: 'fixed', top: 24, right: 24, width: 380, maxWidth: 'calc(100vw - 48px)', background: palette.panel, border: `1px solid ${palette.border}`, borderRadius: 18, boxShadow: palette.shadow, padding: 18, zIndex: 30 }
-const editorPanelStyle: CSSProperties = { display: 'grid', gap: 10, marginBottom: 16, padding: 14, borderRadius: 14, border: `1px solid ${palette.border}`, background: palette.panelAlt }
 const textInputStyle: CSSProperties = { border: `1px solid ${palette.border}`, borderRadius: 12, padding: '10px 12px', background: palette.panel, color: palette.text, width: '100%', boxSizing: 'border-box' }
-const textAreaStyle: CSSProperties = { ...textInputStyle, resize: 'vertical', fontFamily: 'inherit' }
