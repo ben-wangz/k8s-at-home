@@ -1,7 +1,7 @@
 apiVersion: v2
 name: agent-task-manager
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.1.1
+appVersion: "0.1.1"
 description: Go-based task management system for humans and agents
 type: application
 keywords:
