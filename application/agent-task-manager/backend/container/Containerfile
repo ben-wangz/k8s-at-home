@@ -4,11 +4,11 @@ ARG RUNTIME_IMAGE=gcr.io/distroless/base-debian12
 FROM ${GO_IMAGE} AS builder
 
 WORKDIR /src
-COPY backend/src/go.mod ./go.mod
-COPY backend/src/go.sum ./go.sum
-COPY backend/src/cmd ./cmd
-COPY backend/src/internal ./internal
-COPY backend/src/pkg ./pkg
+COPY application/agent-task-manager/backend/src/go.mod ./go.mod
+COPY application/agent-task-manager/backend/src/go.sum ./go.sum
+COPY application/agent-task-manager/backend/src/cmd ./cmd
+COPY application/agent-task-manager/backend/src/internal ./internal
+COPY application/agent-task-manager/backend/src/pkg ./pkg
 RUN if [ -f go.sum ]; then go mod download; fi && CGO_ENABLED=0 GOOS=linux GOARCH=$(go env GOARCH) go build -o /out/agent-task-manager-api ./cmd/agent-task-manager-api
 
 FROM ${RUNTIME_IMAGE}

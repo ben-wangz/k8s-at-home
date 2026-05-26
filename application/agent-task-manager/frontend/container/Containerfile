@@ -4,14 +4,14 @@ ARG NGINX_IMAGE=docker.io/library/nginx:1.29-alpine
 FROM ${NODE_IMAGE} AS builder
 
 WORKDIR /src
-COPY frontend/package.json ./package.json
-COPY frontend/tsconfig.json ./tsconfig.json
-COPY frontend/vite.config.ts ./vite.config.ts
-COPY frontend/index.html ./index.html
-COPY frontend/src ./src
+COPY application/agent-task-manager/frontend/package.json ./package.json
+COPY application/agent-task-manager/frontend/tsconfig.json ./tsconfig.json
+COPY application/agent-task-manager/frontend/vite.config.ts ./vite.config.ts
+COPY application/agent-task-manager/frontend/index.html ./index.html
+COPY application/agent-task-manager/frontend/src ./src
 RUN npm install && npm run build
 
 FROM ${NGINX_IMAGE}
 
-COPY frontend/container/nginx.conf /etc/nginx/conf.d/default.conf
+COPY application/agent-task-manager/frontend/container/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /src/dist /usr/share/nginx/html
