@@ -10,7 +10,7 @@ keywords:
   - sshpiper
 annotations:
   sshpiper/images: |
-    - name: sshpiper
+    - name: sshpiper-proxy
       path: application/sshpiper/container
       valuesKey: image.tag
 dependencies:

@@ -10,10 +10,10 @@ keywords:
 annotations:
   # Custom metadata for version management
   aria2/images: |
-    - name: aria2/aria2
+    - name: aria2-core
       path: application/aria2/container/aria2
       valuesKey: aria2.image.tag
-    - name: aria2/aria-ng
+    - name: aria2-frontend
       path: application/aria2/container/aria-ng
       valuesKey: ariaNg.image.tag
 dependencies:

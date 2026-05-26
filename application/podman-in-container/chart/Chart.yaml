@@ -11,7 +11,7 @@ keywords:
 annotations:
   # Custom metadata for version management
   podman-in-container/images: |
-    - name: podman-in-container
+    - name: podman-in-container-runtime
       path: application/podman-in-container/container
       valuesKey: image.tag
 dependencies:

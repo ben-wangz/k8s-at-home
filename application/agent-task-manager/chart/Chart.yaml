@@ -10,12 +10,16 @@ keywords:
   - workflow
 annotations:
   agent-task-manager/images: |
-    - name: agent-task-manager/backend
+    - name: agent-task-manager-backend
       path: application/agent-task-manager/backend/container
       valuesKey: backend.api.image.tag
-    - name: agent-task-manager/frontend
+    - name: agent-task-manager-frontend
       path: application/agent-task-manager/frontend/container
       valuesKey: frontend.image.tag
+  agent-task-manager/binaries: |
+    - name: atmctl
+      path: application/agent-task-manager/cli
+      versionFile: VERSION
 home: https://github.com/ben-wangz/k8s-at-home
 sources:
   - https://github.com/ben-wangz/k8s-at-home/tree/main/application/agent-task-manager

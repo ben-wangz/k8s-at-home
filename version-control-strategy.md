@@ -7,41 +7,39 @@ Define how code-side apps map into `version-control.yaml` app entries.
 ## Rules
 
 1. `version-control.yaml` is the single app registry.
-2. App names must be unique across charted apps, standalone image apps, and binary apps.
-3. A charted app owns its chart and its chart-defined images.
-4. A standalone image app has no chart and represents exactly one image.
-5. A binary app is independent and is not coupled to a chart.
+2. `version-control.yaml` uses a unified `apps:` list.
+3. App names must be unique across chart apps, container apps, and binary apps.
+4. A chart app owns its chart and its chart-defined linked targets.
+5. A standalone binary or standalone container app is independent and is not coupled to a chart.
 
-## Charted Apps
+## Chart Apps
 
 Use a chart entry when the app has a Helm chart.
 
-For charted apps:
+For chart apps:
 
 - the chart path is listed in `version-control.yaml`
-- container images belong to the chart definition
-- those images must not be duplicated under the same app name in `version-control.yaml`
+- linked containers and linked binaries belong to the chart definition
+- those linked targets are declared in `Chart.yaml` annotations
+- those linked targets must not be duplicated as standalone apps under the same app name in `version-control.yaml`
 
 Example:
 
 - `agent-task-manager` has a chart
 - its backend and frontend images stay in the chart
+- its `atmctl` binary can also stay linked from the chart
 - `version-control.yaml` only registers the charted app name
 
-## Standalone Image Apps
+## Standalone Container Apps
 
-Use a direct image app entry when the app has no chart.
+This repository does not currently have standalone container apps.
 
-For standalone image apps:
+If standalone container apps are added later:
 
-- `name` is the unique app name
-- `path` points to the `container/` directory
-- `versionFile` lives under the same `container/` directory
-- one app corresponds to one image only
-
-Example:
-
-- `podman-in-container`
+- `type` should be `container`
+- `name` should be the unique app name
+- `path` should point to the container directory
+- `versionFile` defaults to `VERSION` when omitted
 
 ## Binary Apps
 
@@ -53,14 +51,10 @@ For binary apps:
 - `path` points to the binary source root
 - `versionFile` lives at that app's version file
 
-Example:
-
-- `atmctl`
-
 ## Resulting Model
 
 `version-control.yaml` should explicitly list:
 
-- charted apps
-- standalone image apps
+- chart apps
+- standalone container apps when they exist
 - binary apps

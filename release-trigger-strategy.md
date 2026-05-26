@@ -10,55 +10,63 @@ Define the tag-driven logic shared by release workflows.
 2. The tag identifies one app release event.
 3. Each workflow is independent and only acts on the artifact type it owns.
 4. Workflows that do not apply to the tagged app exit immediately.
+5. `forgekit version get <app-name> --output json` is the machine-readable source of truth for app type, version, path, and linked targets.
 
 ## Shared Cascade Logic
 
 The shared release logic should:
 
 - parse the tag and resolve `app-name`
-- look up the app in `version-control.yaml`
+- call `forgekit version get <app-name> --output json`
+- read the resolved app type
+- for chart apps, read linked targets returned from chart annotations
 - decide whether the app has a chart release target
-- decide whether the app has standalone image release targets
-- decide whether the app has a binary release target
+- decide whether the app has container release targets
+- decide whether the app has binary release targets
 - return no-op when the app does not own that artifact type
 
 ## Chart Workflow
 
 If the app has a chart:
 
-- resolve chart-defined image relationships from the chart definition
 - publish the chart artifact
 
 If the app has no chart:
 
 - exit immediately
 
-## Image Workflow
+## Container Workflow
 
 If the app has a chart:
 
-- use `forgekit get` against the chart definition to resolve image targets
+- use linked targets from `forgekit version get <app-name> --output json`
+- publish only linked targets with `type: container`
 
-If the app has no chart:
+If the app is a standalone container app:
 
-- resolve image targets from `version-control.yaml`
+- publish that container directly
 
-If the app has no image targets:
+If the app has no container targets:
 
 - exit immediately
 
 ## Binary Workflow
 
-If the app is a binary app:
+If the app is a standalone binary app:
 
 - build multi-platform binaries
 - generate checksums
 - upload GitHub Release assets
 
-If the app is not a binary app:
+If the app has a chart-linked binary target set in the future:
+
+- use linked targets from `forgekit version get <app-name> --output json`
+- build only linked targets with `type: binary`
+
+If the app has no binary targets:
 
 - exit immediately
 
 ## Workflow Contract
 
-Workflows should remain thin callers over the shared release logic.
+Workflows should remain thin callers over tag parsing, `forgekit version get`, and artifact-specific publish steps.

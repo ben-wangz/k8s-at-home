@@ -1,0 +1,6 @@
+commands:
+  - name: shell syntax
+    cmd: sh
+    args:
+      - -c
+      - bash -n setup/forgekit.sh scripts/release-plan.sh

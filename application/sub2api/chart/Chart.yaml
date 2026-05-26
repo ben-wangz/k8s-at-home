@@ -10,7 +10,7 @@ keywords:
   - gateway
 annotations:
   sub2api/images: |
-    - name: sub2api
+    - name: sub2api-gateway
       path: application/sub2api/container
       valuesKey: image.tag
 dependencies:

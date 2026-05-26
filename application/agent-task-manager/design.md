@@ -237,7 +237,7 @@ application/agent-task-manager/
 │   └── templates/
 ├── backend/
 │   ├── container/
-│   │   ├── api.Containerfile
+│   │   ├── Containerfile
 │   │   └── VERSION
 │   └── src/
 │       ├── go.mod
@@ -343,7 +343,7 @@ Follow the `sshpiper` pattern of explicit container files under `container/`.
 ### Backend API container
 
 - multi-stage Go build
-- Dockerfile path: `backend/container/api.Containerfile`
+- Dockerfile path: `backend/container/Containerfile`
 - small runtime image, preferably distroless or alpine only if debugging needs justify it
 - produces one API binary
 

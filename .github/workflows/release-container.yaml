@@ -1,0 +1,79 @@
+name: release-container
+
+on:
+  push:
+    tags:
+      - "*-v*"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.plan.outputs.should_run }}
+      matrix_json: ${{ steps.plan.outputs.matrix_json }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: setup-forgekit
+        id: forgekit
+        run: |
+          FORGEKIT_BIN="$(bash "$GITHUB_WORKSPACE/setup/forgekit.sh")"
+          echo "bin=${FORGEKIT_BIN}" >> "$GITHUB_OUTPUT"
+          "${FORGEKIT_BIN}" --version
+
+      - name: resolve-container-release
+        id: plan
+        env:
+          FORGEKIT_BIN: ${{ steps.forgekit.outputs.bin }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          bash "$GITHUB_WORKSPACE/scripts/release-plan.sh" container
+
+  publish:
+    needs: plan
+    if: needs.plan.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix: ${{ fromJson(needs.plan.outputs.matrix_json) }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: install-podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: setup-forgekit
+        id: forgekit
+        run: |
+          FORGEKIT_BIN="$(bash "$GITHUB_WORKSPACE/setup/forgekit.sh")"
+          echo "bin=${FORGEKIT_BIN}" >> "$GITHUB_OUTPUT"
+          "${FORGEKIT_BIN}" --version
+
+      - name: publish-container
+        env:
+          FORGEKIT_BIN: ${{ steps.forgekit.outputs.bin }}
+          CONTAINER_REGISTRY: ghcr.io
+          CONTAINER_REGISTRY_USERNAME: ${{ github.actor }}
+          CONTAINER_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_NAME: ${{ github.repository }}-${{ matrix.name }}
+        run: |
+          "$FORGEKIT_BIN" publish container build \
+            --project-root "$GITHUB_WORKSPACE" \
+            --container-dir "${{ matrix.path }}" \
+            --module "${{ matrix.name }}" \
+            --context "$GITHUB_WORKSPACE" \
+            --label "org.opencontainers.image.version=${{ matrix.value }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --semver \
+            --multi-tag

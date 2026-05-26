@@ -1,0 +1,111 @@
+name: release-binary
+
+on:
+  push:
+    tags:
+      - "*-v*"
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.plan.outputs.should_run }}
+      app_name: ${{ steps.plan.outputs.app_name }}
+      tag_version: ${{ steps.plan.outputs.tag_version }}
+      release_name: ${{ steps.plan.outputs.release_name }}
+      matrix_json: ${{ steps.plan.outputs.matrix_json }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: setup-forgekit
+        id: forgekit
+        run: |
+          FORGEKIT_BIN="$(bash "$GITHUB_WORKSPACE/setup/forgekit.sh")"
+          echo "bin=${FORGEKIT_BIN}" >> "$GITHUB_OUTPUT"
+          "${FORGEKIT_BIN}" --version
+
+      - name: resolve-binary-release
+        id: plan
+        env:
+          FORGEKIT_BIN: ${{ steps.forgekit.outputs.bin }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          bash "$GITHUB_WORKSPACE/scripts/release-plan.sh" binary
+
+  release:
+    needs: plan
+    if: needs.plan.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix: ${{ fromJson(needs.plan.outputs.matrix_json) }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: resolve-go-build-root
+        id: target
+        env:
+          TARGET_NAME: ${{ matrix.name }}
+          TARGET_PATH: ${{ matrix.path }}
+        run: |
+          if [[ -f "$TARGET_PATH/go.mod" ]]; then
+            SOURCE_ROOT="$TARGET_PATH"
+          elif [[ -f "$TARGET_PATH/src/go.mod" ]]; then
+            SOURCE_ROOT="$TARGET_PATH/src"
+          else
+            echo "Unable to locate go.mod for $TARGET_NAME under $TARGET_PATH" >&2
+            exit 1
+          fi
+
+          if [[ ! -d "$SOURCE_ROOT/cmd/$TARGET_NAME" ]]; then
+            echo "Missing command directory $SOURCE_ROOT/cmd/$TARGET_NAME" >&2
+            exit 1
+          fi
+
+          echo "source_root=$SOURCE_ROOT" >> "$GITHUB_OUTPUT"
+          echo "cmd_path=./cmd/$TARGET_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: setup-go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ steps.target.outputs.source_root }}/go.mod
+
+      - name: build-multi-platform-binaries
+        env:
+          TARGET_NAME: ${{ matrix.name }}
+          SOURCE_ROOT: ${{ steps.target.outputs.source_root }}
+          CMD_PATH: ${{ steps.target.outputs.cmd_path }}
+        run: |
+          mkdir -p dist
+          targets=(
+            "linux amd64"
+            "linux arm64"
+            "darwin amd64"
+            "darwin arm64"
+          )
+
+          for target in "${targets[@]}"; do
+            IFS=' ' read -r goos goarch <<< "$target"
+            output="dist/${TARGET_NAME}_${goos}_${goarch}"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go -C "$SOURCE_ROOT" build -trimpath -ldflags "-s -w" -o "$GITHUB_WORKSPACE/$output" "$CMD_PATH"
+          done
+
+      - name: generate-checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+
+      - name: upload-release-assets
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ needs.plan.outputs.release_name }}
+          files: |
+            dist/*

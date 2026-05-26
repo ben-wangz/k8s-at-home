@@ -14,172 +14,124 @@ This project is to develop and maintain k8s applications at home.
 
 ## contributing
 
-We welcome contributions! This section explains the development workflow and tools available in this project.
+We welcome contributions. This section explains the versioning and release workflow used in this repository.
 
 ### project structure
 
-```
+```text
 k8s-at-home/
-├── application/            # Applications (charts and containers)
+├── application/
 │   ├── <app-name>/
-│   │   ├── chart/         # Helm chart
-│   │   └── container/     # Container image source
-│   │       └── VERSION    # Image version file (semver)
-├── build/forgekit/         # Unified version/publish CLI source
-├── version-control.yaml    # forgekit chart registry
-└── tests/                  # Test scripts
+│   │   ├── chart/
+│   │   ├── container/
+│   │   └── cli/
+├── build/
+├── scripts/
+├── setup/
+├── version-control.yaml
+└── tests/
 ```
 
 ### version management
 
-All applications follow [Semantic Versioning](https://semver.org/) (semver). Version information is managed through:
+Applications use semver.
 
-- **Container images**: `application/<app>/container/**/VERSION`
-- **Helm charts**: `application/<app>/chart/Chart.yaml` (`version` and `appVersion`)
-- **Chart registry**: `version-control.yaml` (all managed chart paths)
+Version information is managed through:
 
-### development tools
+- container `VERSION` files
+- chart `Chart.yaml` `version` and `appVersion`
+- `version-control.yaml` as the canonical app registry
 
-Version and publish operations are now unified under `forgekit`.
-
-Install `forgekit` from GitHub Releases (recommended) or build from `build/forgekit/`.
-
-You can bootstrap a repo-local binary with:
+Bootstrap a repo-local `forgekit` binary with:
 
 ```bash
 FORGEKIT_BIN=$(bash setup/forgekit.sh)
 "${FORGEKIT_BIN}" version get
 ```
 
-#### 1. Query versions
+### query versions
 
 ```bash
-# List all chart/image versions
+# List all apps
 forgekit version get
 
-# Get chart version
-forgekit version get chart <chart-name>
-
-# Get image/module version
-forgekit version get <module>
-
-# Get chart appVersion
-forgekit version get chart appVersion <chart-name>
+# Get one app
+forgekit version get <app-name>
 ```
 
 Examples:
 
 ```bash
-forgekit version get chart podman-in-container
-forgekit version get aria2/aria2
-forgekit version get aria2/aria-ng
+forgekit version get podman-in-container
+forgekit version get aria2-core
+forgekit version get aria2-frontend
+forgekit version get agent-task-manager
 ```
 
-#### 2. Bump image version
+### bump versions
 
 ```bash
-forgekit version bump <module> <major|minor|patch>
+forgekit version bump <binary|container|chart> <app-name> <major|minor|patch>
 ```
 
 Examples:
 
 ```bash
-forgekit version bump podman-in-container patch
-forgekit version bump aria2/aria2 minor
-forgekit version bump aria2/aria-ng major
+forgekit version bump chart podman-in-container patch
+forgekit version bump container aria2-core minor
+forgekit version bump container aria2-frontend major
 ```
 
-#### 3. Bump chart version
+Sync linked chart values when bumping a chart:
 
 ```bash
-# Chart only
-forgekit version bump-chart <chart-name> <major|minor|patch>
-
-# Chart + sync image versions to appVersion and values.yaml
-forgekit version bump-chart <chart-name> <major|minor|patch> --sync
+forgekit version bump chart aria2 minor --sync
 ```
 
-### typical workflows
+### release model
 
-#### Workflow 1: Update container image
+Release is tag-driven.
+
+- tag format: `<app-name>-v<semver>`
+- chart release workflow: `.github/workflows/release-chart.yaml`
+- container release workflow: `.github/workflows/release-container.yaml`
+- binary release workflow: `.github/workflows/release-binary.yaml`
+- validation workflow: `.github/workflows/lint.yaml`
+
+Examples:
 
 ```bash
-# 1. Make changes to container code/Containerfile
-vim application/podman-in-container/container/Containerfile
-
-# 2. Bump image version
-forgekit version bump podman-in-container patch
-
-# 3. Bump chart version and sync images
-forgekit version bump-chart podman-in-container patch --sync
-
-# 4. Test
-bash tests/build-images.sh podman-in-container
-
-# 5. Review and commit
-git diff
-git add application/podman-in-container/
-git commit -m "feat(podman-in-container): optimize Containerfile layers"
+git tag aria2-v1.1.1
+git tag agent-task-manager-v0.1.0
 ```
 
-#### Workflow 2: Update chart only
+### chart metadata
 
-```bash
-# 1. Make chart changes
-vim application/aria2/chart/templates/deployment.yaml
-
-# 2. Bump chart version
-forgekit version bump-chart aria2 patch
-
-# 3. Validate chart release workflow
-# (Use .github/workflows/publish-chart.yaml)
-```
-
-#### Workflow 3: Update multi-container application
-
-```bash
-# 1. Bump backend image
-forgekit version bump aria2/aria2 minor
-
-# 2. Bump frontend image
-forgekit version bump aria2/aria-ng patch
-
-# 3. Sync to chart and bump chart version
-forgekit version bump-chart aria2 minor --sync
-
-# 4. Test
-bash tests/build-images.sh aria2 aria-ng
-```
-
-### version synchronization metadata
-
-Charts use annotations to define image metadata for automatic synchronization:
+Charts use annotations to define linked release targets.
 
 ```yaml
-# application/<app>/chart/Chart.yaml
 annotations:
   podman-in-container/images: |
-    - name: podman-in-container
+    - name: podman-in-container-runtime
       path: application/podman-in-container/container
       valuesKey: image.tag
 ```
 
-- **name**: module name used by `forgekit version get/bump`
-- **path**: path to the directory that contains `VERSION` (relative to repo root)
-- **valuesKey**: dot-notation key in `values.yaml`
+- `name`: globally unique app name used by `forgekit`
+- `path`: target directory relative to repo root
+- `valuesKey`: dot-notation key in `values.yaml`
+
+With `forgekit 0.6.0`, app names must not contain `/`.
 
 ### testing
 
 ```bash
-# Test image builds
 bash tests/build-images.sh [image-names...]
-
-# Chart checks are handled by publish-chart workflow
 ```
 
 ### pull request checklist
 
 - [ ] Version numbers updated with `forgekit`
-- [ ] Image/chart versions are synchronized when needed
-- [ ] Images build successfully (`bash tests/build-images.sh`)
-- [ ] Charts pass `publish-chart` workflow
+- [ ] Linked chart values synchronized when needed
+- [ ] Images build successfully when container changes are made
+- [ ] Release workflows still match the intended app/tag model
