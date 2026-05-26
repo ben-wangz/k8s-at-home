@@ -1,6 +1,32 @@
+include:
+  - "**/*.go"
+
+max_lines_by_ext:
+  .go: 250
+
 commands:
   - name: shell syntax
     cmd: sh
     args:
       - -c
       - bash -n setup/forgekit.sh scripts/release-plan.sh
+  - name: gofmt check
+    cmd: sh
+    args:
+      - -c
+      - test -z "$(gofmt -l .)"
+  - name: agent-task-manager backend tests
+    cmd: sh
+    args:
+      - -c
+      - go -C application/agent-task-manager/backend/src test ./...
+  - name: agent-task-manager cli tests
+    cmd: sh
+    args:
+      - -c
+      - go -C application/agent-task-manager/cli/src test ./...
+  - name: sshpiper tests
+    cmd: sh
+    args:
+      - -c
+      - go -C application/sshpiper/src test ./...

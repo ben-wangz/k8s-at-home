@@ -158,7 +158,9 @@ func (s *Server) handleCommentSubresources(w http.ResponseWriter, r *http.Reques
 	commentID := parts[3]
 	switch r.Method {
 	case http.MethodPatch:
-		var input struct { Body string `json:"body"` }
+		var input struct {
+			Body string `json:"body"`
+		}
 		if !decodeJSON(w, r, &input) {
 			return
 		}

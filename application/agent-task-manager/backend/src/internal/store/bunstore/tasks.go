@@ -15,12 +15,12 @@ import (
 )
 
 var validTaskStatuses = map[string]string{
-	"backlog":    "backlog",
-	"todo":       "backlog",
+	"backlog":     "backlog",
+	"todo":        "backlog",
 	"in_progress": "in_progress",
-	"in_review":  "in_review",
-	"done":       "done",
-	"cancelled":  "cancelled",
+	"in_review":   "in_review",
+	"done":        "done",
+	"cancelled":   "cancelled",
 }
 
 func normalizeTaskStatus(status string) (string, error) {

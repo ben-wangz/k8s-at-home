@@ -85,14 +85,28 @@ func runTasks(cli client, raw bool, args []string) error {
 			return errors.New("tasks update requires task id")
 		}
 		body := map[string]any{}
-		if *title != "" { body["title"] = *title }
-		if *description != "" { body["description"] = *description }
-		if *status != "" { body["status"] = *status }
-		if *priority != "" { body["priority"] = *priority }
-		if *assignee != "" {
-			if *assignee == "unassigned" { body["assignee_id"] = nil } else { body["assignee_id"] = *assignee }
+		if *title != "" {
+			body["title"] = *title
 		}
-		if *labels != "" { body["labels"] = splitCSV(*labels) }
+		if *description != "" {
+			body["description"] = *description
+		}
+		if *status != "" {
+			body["status"] = *status
+		}
+		if *priority != "" {
+			body["priority"] = *priority
+		}
+		if *assignee != "" {
+			if *assignee == "unassigned" {
+				body["assignee_id"] = nil
+			} else {
+				body["assignee_id"] = *assignee
+			}
+		}
+		if *labels != "" {
+			body["labels"] = splitCSV(*labels)
+		}
 		var response task
 		if err := cli.patchJSON("/tasks/"+updateArgs[0], body, &response); err != nil {
 			return err
@@ -110,7 +124,9 @@ func runTasks(cli client, raw bool, args []string) error {
 			return errors.New("tasks comment requires task id and --body")
 		}
 		payload := map[string]any{"body": *body}
-		if *authorID != "" { payload["author_id"] = *authorID }
+		if *authorID != "" {
+			payload["author_id"] = *authorID
+		}
 		var response any
 		if err := cli.postJSON("/tasks/"+commentArgs[0]+"/comments", payload, &response); err != nil {
 			return err
@@ -147,7 +163,9 @@ func runTasks(cli client, raw bool, args []string) error {
 			return errors.New("tasks reparent requires task id")
 		}
 		payload := map[string]any{"parent_task_id": nil}
-		if *parentID != "" { payload["parent_task_id"] = *parentID }
+		if *parentID != "" {
+			payload["parent_task_id"] = *parentID
+		}
 		var response task
 		if err := cli.postJSON("/tasks/"+reparentArgs[0]+"/reparent", payload, &response); err != nil {
 			return err

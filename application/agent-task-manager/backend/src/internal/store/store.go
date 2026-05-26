@@ -106,14 +106,14 @@ type APIKeyCreate struct {
 }
 
 type ProjectOverview struct {
-	Project          domain.Project   `json:"project"`
-	Open             int              `json:"open"`
-	InProgress       int              `json:"in_progress"`
-	InReview         int              `json:"in_review"`
-	Done             int              `json:"done"`
-	Cancelled        int              `json:"cancelled"`
-	RecentTasks      []domain.Task    `json:"recent_tasks"`
-	RecentSessions   []domain.Session `json:"recent_sessions"`
+	Project          domain.Project    `json:"project"`
+	Open             int               `json:"open"`
+	InProgress       int               `json:"in_progress"`
+	InReview         int               `json:"in_review"`
+	Done             int               `json:"done"`
+	Cancelled        int               `json:"cancelled"`
+	RecentTasks      []domain.Task     `json:"recent_tasks"`
+	RecentSessions   []domain.Session  `json:"recent_sessions"`
 	RecentActivities []domain.Activity `json:"recent_activities"`
 }
 
