@@ -46,7 +46,7 @@ backend:
     replicaCount: 1
     image:
       registry: ghcr.io
-      repository: ben-wangz/k8s-at-home-agent-task-manager-api
+      repository: ben-wangz/k8s-at-home-agent-task-manager-backend
       tag: 0.1.2
       pullPolicy: IfNotPresent
     command: []
