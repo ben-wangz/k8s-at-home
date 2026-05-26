@@ -1,8 +1,12 @@
 include:
   - "**/*.go"
+  - "**/*.ts"
+  - "**/*.tsx"
 
 max_lines_by_ext:
   .go: 250
+  .ts: 300
+  .tsx: 300
 
 commands:
   - name: shell syntax
