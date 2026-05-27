@@ -14,23 +14,7 @@ This project is to develop and maintain k8s applications at home.
 
 ## contributing
 
-We welcome contributions. This section explains the versioning and release workflow used in this repository.
-
-### project structure
-
-```text
-k8s-at-home/
-├── application/
-│   ├── <app-name>/
-│   │   ├── chart/
-│   │   ├── container/
-│   │   └── cli/
-├── build/
-├── scripts/
-├── setup/
-├── version-control.yaml
-└── tests/
-```
+We welcome contributions.
 
 ### version management
 
@@ -45,65 +29,62 @@ Version information is managed through:
 Bootstrap a repo-local `forgekit` binary with:
 
 ```bash
-FORGEKIT_BIN=$(bash setup/forgekit.sh)
-"${FORGEKIT_BIN}" version get
+FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
+"$FORGEKIT_BIN" version get
 ```
 
 ### query versions
 
 ```bash
-# List all apps
-forgekit version get
+FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
+"$FORGEKIT_BIN" version get
 
-# Get one app
-forgekit version get <app-name>
+FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
+"$FORGEKIT_BIN" version get <app-name>
 ```
 
 Examples:
 
 ```bash
-forgekit version get podman-in-container
-forgekit version get aria2-core
-forgekit version get aria2-frontend
-forgekit version get agent-task-manager
+FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
+"$FORGEKIT_BIN" version get podman-in-container
+"$FORGEKIT_BIN" version get agent-task-manager
 ```
 
 ### bump versions
 
 ```bash
-forgekit version bump <binary|container|chart> <app-name> <major|minor|patch>
+FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
+"$FORGEKIT_BIN" version bump <binary|container|chart> <app-name> <major|minor|patch>
 ```
 
 Examples:
 
 ```bash
-forgekit version bump chart podman-in-container patch
-forgekit version bump container aria2-core minor
-forgekit version bump container aria2-frontend major
+FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
+"$FORGEKIT_BIN" version bump chart podman-in-container patch
+"$FORGEKIT_BIN" version bump container agent-task-manager-frontend patch
 ```
 
 Sync linked chart values when bumping a chart:
 
 ```bash
-forgekit version bump chart aria2 minor --sync
+FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
+"$FORGEKIT_BIN" version bump chart aria2 minor --sync
 ```
 
 ### release model
 
-Release is tag-driven.
+Release is tag-driven and documented in:
 
-- tag format: `<app-name>-v<semver>`
-- chart release workflow: `.github/workflows/release-chart.yaml`
-- container release workflow: `.github/workflows/release-container.yaml`
-- binary release workflow: `.github/workflows/release-binary.yaml`
-- validation workflow: `.github/workflows/lint.yaml`
+- `.opencode/skills/release-version/SKILL.md`
 
-Examples:
+Use that skill as the source of truth for:
 
-```bash
-git tag aria2-v1.1.1
-git tag agent-task-manager-v0.1.0
-```
+- push -> lint -> tag ordering
+- release tag format
+- workflow monitoring
+- chart/container/binary version bump flow
 
 ### chart metadata
 
@@ -123,15 +104,8 @@ annotations:
 
 With `forgekit 0.6.0`, app names must not contain `/`.
 
-### testing
-
-```bash
-bash tests/build-images.sh [image-names...]
-```
-
 ### pull request checklist
 
 - [ ] Version numbers updated with `forgekit`
 - [ ] Linked chart values synchronized when needed
-- [ ] Images build successfully when container changes are made
-- [ ] Release workflows still match the intended app/tag model
+- [ ] Release flow still matches `.opencode/skills/release-version/SKILL.md`

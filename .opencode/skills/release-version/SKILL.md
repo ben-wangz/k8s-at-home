@@ -277,8 +277,6 @@ Process:
 - `.github/workflows/release-chart.yaml`
 - `.github/workflows/release-container.yaml`
 - `.github/workflows/release-binary.yaml`
-- `cicd.md`
-- `release-trigger-strategy.md`
 
 ## Notes
 

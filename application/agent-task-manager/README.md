@@ -8,7 +8,6 @@
 - `backend/`: Go API
 - `cli/`: Go CLI client
 - `frontend/`: web UI
-- `design.md`: implementation design
 
 ## Status
 
