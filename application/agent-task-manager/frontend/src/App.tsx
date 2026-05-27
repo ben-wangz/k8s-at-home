@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { loadActivities, loadProjectOverview, loadProjects, loadSessions, loadTaskDetail, loadTasks, sessionDownloadURL } from './api'
 import { navItems } from './ui-config'
-import { palette, sidebarInfoCardStyle, sidebarLabelStyle } from './styles'
+import { palette, sidebarInfoCardStyle, sidebarLabelStyle, topbarGhostButtonStyle } from './styles'
 import type { ActivityItem, PreviewState, Project, Session, Task, TaskView, View } from './types'
 import { ActivityView, HomeView, PreviewPanel, ProjectsView, SessionsView, TaskDetailPage, TasksWorkspace } from './views'
 
@@ -23,6 +23,11 @@ export default function App() {
 	const [activitySort, setActivitySort] = useState<'asc' | 'desc'>('desc')
 	const [projectSearchDraft, setProjectSearchDraft] = useState('')
 	const [projectSearch, setProjectSearch] = useState('')
+	const [projectsRefreshKey, setProjectsRefreshKey] = useState(0)
+	const [sessionsRefreshKey, setSessionsRefreshKey] = useState(0)
+	const [activitiesRefreshKey, setActivitiesRefreshKey] = useState(0)
+	const [workspaceRefreshKey, setWorkspaceRefreshKey] = useState(0)
+	const [taskDetailRefreshKey, setTaskDetailRefreshKey] = useState(0)
 
 	const [projects, setProjects] = useState<Project[]>([])
 	const [tasks, setTasks] = useState<Task[]>([])
@@ -43,9 +48,35 @@ export default function App() {
 		setSessions(items)
 	}
 
+	function refreshCurrentView() {
+		switch (activeView) {
+			case 'projects':
+				setProjectsRefreshKey((value) => value + 1)
+				break
+			case 'sessions':
+				setSessionsRefreshKey((value) => value + 1)
+				break
+			case 'activity':
+				setActivitiesRefreshKey((value) => value + 1)
+				break
+			case 'task-detail':
+				setWorkspaceRefreshKey((value) => value + 1)
+				setTaskDetailRefreshKey((value) => value + 1)
+				break
+			default:
+				setWorkspaceRefreshKey((value) => value + 1)
+		}
+	}
+
 	useEffect(() => {
 		loadProjects().then(setProjects).catch(() => setProjects([]))
+	}, [projectsRefreshKey])
+
+	useEffect(() => {
 		refreshSessions().catch(() => setSessions([]))
+	}, [sessionsRefreshKey])
+
+	useEffect(() => {
 		loadActivities('').then(setActivities).catch(() => setActivities([]))
 	}, [])
 
@@ -67,13 +98,13 @@ export default function App() {
 		params.set('sort', activitySort)
 		const query = params.size > 0 ? `?${params.toString()}` : ''
 		loadActivities(query).then(setActivities).catch(() => setActivities([]))
-	}, [activityProject, activityTask, activityLabel, notProject, notTask, notLabel, activitySort])
+	}, [activitiesRefreshKey, activityProject, activityTask, activityLabel, notProject, notTask, notLabel, activitySort])
 
 	const activeProject = projects.find((project) => project.slug === selectedProject) ?? projects[0] ?? null
 
 	useEffect(() => {
 		setHomeError('')
-	}, [activeProject?.id])
+	}, [activeProject?.id, workspaceRefreshKey])
 
 	useEffect(() => {
 		if (!activeProject?.id) return
@@ -97,7 +128,7 @@ export default function App() {
 				setHomeError('Failed to load project overview.')
 				setHomeLoading(false)
 			})
-	}, [activeProject?.id])
+	}, [activeProject?.id, workspaceRefreshKey])
 
 	useEffect(() => {
 		if (!selectedTaskId) return
@@ -107,7 +138,7 @@ export default function App() {
 		loadTaskDetail(selectedTaskId, detailProject.slug, detailProject.name)
 			.then((task) => setTaskDetails((current) => ({ ...current, [task.id]: task })))
 			.catch(() => undefined)
-	}, [selectedTaskId, activeProject, tasks, projectBySlug])
+	}, [selectedTaskId, activeProject, taskDetailRefreshKey, tasks, projectBySlug])
 
 	const selectedTask = taskDetails[selectedTaskId] ?? tasks.find((task) => task.id === selectedTaskId) ?? null
 
@@ -118,8 +149,6 @@ export default function App() {
 			return true
 		})
 	}, [taskFilterLabel, taskFilterProject, tasks])
-
-	const filteredActivities = useMemo(() => activities, [activities])
 
 	const taskProjects = projects.map((project) => ({ slug: project.slug, name: project.name }))
 	const taskLabels = Array.from(new Set(tasks.flatMap((task) => task.labels ?? [])))
@@ -168,7 +197,10 @@ export default function App() {
 				<div style={{ background: palette.workspace, minWidth: 0 }}>
 					<header style={{ height: 72, padding: '0 22px', background: palette.topbar, borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 16, alignItems: 'center' }}>
 						<div style={{ color: '#d3deeb', fontSize: 13 }}>Agent-first workspace</div>
-						<div style={{ color: '#d3deeb', fontSize: 13 }}>Scope: {activeProject?.slug ?? selectedProject}</div>
+						<div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+							<div style={{ color: '#d3deeb', fontSize: 13 }}>Scope: {activeProject?.slug ?? selectedProject}</div>
+							<button style={topbarGhostButtonStyle} onClick={refreshCurrentView}>Refresh</button>
+						</div>
 					</header>
 					<div style={{ padding: 20 }}>
 						{activeView === 'home' && (homeProject ?? activeProject) && <HomeView project={homeProject ?? activeProject!} tasks={homeTasks} activities={homeActivities} sessions={homeSessions} onOpenTask={(taskId) => { setSelectedTaskId(taskId); setActiveView('task-detail') }} loading={homeLoading} error={homeError} />}
