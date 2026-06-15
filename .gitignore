@@ -1,5 +1,11 @@
 references/
+!.opencode/skills/*/references/
+!.opencode/skills/*/references/**
 build/
 .serena/
 node_modules/
 dist/
+.env
+.env.*
+!.env.example
+!.env.*.example

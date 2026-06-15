@@ -1,0 +1,193 @@
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
+kind: Deployment
+metadata:
+  name: {{ include "common.names.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  {{- if .Values.updateStrategy }}
+  strategy: {{- toYaml .Values.updateStrategy | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "common.labels.matchLabels" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 8 }}
+      annotations:
+        {{- if .Values.podAnnotations }}
+        {{- include "common.tplvalues.render" ( dict "value" .Values.podAnnotations "context" $) | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets: {{- include "common.tplvalues.render" ( dict "value" .Values.imagePullSecrets "context" $ ) | nindent 6 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      affinity: {{- include "common.tplvalues.render" ( dict "value" .Values.affinity "context" $ ) | nindent 8 }}
+      {{- else }}
+      affinity:
+        podAffinity: {{- include "common.affinities.pods" ( dict "type" .Values.podAffinityPreset "customLabels" .Values.podLabels "context" $ ) | nindent 10 }}
+        podAntiAffinity: {{- include "common.affinities.pods" ( dict "type" .Values.podAntiAffinityPreset "customLabels" .Values.podLabels "context" $ ) | nindent 10 }}
+        nodeAffinity: {{- include "common.affinities.nodes" ( dict "type" .Values.nodeAffinityPreset.type "key" .Values.nodeAffinityPreset.key "values" .Values.nodeAffinityPreset.values ) | nindent 10 }}
+      {{- end }}
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{- include "common.tplvalues.render" ( dict "value" .Values.nodeSelector "context" $ ) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+      tolerations: {{- include "common.tplvalues.render" ( dict "value" .Values.tolerations "context" $ ) | nindent 8 }}
+      {{- end }}
+      {{- if .Values.podSecurityContext.enabled }}
+      securityContext: {{- include "common.compatibility.renderSecurityContext" ( dict "secContext" .Values.podSecurityContext "context" $ ) | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: tabminal
+        image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        {{- /* Override the image CMD (--help) so the server starts. */}}
+        args: []
+        ports:
+        - containerPort: {{ .Values.ports.http }}
+          name: http
+        volumeMounts:
+        - name: data
+          mountPath: {{ .Values.persistence.mountPath }}
+        {{- if .Values.persistence.subPath }}
+          subPath: {{ .Values.persistence.subPath }}
+        {{- end }}
+        {{- if .Values.extraVolumeMounts }}
+          {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 8 }}
+        {{- end }}
+        env:
+        - name: TABMINAL_HOST
+          value: {{ .Values.tabminal.host | quote }}
+        - name: TABMINAL_PORT
+          value: {{ .Values.ports.http | quote }}
+        - name: TABMINAL_ACCEPT_TERMS
+          value: {{ .Values.tabminal.acceptTerms | quote }}
+        {{- if .Values.tabminal.shell }}
+        - name: TABMINAL_SHELL
+          value: {{ .Values.tabminal.shell | quote }}
+        {{- end }}
+        {{- if .Values.tabminal.openaiApi }}
+        - name: TABMINAL_OPENAI_API
+          value: {{ .Values.tabminal.openaiApi | quote }}
+        {{- end }}
+        {{- if .Values.tabminal.model }}
+        - name: TABMINAL_MODEL
+          value: {{ .Values.tabminal.model | quote }}
+        {{- end }}
+        {{- if .Values.tabminal.heartbeat }}
+        - name: TABMINAL_HEARTBEAT
+          value: {{ .Values.tabminal.heartbeat | quote }}
+        {{- end }}
+        {{- if .Values.tabminal.history }}
+        - name: TABMINAL_HISTORY
+          value: {{ .Values.tabminal.history | quote }}
+        {{- end }}
+        {{- if .Values.tabminal.debug }}
+        - name: TABMINAL_DEBUG
+          value: "true"
+        {{- end }}
+        {{- /* Secret-backed environment variables */}}
+        {{- $secretName := include "tabminal.secret.name" . }}
+        {{- $existing := .Values.tabminal.existingSecret }}
+        {{- if or $existing .Values.tabminal.password }}
+        - name: TABMINAL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secretName }}
+              key: {{ .Values.tabminal.existingSecretPasswordKey }}
+        {{- end }}
+        {{- if or $existing .Values.tabminal.openrouterKey }}
+        - name: TABMINAL_OPENROUTER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secretName }}
+              key: openrouter-key
+        {{- end }}
+        {{- if or $existing .Values.tabminal.openaiKey }}
+        - name: TABMINAL_OPENAI_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secretName }}
+              key: openai-key
+        {{- end }}
+        {{- if or $existing .Values.tabminal.googleKey }}
+        - name: TABMINAL_GOOGLE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secretName }}
+              key: google-key
+        {{- end }}
+        {{- if or $existing .Values.tabminal.googleCx }}
+        - name: TABMINAL_GOOGLE_CX
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secretName }}
+              key: google-cx
+        {{- end }}
+        {{- if or $existing .Values.tabminal.cloudflareKey }}
+        - name: TABMINAL_CLOUDFLARE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ $secretName }}
+              key: cloudflare-key
+        {{- end }}
+        {{- if .Values.tabminal.extraEnvVars }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.tabminal.extraEnvVars "context" $) | nindent 10 }}
+        {{- end }}
+        {{- if .Values.tabminal.extraEnvVarsSecret }}
+        envFrom:
+        - secretRef:
+            name: {{ .Values.tabminal.extraEnvVarsSecret }}
+        {{- end }}
+        {{- if .Values.resources }}
+        resources: {{- toYaml .Values.resources | nindent 10 }}
+        {{- else if ne .Values.resourcesPreset "none" }}
+        resources: {{- include "common.resources.preset" (dict "type" .Values.resourcesPreset) | nindent 10 }}
+        {{- end }}
+        {{- if .Values.customLivenessProbe }}
+        livenessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customLivenessProbe "context" $) | nindent 10 }}
+        {{- else }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: {{ .Values.ports.http }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        {{- end }}
+        {{- if .Values.customReadinessProbe }}
+        readinessProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customReadinessProbe "context" $) | nindent 10 }}
+        {{- else }}
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: {{ .Values.ports.http }}
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        {{- end }}
+        {{- if .Values.customStartupProbe }}
+        startupProbe: {{- include "common.tplvalues.render" (dict "value" .Values.customStartupProbe "context" $) | nindent 10 }}
+        {{- else }}
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: {{ .Values.ports.http }}
+          initialDelaySeconds: 60
+          periodSeconds: 15
+        {{- end }}
+      volumes:
+      - name: data
+        {{- if .Values.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ if .Values.persistence.existingClaim }}{{ .Values.persistence.existingClaim }}{{ else }}{{ include "tabminal.pvc.fullname" . }}{{ end }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      {{- if .Values.extraVolumes }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 6 }}
+      {{- end }}

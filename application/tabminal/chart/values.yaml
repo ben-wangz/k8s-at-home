@@ -1,0 +1,109 @@
+replicas: 1
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+revisionHistoryLimit: 10
+updateStrategy: {}
+imagePullSecrets: []
+affinity: {}
+podAffinityPreset: ""
+podAntiAffinityPreset: "soft"
+nodeAffinityPreset:
+  type: "none"
+  key: ""
+  values: []
+podSecurityContext:
+  enabled: true
+  fsGroupChangePolicy: Always
+  supplementalGroups: []
+  fsGroup: 1001
+nodeSelector: {}
+tolerations: []
+extraVolumes: []
+
+image:
+  repository: docker.io/leask/tabminal
+  tag: latest
+  pullPolicy: IfNotPresent
+
+ports:
+  http: 9846
+
+tabminal:
+  ## Tabminal requires explicit acceptance of its security warning.
+  ## Must be set to true to start the application.
+  acceptTerms: false
+  ## Listen address for the Kubernetes pod. Overrides the default 127.0.0.1 bind.
+  host: 0.0.0.0
+  ## Plain-text password rendered into a chart-managed Secret.
+  ## Prefer existingSecret for production.
+  password: ""
+  ## Pre-existing Secret containing tabminal credentials.
+  existingSecret: ""
+  ## Key inside the Secret holding the tabminal password.
+  existingSecretPasswordKey: password
+  ## Shell path override (e.g. /bin/bash).
+  shell: ""
+  ## AI provider keys (password and key values go into a Secret).
+  openrouterKey: ""
+  openaiKey: ""
+  openaiApi: ""
+  model: ""
+  googleKey: ""
+  googleCx: ""
+  cloudflareKey: ""
+  ## Heartbeat interval string (e.g. "30s").
+  heartbeat: ""
+  ## History limit (e.g. "1000").
+  history: ""
+  ## Enable debug logging.
+  debug: false
+  ## Extra environment variables injected directly into the container.
+  extraEnvVars: {}
+  ## Name of an existing Secret whose keys become environment variables.
+  extraEnvVarsSecret: ""
+
+persistence:
+  enabled: true
+  mountPath: /root/.tabminal
+  storageClass: ""
+  existingClaim: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  subPath: ""
+  annotations: {}
+  selector: {}
+  dataSource: {}
+
+resourcesPreset: "none"
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+service:
+  type: ClusterIP
+  ports:
+    http: 9846
+    httpNodePort: ""
+  annotations: {}
+  clusterIP: ""
+  sessionAffinity: ""
+  sessionAffinityConfig: {}
+  externalTrafficPolicy: ""
+  loadBalancerSourceRanges: []
+  loadBalancerIP: ""
+  loadBalancerClass: ""
+  extraPorts: []
+
+ingress:
+  enabled: false
+  annotations: {}
+  ingressClassName: nginx
+  hostname: tabminal.example.com
+  path: /
+  pathType: Prefix
+  tls: false
+
+extraDeploy: []

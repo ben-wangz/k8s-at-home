@@ -1,0 +1,24 @@
+apiVersion: v2
+name: tabminal
+version: 0.1.0
+appVersion: "3.0.40"
+description: A cloud-native browser terminal and ACP agent workspace
+type: application
+keywords:
+  - terminal
+  - web-terminal
+  - workspace
+  - acp
+dependencies:
+- name: common
+  repository: oci://registry-1.docker.io/bitnamicharts
+  tags:
+  - bitnami-common
+  version: 2.x.x
+home: https://github.com/leask/tabminal
+sources:
+- https://github.com/leask/tabminal
+- https://github.com/ben-wangz/k8s-at-home/tree/main/application/tabminal
+maintainers:
+  - name: ben.wangz
+    email: ben.wangz@foxmail.com
