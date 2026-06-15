@@ -1,0 +1,198 @@
+{
+  "binary": "gh",
+  "version": "2.90.0",
+  "released": "2026-04-16",
+  "max_depth_explored": 2,
+  "description": "Work seamlessly with GitHub from the command line.",
+  "usage": "gh <command> <subcommand> [flags]",
+  "core_commands": [
+    "auth",
+    "browse",
+    "codespace",
+    "gist",
+    "issue",
+    "org",
+    "pr",
+    "project",
+    "release",
+    "repo",
+    "skill"
+  ],
+  "actions_commands": [
+    "cache",
+    "run",
+    "workflow"
+  ],
+  "additional_commands": [
+    "agent-task",
+    "alias",
+    "api",
+    "attestation",
+    "completion",
+    "config",
+    "copilot",
+    "extension",
+    "gpg-key",
+    "label",
+    "licenses",
+    "preview",
+    "ruleset",
+    "search",
+    "secret",
+    "ssh-key",
+    "status",
+    "variable"
+  ],
+  "help_topics": [
+    "accessibility",
+    "actions",
+    "environment",
+    "exit-codes",
+    "formatting",
+    "mintty",
+    "reference"
+  ],
+  "global_flags": [
+    "--help",
+    "--version"
+  ],
+  "subcommands": {
+    "pr": {
+      "general": ["create", "list", "status"],
+      "targeted": ["checkout", "checks", "close", "comment", "diff", "edit", "lock", "merge", "ready", "reopen", "revert", "review", "unlock", "update-branch", "view"]
+    },
+    "issue": {
+      "general": ["create", "list", "status"],
+      "targeted": ["close", "comment", "delete", "develop", "edit", "lock", "pin", "reopen", "transfer", "unlock", "unpin", "view"]
+    },
+    "repo": {
+      "general": ["create", "list"],
+      "targeted": ["archive", "autolink", "clone", "delete", "deploy-key", "edit", "fork", "gitignore", "license", "rename", "set-default", "sync", "unarchive", "view"]
+    },
+    "release": {
+      "general": ["create", "list"],
+      "targeted": ["delete", "delete-asset", "download", "edit", "upload", "verify", "verify-asset", "view"]
+    },
+    "run": ["cancel", "delete", "download", "list", "rerun", "view", "watch"],
+    "workflow": ["disable", "enable", "list", "run", "view"],
+    "auth": ["login", "logout", "refresh", "setup-git", "status", "switch", "token"],
+    "config": ["clear-cache", "get", "list", "set"],
+    "search": ["code", "commits", "issues", "prs", "repos"],
+    "secret": ["delete", "list", "set"],
+    "variable": ["delete", "list", "set"]
+  },
+  "environment_variables": [
+    {
+      "name": "GH_TOKEN",
+      "aliases": ["GITHUB_TOKEN"],
+      "description": "Authentication token (preferred over GITHUB_TOKEN)",
+      "agentic_use": "Set in environment"
+    },
+    {
+      "name": "GH_ENTERPRISE_TOKEN",
+      "aliases": ["GITHUB_ENTERPRISE_TOKEN"],
+      "description": "Authentication token for GitHub Enterprise Server",
+      "agentic_use": "Use for Enterprise hosts"
+    },
+    {
+      "name": "GH_HOST",
+      "description": "GitHub hostname (default: github.com)",
+      "agentic_use": "Use for GitHub Enterprise or custom hosts"
+    },
+    {
+      "name": "GH_REPO",
+      "description": "Default repository ([HOST/]OWNER/REPO)",
+      "agentic_use": "Avoids -R flag repetition"
+    },
+    {
+      "name": "GH_EDITOR",
+      "aliases": ["GIT_EDITOR", "VISUAL", "EDITOR"],
+      "description": "Editor for composing text",
+      "agentic_use": "Typically not used in agents"
+    },
+    {
+      "name": "GH_BROWSER",
+      "aliases": ["BROWSER"],
+      "description": "Browser for opening links",
+      "agentic_use": "Typically not used in agents"
+    },
+    {
+      "name": "GH_DEBUG",
+      "description": "Enable verbose output (set to 'api' for HTTP details)",
+      "agentic_use": "Avoid in agents (adds noise)"
+    },
+    {
+      "name": "GH_PAGER",
+      "aliases": ["PAGER"],
+      "description": "Paging program (e.g., less)",
+      "agentic_use": "Always set to 'cat'"
+    },
+    {
+      "name": "GH_CONFIG_DIR",
+      "description": "Config directory (default: ~/.config/gh)",
+      "agentic_use": "Use if custom location needed"
+    },
+    {
+      "name": "NO_COLOR",
+      "description": "Disable ANSI colors",
+      "agentic_use": "Always set to 1"
+    },
+    {
+      "name": "CLICOLOR",
+      "description": "Set to 0 to disable ANSI colors",
+      "agentic_use": "Do not use (contradicts NO_COLOR)"
+    },
+    {
+      "name": "CLICOLOR_FORCE",
+      "description": "Force ANSI colors when piped",
+      "agentic_use": "Do not use (contradicts NO_COLOR)"
+    },
+    {
+      "name": "GH_NO_UPDATE_NOTIFIER",
+      "description": "Suppress update notifications",
+      "agentic_use": "Always set to 1"
+    },
+    {
+      "name": "GH_NO_EXTENSION_UPDATE_NOTIFIER",
+      "description": "Suppress extension update notifications",
+      "agentic_use": "Set to 1 if using extensions"
+    },
+    {
+      "name": "GH_FORCE_TTY",
+      "description": "Force terminal output",
+      "agentic_use": "Do not use (adds formatting noise)"
+    },
+    {
+      "name": "GH_COLOR_LABELS",
+      "description": "Display labels using RGB hex color codes",
+      "agentic_use": "Do not use in agents"
+    },
+    {
+      "name": "GH_ACCESSIBLE_COLORS",
+      "description": "Use customizable 4-bit accessible colors",
+      "agentic_use": "Do not use in agents"
+    },
+    {
+      "name": "GH_PROMPT_DISABLED",
+      "description": "Disable interactive prompting",
+      "agentic_use": "Set to 1 for non-interactive use"
+    },
+    {
+      "name": "GLAMOUR_STYLE",
+      "description": "Style for rendering Markdown",
+      "agentic_use": "Do not use in agents"
+    },
+    {
+      "name": "GH_MDWIDTH",
+      "description": "Default max width for markdown wrapping",
+      "agentic_use": "Typically not needed"
+    },
+    {
+      "name": "GH_SPINNER_DISABLED",
+      "description": "Replace spinner with textual progress",
+      "agentic_use": "Set to 1 for cleaner output"
+    }
+  ],
+  "snapshot_created_at": "2026-04-17T00:00:00Z",
+  "adoption_method": "cli-skill-generator ADOPT mode"
+}
