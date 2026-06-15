@@ -3,73 +3,17 @@
     "openai": {
       "options": {
         "baseURL": "{env:OPENAI_BASE_URL}",
-        "apiKey": "{env:OPENAI_API_KEY}"
+        "apiKey": "{env:OPENAI_API_KEY}",
+        "headerTimeout": 120000,
+        "timeout": 1200000,
+        "chunkTimeout": 120000,
+        "filterSseFrame": ["chatcmpl-dummy", "chatcmpl-ws-ingress"]
       },
       "models": {
-        "gpt-5-codex": {
-          "name": "GPT-5 Codex",
+        "gpt-5.5": {
+          "name": "GPT-5.5",
           "limit": {
-            "context": 400000,
-            "output": 128000
-          },
-          "options": {
-            "store": false
-          },
-          "variants": {
-            "low": {},
-            "medium": {},
-            "high": {}
-          }
-        },
-        "gpt-5.1-codex": {
-          "name": "GPT-5.1 Codex",
-          "limit": {
-            "context": 400000,
-            "output": 128000
-          },
-          "options": {
-            "store": false
-          },
-          "variants": {
-            "low": {},
-            "medium": {},
-            "high": {}
-          }
-        },
-        "gpt-5.1-codex-max": {
-          "name": "GPT-5.1 Codex Max",
-          "limit": {
-            "context": 400000,
-            "output": 128000
-          },
-          "options": {
-            "store": false
-          },
-          "variants": {
-            "low": {},
-            "medium": {},
-            "high": {}
-          }
-        },
-        "gpt-5.1-codex-mini": {
-          "name": "GPT-5.1 Codex Mini",
-          "limit": {
-            "context": 400000,
-            "output": 128000
-          },
-          "options": {
-            "store": false
-          },
-          "variants": {
-            "low": {},
-            "medium": {},
-            "high": {}
-          }
-        },
-        "gpt-5.2": {
-          "name": "GPT-5.2",
-          "limit": {
-            "context": 400000,
+            "context": 1050000,
             "output": 128000
           },
           "options": {
@@ -97,100 +41,36 @@
             "high": {},
             "xhigh": {}
           }
-        },
-        "gpt-5.4-mini": {
-          "name": "GPT-5.4 Mini",
+        }
+      }
+    },
+    "deepseek": {
+      "options": {
+        "baseURL": "{env:DEEPSEEK_BASE_URL}",
+        "apiKey": "{env:DEEPSEEK_API_KEY}",
+        "headerTimeout": 120000,
+        "timeout": 1200000,
+        "chunkTimeout": 120000
+      },
+      "models": {
+        "deepseek-v4-flash": {
+          "name": "DeepSeek V4 Flash",
           "limit": {
-            "context": 400000,
-            "output": 128000
+            "context": 800000,
+            "output": 32768
           },
           "options": {
             "store": false
-          },
-          "variants": {
-            "low": {},
-            "medium": {},
-            "high": {},
-            "xhigh": {}
           }
         },
-        "gpt-5.4-nano": {
-          "name": "GPT-5.4 Nano",
+        "deepseek-v4-pro": {
+          "name": "DeepSeek V4 Pro",
           "limit": {
-            "context": 400000,
-            "output": 128000
+            "context": 800000,
+            "output": 65536
           },
           "options": {
             "store": false
-          },
-          "variants": {
-            "low": {},
-            "medium": {},
-            "high": {},
-            "xhigh": {}
-          }
-        },
-        "gpt-5.3-codex-spark": {
-          "name": "GPT-5.3 Codex Spark",
-          "limit": {
-            "context": 128000,
-            "output": 32000
-          },
-          "options": {
-            "store": false
-          },
-          "variants": {
-            "low": {},
-            "medium": {},
-            "high": {},
-            "xhigh": {}
-          }
-        },
-        "gpt-5.3-codex": {
-          "name": "GPT-5.3 Codex",
-          "limit": {
-            "context": 400000,
-            "output": 128000
-          },
-          "options": {
-            "store": false
-          },
-          "variants": {
-            "low": {},
-            "medium": {},
-            "high": {},
-            "xhigh": {}
-          }
-        },
-        "gpt-5.2-codex": {
-          "name": "GPT-5.2 Codex",
-          "limit": {
-            "context": 400000,
-            "output": 128000
-          },
-          "options": {
-            "store": false
-          },
-          "variants": {
-            "low": {},
-            "medium": {},
-            "high": {},
-            "xhigh": {}
-          }
-        },
-        "codex-mini-latest": {
-          "name": "Codex Mini",
-          "limit": {
-            "context": 200000,
-            "output": 100000
-          },
-          "options": {
-            "store": false
-          },
-          "variants": {
-            "low": {},
-            "medium": {},
-            "high": {}
           }
         }
       }
@@ -208,6 +88,7 @@
       }
     }
   },
+  "model": "deepseek/deepseek-v4-pro",
   "instructions": [
     ".opencode/AGENTS.md"
   ],
