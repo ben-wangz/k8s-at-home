@@ -47,8 +47,49 @@ spec:
       - name: tabminal
         image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
         imagePullPolicy: {{ .Values.image.pullPolicy }}
-        {{- /* Override the image CMD (--help) so the server starts. */}}
-        args: []
+        {{- /* Override the image CMD (--help) so the server starts. Pass CLI flags because the upstream image predates env-var support. */}}
+        args:
+          - --host={{ .Values.tabminal.host }}
+          - --port={{ .Values.ports.http }}
+          {{- if .Values.tabminal.acceptTerms }}
+          - --accept-terms
+          {{- end }}
+          {{- if or .Values.tabminal.password .Values.tabminal.existingSecret }}
+          - --password=$(TABMINAL_PASSWORD)
+          {{- end }}
+          {{- if .Values.tabminal.shell }}
+          - --shell={{ .Values.tabminal.shell }}
+          {{- end }}
+          {{- if .Values.tabminal.openrouterKey }}
+          - --openrouter-key=$(TABMINAL_OPENROUTER_KEY)
+          {{- end }}
+          {{- if .Values.tabminal.openaiKey }}
+          - --openai-key=$(TABMINAL_OPENAI_KEY)
+          {{- end }}
+          {{- if .Values.tabminal.openaiApi }}
+          - --openai-api={{ .Values.tabminal.openaiApi }}
+          {{- end }}
+          {{- if .Values.tabminal.model }}
+          - --model={{ .Values.tabminal.model }}
+          {{- end }}
+          {{- if .Values.tabminal.heartbeat }}
+          - --heartbeat={{ .Values.tabminal.heartbeat }}
+          {{- end }}
+          {{- if .Values.tabminal.history }}
+          - --history={{ .Values.tabminal.history }}
+          {{- end }}
+          {{- if .Values.tabminal.debug }}
+          - --debug
+          {{- end }}
+          {{- if .Values.tabminal.googleKey }}
+          - --google-key=$(TABMINAL_GOOGLE_KEY)
+          {{- end }}
+          {{- if .Values.tabminal.googleCx }}
+          - --google-cx=$(TABMINAL_GOOGLE_CX)
+          {{- end }}
+          {{- if .Values.tabminal.cloudflareKey }}
+          - --cloudflare-key=$(TABMINAL_CLOUDFLARE_KEY)
+          {{- end }}
         ports:
         - containerPort: {{ .Values.ports.http }}
           name: http
@@ -102,35 +143,35 @@ spec:
               name: {{ $secretName }}
               key: {{ .Values.tabminal.existingSecretPasswordKey }}
         {{- end }}
-        {{- if or $existing .Values.tabminal.openrouterKey }}
+        {{- if .Values.tabminal.openrouterKey }}
         - name: TABMINAL_OPENROUTER_KEY
           valueFrom:
             secretKeyRef:
               name: {{ $secretName }}
               key: openrouter-key
         {{- end }}
-        {{- if or $existing .Values.tabminal.openaiKey }}
+        {{- if .Values.tabminal.openaiKey }}
         - name: TABMINAL_OPENAI_KEY
           valueFrom:
             secretKeyRef:
               name: {{ $secretName }}
               key: openai-key
         {{- end }}
-        {{- if or $existing .Values.tabminal.googleKey }}
+        {{- if .Values.tabminal.googleKey }}
         - name: TABMINAL_GOOGLE_KEY
           valueFrom:
             secretKeyRef:
               name: {{ $secretName }}
               key: google-key
         {{- end }}
-        {{- if or $existing .Values.tabminal.googleCx }}
+        {{- if .Values.tabminal.googleCx }}
         - name: TABMINAL_GOOGLE_CX
           valueFrom:
             secretKeyRef:
               name: {{ $secretName }}
               key: google-cx
         {{- end }}
-        {{- if or $existing .Values.tabminal.cloudflareKey }}
+        {{- if .Values.tabminal.cloudflareKey }}
         - name: TABMINAL_CLOUDFLARE_KEY
           valueFrom:
             secretKeyRef:
