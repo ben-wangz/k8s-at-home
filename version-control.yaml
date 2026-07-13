@@ -8,6 +8,9 @@ apps:
   - name: chromium-bridge
     type: chart
     path: application/chromium-bridge/chart
+  - name: codespace
+    type: container
+    path: application/codespace/container
   - name: ddns-go
     type: chart
     path: application/ddns-go/chart

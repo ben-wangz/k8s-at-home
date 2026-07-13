@@ -1,0 +1,141 @@
+ARG UBUNTU_IMAGE=m.daocloud.io/docker.io/library/ubuntu:24.04
+FROM ${UBUNTU_IMAGE}
+
+LABEL maintainer="k8s-at-home"
+
+ENV PATH=/opt/python/bin:/opt/nodejs/bin:/usr/local/go/bin:${PATH} \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG GO_VERSION=1.26.5
+ARG GO_DOWNLOAD_BASE=https://go.dev/dl
+ARG NODEJS_VERSION=v24.13.1
+ARG HELM_VERSION=v4.1.4
+ARG HELM_DOWNLOAD_BASE=https://get.helm.sh
+ARG KUBECTL_VERSION=v1.35.4
+ARG KUBECTL_DOWNLOAD_BASE=https://dl.k8s.io/release
+ARG PLAYWRIGHT_VERSION=1.61.1
+
+# Install the development workstation and rootful Podman runtime packages.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        debianutils \
+        dnsutils \
+        git \
+        fuse-overlayfs \
+        iproute2 \
+        iptables \
+        iputils-ping \
+        jq \
+        language-pack-zh-hans \
+        locales \
+        ncurses-bin \
+        openssh-server \
+        openssl \
+        pdftk \
+        podman \
+        poppler-utils \
+        procps \
+        python3 \
+        python3-pip \
+        python3-venv \
+        ripgrep \
+        screen \
+        slirp4netns \
+        telnet \
+        tini \
+        tmux \
+        tree \
+        uidmap \
+        unzip \
+        vim \
+        wget \
+        xz-utils \
+        yq \
+    && rm -rf /var/lib/apt/lists/* \
+    && locale-gen en_US.UTF-8 zh_CN.UTF-8 \
+    && update-locale LANG=en_US.UTF-8 \
+    && rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub \
+    && install -d -m 0755 /run/sshd \
+    && install -d -m 0700 /root/.ssh \
+    && printf '%s\n' \
+        'PermitRootLogin prohibit-password' \
+        'PasswordAuthentication no' \
+        'KbdInteractiveAuthentication no' \
+        > /etc/ssh/sshd_config.d/codespace.conf
+
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    LANGUAGE=en_US:en
+
+RUN case "$(uname -m)" in \
+        x86_64) GO_ARCH=amd64 ;; \
+        aarch64) GO_ARCH=arm64 ;; \
+        *) echo "Unsupported architecture for Go: $(uname -m)" >&2; exit 1 ;; \
+    esac \
+    && curl -4 -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+        --connect-timeout 30 --max-time 600 \
+        "${GO_DOWNLOAD_BASE}/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" \
+        -o /tmp/go.tar.gz \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm -f /tmp/go.tar.gz
+
+RUN case "$(uname -m)" in \
+        x86_64) NODE_ARCH=x64 ;; \
+        aarch64) NODE_ARCH=arm64 ;; \
+        *) echo "Unsupported architecture for Node.js: $(uname -m)" >&2; exit 1 ;; \
+    esac \
+    && curl -4 -fsSL --retry 3 --connect-timeout 10 --max-time 300 \
+        "https://nodejs.org/dist/${NODEJS_VERSION}/node-${NODEJS_VERSION}-linux-${NODE_ARCH}.tar.xz" \
+        -o /tmp/nodejs.tar.xz \
+    && install -d -m 0755 /opt/nodejs \
+    && tar -xJf /tmp/nodejs.tar.xz -C /opt/nodejs --strip-components=1 \
+    && rm -f /tmp/nodejs.tar.xz
+
+RUN python3 -m venv /opt/python \
+    && pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir img2pdf
+
+RUN case "$(uname -m)" in \
+        x86_64) TOOL_ARCH=amd64 ;; \
+        aarch64) TOOL_ARCH=arm64 ;; \
+        *) echo "Unsupported architecture for Kubernetes tools: $(uname -m)" >&2; exit 1 ;; \
+    esac \
+    && curl -4 -fsSL --retry 3 --connect-timeout 10 --max-time 300 \
+        "${HELM_DOWNLOAD_BASE}/helm-${HELM_VERSION}-linux-${TOOL_ARCH}.tar.gz" \
+        -o /tmp/helm.tar.gz \
+    && tar -xzf /tmp/helm.tar.gz -C /tmp \
+    && install -m 0755 "/tmp/linux-${TOOL_ARCH}/helm" /usr/local/bin/helm \
+    && curl -4 -fsSL --retry 3 --connect-timeout 10 --max-time 300 \
+        "${KUBECTL_DOWNLOAD_BASE}/${KUBECTL_VERSION}/bin/linux/${TOOL_ARCH}/kubectl" \
+        -o /usr/local/bin/kubectl \
+    && chmod 0755 /usr/local/bin/kubectl \
+    && rm -rf /tmp/helm.tar.gz "/tmp/linux-${TOOL_ARCH}"
+
+RUN npm install --global "playwright@${PLAYWRIGHT_VERSION}" \
+    && playwright install --with-deps chromium \
+    && rm -rf /root/.npm /var/lib/apt/lists/*
+
+# sshd supplies its own PATH for sessions instead of inheriting the image ENV.
+RUN printf '%s\n' \
+        'SetEnv PATH=/opt/python/bin:/opt/nodejs/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin PLAYWRIGHT_BROWSERS_PATH=/opt/playwright LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LANGUAGE=en_US:en' \
+        >> /etc/ssh/sshd_config.d/codespace.conf
+
+# The outer container is the cgroup boundary. A nested runtime cannot reliably
+# delegate the Podman VM's cgroup v2 controllers, even when running privileged.
+RUN install -d -m 0755 /etc/containers/containers.conf.d \
+    && printf '%s\n' \
+        '[containers]' \
+        'cgroups = "disabled"' \
+        'netns = "private"' \
+        > /etc/containers/containers.conf.d/codespace.conf
+
+COPY --chmod=0644 87-podman-bridge.conflist /etc/cni/net.d/87-podman-bridge.conflist
+COPY --chmod=0755 entrypoint.sh /usr/local/bin/codespace-entrypoint
+
+EXPOSE 22
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["/usr/local/bin/codespace-entrypoint"]
