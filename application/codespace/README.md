@@ -14,6 +14,7 @@ Preinstalled components include:
 - poppler-utils, pdftk, and img2pdf
 - Common development, terminal, archive, and network diagnostic tools
 - English and Simplified Chinese UTF-8 locales
+- Automatic `/root/.bash_profile` creation that loads an existing `.bashrc`
 
 ## Build
 

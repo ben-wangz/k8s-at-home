@@ -65,13 +65,26 @@ jobs:
           CONTAINER_REGISTRY: ghcr.io
           CONTAINER_REGISTRY_USERNAME: ${{ github.actor }}
           CONTAINER_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-          IMAGE_NAME: ${{ github.repository }}-${{ matrix.name }}
+          MODULE_NAME: ${{ matrix.name }}
+          CONTAINER_DIR: ${{ matrix.path }}
         run: |
+          IMAGE_NAME="$GITHUB_REPOSITORY-$MODULE_NAME"
+          BUILD_CONTEXT="$GITHUB_WORKSPACE"
+
+          # The linked target name must be globally unique from its owning chart.
+          # Keep the existing public image name and use the codespace container
+          # directory as its build context because its COPY paths are local.
+          if [[ "$MODULE_NAME" == "codespace-runtime" ]]; then
+            IMAGE_NAME="$GITHUB_REPOSITORY-codespace"
+            BUILD_CONTEXT="$GITHUB_WORKSPACE/$CONTAINER_DIR"
+          fi
+
+          export IMAGE_NAME
           "$FORGEKIT_BIN" publish container build \
             --project-root "$GITHUB_WORKSPACE" \
-            --container-dir "${{ matrix.path }}" \
-            --module "${{ matrix.name }}" \
-            --context "$GITHUB_WORKSPACE" \
+            --container-dir "$CONTAINER_DIR" \
+            --module "$MODULE_NAME" \
+            --context "$BUILD_CONTEXT" \
             --label "org.opencontainers.image.version=${{ matrix.value }}" \
             --label "org.opencontainers.image.revision=${{ github.sha }}" \
             --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \

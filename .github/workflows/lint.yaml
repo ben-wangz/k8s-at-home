@@ -20,6 +20,19 @@ jobs:
           echo "bin=${FORGEKIT_BIN}" >> "$GITHUB_OUTPUT"
           "${FORGEKIT_BIN}" --version
 
+      - name: setup-helm
+        uses: azure/setup-helm@v4
+
+      - name: validate-codespace-chart
+        run: |
+          helm dependency build "$GITHUB_WORKSPACE/application/codespace/chart"
+          helm lint "$GITHUB_WORKSPACE/application/codespace/chart" --strict
+          helm template codespace "$GITHUB_WORKSPACE/application/codespace/chart" \
+            --namespace codespace-ci \
+            --set podmanNetwork.subnet=10.77.0.0/16 \
+            --set podmanNetwork.gateway=10.77.0.1 \
+            > /dev/null
+
       - name: run-forgekit-lint
         env:
           FORGEKIT_BIN: ${{ steps.forgekit.outputs.bin }}

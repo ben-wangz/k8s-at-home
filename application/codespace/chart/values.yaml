@@ -1,0 +1,88 @@
+replicas: 1
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+revisionHistoryLimit: 10
+updateStrategy:
+  type: Recreate
+imagePullSecrets: []
+affinity: {}
+podAffinityPreset: ''
+podAntiAffinityPreset: soft
+nodeAffinityPreset:
+  type: none
+  key: ''
+  values: []
+podSecurityContext:
+  enabled: false
+containerSecurityContext:
+  enabled: true
+  privileged: true
+  allowPrivilegeEscalation: true
+nodeSelector: {}
+tolerations: []
+extraVolumes: []
+image:
+  repository: ghcr.io/ben-wangz/k8s-at-home-codespace
+  tag: 0.1.1
+  pullPolicy: IfNotPresent
+ports:
+  ssh: 22
+timezone: Asia/Shanghai
+hostname: ''
+ssh:
+  enabled: true
+  existingSecret: ''
+  authorizedKeys: []
+# Nested Podman CNI network. Empty values omit the env vars so the container
+# entrypoint applies its own defaults (subnet 10.250.0.0/16; gateway derived).
+podmanNetwork:
+  subnet: ''
+  gateway: ''
+extraEnvVars: []
+extraEnvVarsSecret: ''
+extraVolumeMounts: []
+resourcesPreset: medium
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+persistence:
+  container:
+    enabled: true
+    storageClass: ''
+    existingClaim: ''
+    accessModes:
+    - ReadWriteOnce
+    size: 10Gi
+    subPath: ''
+    annotations: {}
+    selector: {}
+    dataSource: {}
+  home:
+    enabled: true
+    storageClass: ''
+    existingClaim: ''
+    accessModes:
+    - ReadWriteOnce
+    size: 5Gi
+    subPath: ''
+    annotations: {}
+    selector: {}
+    dataSource: {}
+service:
+  ssh:
+    enabled: true
+    type: ClusterIP
+    port: 22
+    nodePort: 32022
+    annotations: {}
+    clusterIP: ''
+    sessionAffinity: ''
+    sessionAffinityConfig: {}
+    externalTrafficPolicy: ''
+    loadBalancerSourceRanges: []
+    loadBalancerIP: ''
+    loadBalancerClass: ''
+    extraPorts: []
+extraDeploy: []

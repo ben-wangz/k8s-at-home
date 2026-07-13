@@ -1,0 +1,29 @@
+apiVersion: v2
+name: codespace
+version: 0.1.1
+appVersion: "0.1.1"
+description: Development codespace with SSH and nested Podman
+type: application
+keywords:
+  - codespace
+  - podman
+  - container
+  - ssh
+  - development
+annotations:
+  # Custom metadata for version management
+  codespace/images: |
+    - name: codespace-runtime
+      path: application/codespace/container
+      valuesKey: image.tag
+dependencies:
+- name: common
+  repository: oci://registry-1.docker.io/bitnamicharts
+  tags:
+  - bitnami-common
+  version: 2.x.x
+home: https://github.com/ben-wangz/k8s-at-home
+sources:
+- https://github.com/ben-wangz/k8s-at-home/tree/main/application/codespace
+maintainers:
+  - name: ben
