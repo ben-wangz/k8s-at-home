@@ -25,7 +25,7 @@ tolerations: []
 extraVolumes: []
 image:
   repository: ghcr.io/ben-wangz/k8s-at-home-codespace
-  tag: 0.1.1
+  tag: 0.1.2
   pullPolicy: IfNotPresent
 ports:
   ssh: 22
