@@ -10,8 +10,8 @@
         "filterSseFrame": ["chatcmpl-dummy", "chatcmpl-ws-ingress"]
       },
       "models": {
-        "gpt-5.5": {
-          "name": "GPT-5.5",
+        "gpt-5.6-sol": {
+          "name": "GPT-5.6 Sol",
           "limit": {
             "context": 1050000,
             "output": 128000
@@ -26,8 +26,8 @@
             "xhigh": {}
           }
         },
-        "gpt-5.4": {
-          "name": "GPT-5.4",
+        "gpt-5.6-luna": {
+          "name": "GPT-5.6 Luna",
           "limit": {
             "context": 1050000,
             "output": 128000
@@ -41,36 +41,21 @@
             "high": {},
             "xhigh": {}
           }
-        }
-      }
-    },
-    "deepseek": {
-      "options": {
-        "baseURL": "{env:DEEPSEEK_BASE_URL}",
-        "apiKey": "{env:DEEPSEEK_API_KEY}",
-        "headerTimeout": 120000,
-        "timeout": 1200000,
-        "chunkTimeout": 120000
-      },
-      "models": {
-        "deepseek-v4-flash": {
-          "name": "DeepSeek V4 Flash",
-          "limit": {
-            "context": 800000,
-            "output": 32768
-          },
-          "options": {
-            "store": false
-          }
         },
-        "deepseek-v4-pro": {
-          "name": "DeepSeek V4 Pro",
+        "gpt-5.6-terra": {
+          "name": "GPT-5.6 Terra",
           "limit": {
-            "context": 800000,
-            "output": 65536
+            "context": 1050000,
+            "output": 128000
           },
           "options": {
             "store": false
+          },
+          "variants": {
+            "low": {},
+            "medium": {},
+            "high": {},
+            "xhigh": {}
           }
         }
       }
@@ -88,7 +73,6 @@
       }
     }
   },
-  "model": "deepseek/deepseek-v4-pro",
   "instructions": [
     ".opencode/AGENTS.md"
   ],
