@@ -4,14 +4,14 @@ ARG GO_IMAGE=docker.io/library/golang:1.25-bookworm
 FROM ${GO_IMAGE} AS builder
 
 WORKDIR /src
-COPY src/go.mod ./go.mod
-COPY src/go.sum ./go.sum
-COPY src/*.go ./
+COPY application/sshpiper/src/go.mod ./go.mod
+COPY application/sshpiper/src/go.sum ./go.sum
+COPY application/sshpiper/src/*.go ./
 RUN go mod download && CGO_ENABLED=0 GOOS=linux GOARCH=$(go env GOARCH) go build -o /out/routeauth .
 
 FROM ${SSHPIPER_IMAGE}
 
 COPY --from=builder /out/routeauth /sshpiperd/plugins/routeauth
-COPY --chmod=0755 container/entrypoint.sh /entrypoint.sh
+COPY --chmod=0755 application/sshpiper/container/entrypoint.sh /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
