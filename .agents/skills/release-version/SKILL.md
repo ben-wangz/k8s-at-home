@@ -303,8 +303,7 @@ Process:
 - `main` pushes validate but do not release.
 - `lint` and `release` are separate phases: push first, wait for `lint`, then tag.
 - This repository does not use `workflow_dispatch` for releases.
-- Container build context is the repository root by default. The
-  `codespace-runtime` target uses its container directory as an explicit
-  workflow override.
+- Container builds use the repository root as their context. Keep Containerfile
+  `COPY` paths relative to the repository root.
 - App names must be globally unique and must not contain `/`.
 - Binary packaging is still repository workflow logic even though version ownership is managed through `forgekit`.
