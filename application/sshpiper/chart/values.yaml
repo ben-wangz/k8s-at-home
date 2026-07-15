@@ -40,7 +40,7 @@ tolerations: []
 image:
   registry: ghcr.io
   repository: ben-wangz/k8s-at-home-sshpiper
-  tag: 0.2.4
+  tag: 0.2.5
   pullPolicy: IfNotPresent
 
 listen:
