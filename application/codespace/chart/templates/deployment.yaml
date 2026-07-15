@@ -46,6 +46,29 @@ spec:
       {{- if .Values.hostname }}
       hostname: {{ .Values.hostname }}
       {{- end }}
+      initContainers:
+      - name: ensure-home-permissions
+        image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command:
+        - /bin/sh
+        - -ec
+        - |
+          current_mode="$(stat -c '%a' /root)"
+          if [ "$current_mode" != "700" ]; then
+            chmod 0700 /root
+          fi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: false
+          runAsUser: 0
+          runAsGroup: 0
+        volumeMounts:
+        - name: home-volume
+          mountPath: /root
+          {{- if .Values.persistence.home.subPath }}
+          subPath: {{ .Values.persistence.home.subPath | quote }}
+          {{- end }}
       containers:
       - name: codespace
         image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
