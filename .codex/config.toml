@@ -1,4 +1,2 @@
 # Shared defaults for trusted local checkouts of this repository.
-approval_policy = "on-request"
-sandbox_mode = "workspace-write"
 web_search = "cached"
