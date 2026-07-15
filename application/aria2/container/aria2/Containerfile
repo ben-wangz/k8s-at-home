@@ -2,6 +2,6 @@ ARG ALPINE_IMAGE=m.daocloud.io/docker.io/library/alpine:latest
 FROM ${ALPINE_IMAGE}
 
 RUN apk add --no-cache aria2
-COPY --chmod=755 entrypoint.sh /opt/aria2/bin/entrypoint.sh
+COPY --chmod=755 application/aria2/container/aria2/entrypoint.sh /opt/aria2/bin/entrypoint.sh
 
 CMD ["/opt/aria2/bin/entrypoint.sh"]
