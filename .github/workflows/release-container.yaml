@@ -78,6 +78,7 @@ jobs:
             IMAGE_NAME="$GITHUB_REPOSITORY-codespace"
             BUILD_CONTEXT="$GITHUB_WORKSPACE/$CONTAINER_DIR"
           elif [[ "$MODULE_NAME" == "sshpiper-proxy" ]]; then
+            IMAGE_NAME="$GITHUB_REPOSITORY-sshpiper"
             BUILD_CONTEXT="$GITHUB_WORKSPACE/$(dirname "$CONTAINER_DIR")"
           fi
 
