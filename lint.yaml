@@ -19,16 +19,6 @@ commands:
     args:
       - -c
       - test -z "$(gofmt -l .)"
-  - name: agent-task-manager backend tests
-    cmd: sh
-    args:
-      - -c
-      - go -C application/agent-task-manager/backend/src test ./...
-  - name: agent-task-manager cli tests
-    cmd: sh
-    args:
-      - -c
-      - go -C application/agent-task-manager/cli/src test ./...
   - name: sshpiper tests
     cmd: sh
     args:

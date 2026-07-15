@@ -67,7 +67,7 @@ Confirm the app name from `version-control.yaml`.
 
 Examples:
 
-- `agent-task-manager`
+- `codespace`
 - `aria2`
 - `sshpiper`
 
@@ -97,17 +97,17 @@ Typical rule:
 - CLI or shipped binary change: bump the affected binary
 - when chart values must track linked artifact versions: bump chart with `--sync`
 
-Example: only frontend runtime changed in `agent-task-manager`:
+Example: only the frontend runtime changed in `aria2`:
 
 ```bash
 FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
-"$FORGEKIT_BIN" version bump container agent-task-manager-frontend patch
-"$FORGEKIT_BIN" version bump chart agent-task-manager patch --sync
+"$FORGEKIT_BIN" version bump container aria2-frontend patch
+"$FORGEKIT_BIN" version bump chart aria2 patch --sync
 ```
 
 That updates:
 
-- `application/agent-task-manager/frontend/container/VERSION`
+- `application/aria2/container/aria-ng/VERSION`
 - chart version
 - synced image tags in chart values
 
@@ -115,7 +115,7 @@ Example: chart-only fix:
 
 ```bash
 FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
-"$FORGEKIT_BIN" version bump chart agent-task-manager patch --sync
+"$FORGEKIT_BIN" version bump chart aria2 patch --sync
 ```
 
 Example: binary change for a linked CLI target:
@@ -149,9 +149,9 @@ Use a commit message that matches the repository style.
 Typical examples:
 
 ```bash
-git commit -m "chore(agent-task-manager): bump frontend release versions"
-git commit -m "chore(agent-task-manager): bump release versions"
-git commit -m "fix(agent-task-manager): correct chart image repository"
+git commit -m "chore(aria2): bump frontend release versions"
+git commit -m "chore(aria2): bump release versions"
+git commit -m "fix(aria2): correct chart image repository"
 ```
 
 Then push the branch:
@@ -194,8 +194,8 @@ git push origin "<app-name>-v<semver>"
 Example:
 
 ```bash
-git tag "agent-task-manager-v0.1.4"
-git push origin "agent-task-manager-v0.1.4"
+git tag "aria2-v1.1.2"
+git push origin "aria2-v1.1.2"
 ```
 
 This triggers:
@@ -256,16 +256,16 @@ Use this when only a linked frontend container changed.
 
 ```bash
 FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
-"$FORGEKIT_BIN" version bump container agent-task-manager-frontend patch
-"$FORGEKIT_BIN" version bump chart agent-task-manager patch --sync
-git add application/agent-task-manager/frontend/container/VERSION \
-  application/agent-task-manager/chart/Chart.yaml \
-  application/agent-task-manager/chart/values.yaml
-git commit -m "chore(agent-task-manager): bump frontend release versions"
+"$FORGEKIT_BIN" version bump container aria2-frontend patch
+"$FORGEKIT_BIN" version bump chart aria2 patch --sync
+git add application/aria2/container/aria-ng/VERSION \
+  application/aria2/chart/Chart.yaml \
+  application/aria2/chart/values.yaml
+git commit -m "chore(aria2): bump frontend release versions"
 git push
 build/bin/gh run watch <lint-run-id> --interval 10 --exit-status
-git tag "agent-task-manager-v0.1.4"
-git push origin "agent-task-manager-v0.1.4"
+git tag "aria2-v1.1.2"
+git push origin "aria2-v1.1.2"
 ```
 
 ### Chart-only fix
@@ -274,7 +274,7 @@ Use this when templates or values changed but linked runtime artifacts did not.
 
 ```bash
 FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
-"$FORGEKIT_BIN" version bump chart agent-task-manager patch --sync
+"$FORGEKIT_BIN" version bump chart aria2 patch --sync
 ```
 
 ### Multi-artifact app release

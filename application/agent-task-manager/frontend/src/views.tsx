@@ -1,7 +1,0 @@
-export { HomeView } from './view-home'
-export { ProjectsView } from './view-projects'
-export { TasksWorkspace } from './view-tasks'
-export { SessionsView } from './view-sessions'
-export { ActivityView } from './view-activity'
-export { TaskDetailPage, TaskDetail } from './view-task-detail'
-export { PreviewPanel } from './view-preview'

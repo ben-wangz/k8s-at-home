@@ -26,6 +26,3 @@ apps:
   - name: yacd
     type: chart
     path: application/yacd/chart
-  - name: agent-task-manager
-    type: chart
-    path: application/agent-task-manager/chart

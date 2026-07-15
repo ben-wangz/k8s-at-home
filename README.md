@@ -60,7 +60,7 @@ Examples:
 ```bash
 FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
 "$FORGEKIT_BIN" version get podman-in-container
-"$FORGEKIT_BIN" version get agent-task-manager
+"$FORGEKIT_BIN" version get aria2
 ```
 
 ### bump versions
@@ -75,7 +75,7 @@ Examples:
 ```bash
 FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
 "$FORGEKIT_BIN" version bump chart podman-in-container patch
-"$FORGEKIT_BIN" version bump container agent-task-manager-frontend patch
+"$FORGEKIT_BIN" version bump container aria2-frontend patch
 ```
 
 Sync linked chart values when bumping a chart:
