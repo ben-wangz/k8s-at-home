@@ -1,6 +1,6 @@
 references/
-!.opencode/skills/*/references/
-!.opencode/skills/*/references/**
+!.agents/skills/*/references/
+!.agents/skills/*/references/**
 build/
 .serena/
 node_modules/

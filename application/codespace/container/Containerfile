@@ -116,6 +116,10 @@ RUN case "$(uname -m)" in \
     && rm -rf /tmp/helm.tar.gz "/tmp/linux-${TOOL_ARCH}"
 
 RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh \
+    && install -d -m 0755 /opt/codex \
+    && cp -aL /root/.codex/packages/standalone/current/. /opt/codex/ \
+    && ln -s /opt/codex/bin/codex /usr/local/bin/codex \
+    && rm -rf /root/.codex /root/.local/bin/codex \
     && curl -fsSL https://x.ai/cli/install.sh | bash
 
 RUN npm install --global "playwright@${PLAYWRIGHT_VERSION}" \

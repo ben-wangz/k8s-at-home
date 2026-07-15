@@ -4,7 +4,7 @@ set -o errexit -o nounset -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
-TARGET_DIR="${PROJECT_ROOT}/.opencode/skills/gh-cli"
+TARGET_DIR="${PROJECT_ROOT}/.agents/skills/gh-cli"
 
 DEFAULT_REPO="${GH_CLI_SKILL_REPO:-rrebollo/opencode-gh-cli}"
 DEFAULT_REF="${GH_CLI_SKILL_REF:-master}"
@@ -14,7 +14,7 @@ function usage() {
     cat <<'EOF'
 Usage: setup/gh-cli-skill.sh [repo] [ref] [subdir]
 
-Installs or upgrades local .opencode gh-cli skill files from a GitHub repository.
+Installs or upgrades local Codex gh-cli skill files from a GitHub repository.
 
 Arguments:
   repo    GitHub repo in owner/name form (default: GH_CLI_SKILL_REPO or rrebollo/opencode-gh-cli)

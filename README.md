@@ -17,6 +17,17 @@ This project is to develop and maintain k8s applications at home.
 
 We welcome contributions.
 
+### Codex
+
+Repository-level Codex customization is stored in:
+
+- `AGENTS.md` for persistent repository guidance
+- `.codex/config.toml` for shared project settings
+- `.agents/skills` for repository skills
+
+Provider endpoints and credentials belong in user-level Codex configuration,
+not in the repository.
+
 ### version management
 
 Applications use semver.
@@ -78,7 +89,7 @@ FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
 
 Release is tag-driven and documented in:
 
-- `.opencode/skills/release-version/SKILL.md`
+- `.agents/skills/release-version/SKILL.md`
 
 Use that skill as the source of truth for:
 
@@ -109,4 +120,4 @@ With `forgekit 0.6.0`, app names must not contain `/`.
 
 - [ ] Version numbers updated with `forgekit`
 - [ ] Linked chart values synchronized when needed
-- [ ] Release flow still matches `.opencode/skills/release-version/SKILL.md`
+- [ ] Release flow still matches `.agents/skills/release-version/SKILL.md`

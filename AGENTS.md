@@ -1,4 +1,4 @@
-# k8s-at-home OpenCode Rules
+# k8s-at-home Codex Rules
 
 ## Core Principles
 - Be pragmatic over dogmatic.
@@ -15,11 +15,10 @@
 - Keep loop nesting to 3 levels or fewer.
 - Shell scripts must be invokable via absolute path and must not depend on current working directory.
 
-## OpenCode Workflow
+## Codex Workflow
 - Keep responses concise and token-efficient.
-- Prefer `Edit` for existing files.
-- Use `Write` only when necessary (new file or full rewrite).
-- If a single `Write` payload is large (roughly >200 lines or >2000 chars), split it into chunks.
+- Use `rg` for file and text searches when available.
+- Use `apply_patch` for focused manual edits.
 
 ## Testing
 - Ask before running tests.

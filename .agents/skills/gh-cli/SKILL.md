@@ -5,16 +5,6 @@ description: |
   repositories, Actions workflows, and make raw API calls. Use when the user
   needs to create PRs, review issues, trigger workflows, query the GitHub API,
   or do any GitHub operation from the command line.
-license: MIT
-compatibility: opencode
-metadata:
-  audience: developers
-  tool: gh
-  generated-by: cli-skill-generator
-  generated-at: "2026-04-17"
-  adopted-from: hand-authored
-  adopted-at: "2026-04-17"
-  tested-version: "2.90.0"
 ---
 
 # GitHub CLI (gh) Skill

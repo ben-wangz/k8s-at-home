@@ -31,7 +31,7 @@ Use `scripts/prompt-claude-agent-acp.mjs` for ad hoc prompt execution instead of
 Basic usage:
 
 ```bash
-node /absolute/path/to/.opencode/skills/claude-agent-acp/scripts/prompt-claude-agent-acp.mjs \
+node /absolute/path/to/.agents/skills/claude-agent-acp/scripts/prompt-claude-agent-acp.mjs \
   --cwd /absolute/workspace/path \
   --prompt "Implement the requested task. Do not read or print .env."
 ```
@@ -39,7 +39,7 @@ node /absolute/path/to/.opencode/skills/claude-agent-acp/scripts/prompt-claude-a
 Read the prompt from a file:
 
 ```bash
-node /absolute/path/to/.opencode/skills/claude-agent-acp/scripts/prompt-claude-agent-acp.mjs \
+node /absolute/path/to/.agents/skills/claude-agent-acp/scripts/prompt-claude-agent-acp.mjs \
   --cwd /absolute/workspace/path \
   --prompt-file /absolute/path/to/prompt.txt
 ```
@@ -47,7 +47,7 @@ node /absolute/path/to/.opencode/skills/claude-agent-acp/scripts/prompt-claude-a
 Set session config options before prompting:
 
 ```bash
-node /absolute/path/to/.opencode/skills/claude-agent-acp/scripts/prompt-claude-agent-acp.mjs \
+node /absolute/path/to/.agents/skills/claude-agent-acp/scripts/prompt-claude-agent-acp.mjs \
   --cwd /absolute/workspace/path \
   --model claude-sonnet-4-6 \
   --mode default \
@@ -57,7 +57,7 @@ node /absolute/path/to/.opencode/skills/claude-agent-acp/scripts/prompt-claude-a
 If the adapter cannot be found on `PATH`, pass the absolute binary path from `command -v claude-agent-acp`:
 
 ```bash
-node /absolute/path/to/.opencode/skills/claude-agent-acp/scripts/prompt-claude-agent-acp.mjs \
+node /absolute/path/to/.agents/skills/claude-agent-acp/scripts/prompt-claude-agent-acp.mjs \
   --command /opt/nodejs/bin/claude-agent-acp \
   --cwd /absolute/workspace/path \
   --prompt "Check the build configuration."

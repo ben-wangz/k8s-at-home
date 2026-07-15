@@ -10,6 +10,7 @@ Preinstalled components include:
 
 - Go 1.26.5, Node.js 24.13.1, and Python 3
 - kubectl 1.35.4 and Helm 4.1.4
+- Codex and Grok development CLIs
 - Playwright 1.61.1 with Chromium and its system dependencies
 - poppler-utils, pdftk, and img2pdf
 - Common development, terminal, archive, and network diagnostic tools

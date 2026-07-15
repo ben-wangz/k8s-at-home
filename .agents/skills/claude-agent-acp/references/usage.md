@@ -127,9 +127,9 @@ Do not expose gateway headers or bearer tokens in logs. Redact values when summa
 
 ## Integration Notes
 
-- This package is not an MCP server. Do not add it under opencode `mcp` config unless a separate MCP bridge is introduced.
-- This package is not an opencode skill provider. This repository skill only documents how to install and use the adapter.
-- The adapter can merge ACP-provided MCP server definitions into the Claude SDK session, but that is part of the ACP session request, not opencode MCP registration.
+- This package is not an MCP server. Do not add it to Codex MCP configuration unless a separate MCP bridge is introduced.
+- This package is not a Codex skill provider. This repository skill only documents how to install and use the adapter.
+- The adapter can merge ACP-provided MCP server definitions into the Claude SDK session, but that is part of the ACP session request, not Codex MCP registration.
 - The adapter can surface Claude tool permission requests back to the ACP client through `requestPermission`.
 - The adapter can load, resume, list, close, delete, and fork sessions when the client uses the corresponding ACP methods.
 

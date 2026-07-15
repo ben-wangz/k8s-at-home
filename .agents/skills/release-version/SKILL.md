@@ -5,7 +5,6 @@ description: |
   to bump chart, container, or binary versions, create the release commit, tag
   the app with <app-name>-v<semver>, and verify the tag-driven GitHub Actions
   release workflows.
-compatibility: opencode
 ---
 
 # Release Version Skill
