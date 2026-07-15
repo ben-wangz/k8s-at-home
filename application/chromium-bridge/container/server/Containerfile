@@ -20,7 +20,7 @@ RUN mkdir -p ${CHROME_HOME} && \
     unzip -q /tmp/chrome-linux64.zip -d ${CHROME_HOME} && \
     rm -f /tmp/chrome-linux64.zip
 
-COPY entrypoint.sh /entrypoint.sh
+COPY application/chromium-bridge/container/server/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 EXPOSE 9222 5900

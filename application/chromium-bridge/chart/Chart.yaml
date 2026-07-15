@@ -1,7 +1,7 @@
 apiVersion: v2
 name: chromium-bridge
-version: 0.2.0
-appVersion: "0.2.0"
+version: 0.2.1
+appVersion: "0.2.1"
 description: Shared Chromium bridge for CDP automation and noVNC takeover
 type: application
 keywords:
