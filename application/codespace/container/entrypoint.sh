@@ -72,9 +72,6 @@ ssh-keygen -A
 install -d -m 0700 /root/.ssh
 if [[ -n "${AUTHORIZED_KEYS:-}" ]]; then
     printf '%s\n' "${AUTHORIZED_KEYS}" > /root/.ssh/authorized_keys
-fi
-
-if [[ -f /root/.ssh/authorized_keys ]]; then
     chmod 0600 /root/.ssh/authorized_keys
 fi
 
