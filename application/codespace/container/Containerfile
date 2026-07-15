@@ -140,8 +140,8 @@ RUN install -d -m 0755 /etc/containers/containers.conf.d \
         'netns = "private"' \
         > /etc/containers/containers.conf.d/codespace.conf
 
-COPY --chmod=0644 87-podman-bridge.conflist /etc/cni/net.d/87-podman-bridge.conflist
-COPY --chmod=0755 entrypoint.sh /usr/local/bin/codespace-entrypoint
+COPY --chmod=0644 application/codespace/container/87-podman-bridge.conflist /etc/cni/net.d/87-podman-bridge.conflist
+COPY --chmod=0755 application/codespace/container/entrypoint.sh /usr/local/bin/codespace-entrypoint
 
 EXPOSE 22
 

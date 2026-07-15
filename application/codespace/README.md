@@ -21,8 +21,9 @@ Preinstalled components include:
 
 ```bash
 podman build \
-  --tag localhost/k8s-at-home-codespace:dev \
-  application/codespace/container
+  --file application/codespace/container/Containerfile \
+  --tag localhost/k8s-at-home-codespace-base:dev \
+  .
 ```
 
 The default build uses the project's DaoCloud proxy for the Ubuntu 24.04 base
@@ -40,7 +41,7 @@ podman run --rm --privileged \
   --env AUTHORIZED_KEYS="${SSH_PUBLIC_KEY}" \
   --env PODMAN_NETWORK_SUBNET=10.250.0.0/16 \
   --env PODMAN_NETWORK_GATEWAY=10.250.0.1 \
-  localhost/k8s-at-home-codespace:dev
+  localhost/k8s-at-home-codespace-base:dev
 ```
 
 Connect over SSH:
