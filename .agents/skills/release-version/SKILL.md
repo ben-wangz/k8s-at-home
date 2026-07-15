@@ -1,10 +1,12 @@
 ---
 name: release-version
 description: |
-  Release a version in this repository with forgekit v0.6.0. Use when you need
+  Release a version in this repository with forgekit. Use when you need
   to bump chart, container, or binary versions, create the release commit, tag
   the app with <app-name>-v<semver>, and verify the tag-driven GitHub Actions
   release workflows.
+metadata:
+  forgekit-version: "0.6.1"
 ---
 
 # Release Version Skill
@@ -13,7 +15,7 @@ Use this skill for the repository-wide release flow.
 
 This repository uses:
 
-- `forgekit v0.6.0`
+- `forgekit v0.6.1`
 - tag-driven release workflows
 - `version-control.yaml` as the single app registry
 - tags in the form `<app-name>-v<semver>`
@@ -25,6 +27,8 @@ This repository uses:
 - Release is triggered by pushing a tag, not by manually dispatching workflows.
 - For chart apps, linked containers and linked binaries are resolved from `Chart.yaml` annotations.
 - `version-control.yaml` is the source of truth for app registration.
+- When `setup/forgekit.sh` changes its default forgekit version, update
+  `metadata.forgekit-version` and review this skill against the new CLI behavior.
 
 ## Repo Entry Points
 
@@ -39,6 +43,21 @@ Typical local setup:
 FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
 build/bin/gh --version
 ```
+
+## Local Lint
+
+Run the same forgekit lint configuration used by GitHub Actions from any
+directory inside the repository:
+
+```bash
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+FORGEKIT_BIN="$(bash "$PROJECT_ROOT/setup/forgekit.sh")"
+"$FORGEKIT_BIN" --project-root "$PROJECT_ROOT" lint \
+  --config "$PROJECT_ROOT/lint.yaml"
+```
+
+This executes every command declared in `lint.yaml`, including repository test
+commands. When operating as Codex, ask for permission before running it.
 
 ## Release Flow
 
@@ -141,11 +160,13 @@ Then push the branch:
 git push
 ```
 
-### 5. Wait for lint after push
+### 5. Wait for lint on the release commit
 
-Pushing the branch triggers `lint` automatically.
+Pull requests and pushes to `main` trigger `lint`. A push to another branch
+without a pull request does not trigger it.
 
-Do not create the release tag until `lint` has succeeded.
+Do not create the release tag until the release commit is on `main` and its
+`lint` run has succeeded.
 
 Monitor the latest `lint` run for the pushed commit:
 
@@ -271,7 +292,7 @@ Process:
 ## Files To Know
 
 - `version-control.yaml`
-- `scripts/release-plan.sh`
+- `.github/scripts/release-plan.sh`
 - `.github/workflows/lint.yaml`
 - `.github/workflows/release-chart.yaml`
 - `.github/workflows/release-container.yaml`
@@ -282,6 +303,8 @@ Process:
 - `main` pushes validate but do not release.
 - `lint` and `release` are separate phases: push first, wait for `lint`, then tag.
 - This repository does not use `workflow_dispatch` for releases.
-- Container build context is the repository root.
+- Container build context is the repository root by default. The
+  `codespace-runtime` target uses its container directory as an explicit
+  workflow override.
 - App names must be globally unique and must not contain `/`.
 - Binary packaging is still repository workflow logic even though version ownership is managed through `forgekit`.

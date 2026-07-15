@@ -13,7 +13,7 @@ commands:
     cmd: sh
     args:
       - -c
-      - bash -n setup/forgekit.sh scripts/release-plan.sh
+      - bash -n setup/forgekit.sh .github/scripts/release-plan.sh
   - name: gofmt check
     cmd: sh
     args:

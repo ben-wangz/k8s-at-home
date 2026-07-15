@@ -33,7 +33,7 @@ jobs:
           FORGEKIT_BIN: ${{ steps.forgekit.outputs.bin }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          bash "$GITHUB_WORKSPACE/scripts/release-plan.sh" binary
+          bash "$GITHUB_WORKSPACE/.github/scripts/release-plan.sh" binary
 
   release:
     needs: plan

@@ -3,7 +3,7 @@
 set -o errexit -o nounset -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 ARTIFACT_KIND="${1:?artifact kind is required}"
 TAG_NAME="${TAG_NAME:?TAG_NAME is required}"

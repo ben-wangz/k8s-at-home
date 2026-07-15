@@ -30,7 +30,7 @@ jobs:
           FORGEKIT_BIN: ${{ steps.forgekit.outputs.bin }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          bash "$GITHUB_WORKSPACE/scripts/release-plan.sh" container
+          bash "$GITHUB_WORKSPACE/.github/scripts/release-plan.sh" container
 
   publish:
     needs: plan

@@ -98,6 +98,10 @@ Use that skill as the source of truth for:
 - workflow monitoring
 - chart/container/binary version bump flow
 
+The skill records the expected forgekit version in
+`metadata.forgekit-version`. Review and update the skill whenever the default
+version in `setup/forgekit.sh` changes.
+
 ### chart metadata
 
 Charts use annotations to define linked release targets.
@@ -114,7 +118,7 @@ annotations:
 - `path`: target directory relative to repo root
 - `valuesKey`: dot-notation key in `values.yaml`
 
-With `forgekit 0.6.0`, app names must not contain `/`.
+With `forgekit 0.6.1`, app names must not contain `/`.
 
 ### pull request checklist
 
