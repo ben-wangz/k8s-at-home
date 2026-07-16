@@ -33,6 +33,21 @@ jobs:
             --set podmanNetwork.gateway=10.77.0.1 \
             > /dev/null
 
+      - name: validate-cli-proxy-api-chart
+        run: |
+          helm dependency build "$GITHUB_WORKSPACE/application/cli-proxy-api/chart"
+          helm lint "$GITHUB_WORKSPACE/application/cli-proxy-api/chart" \
+            --strict \
+            --set credentials.existingSecret=cli-proxy-api-ci
+          helm template cli-proxy-api "$GITHUB_WORKSPACE/application/cli-proxy-api/chart" \
+            --namespace cli-proxy-api-ci \
+            --set credentials.existingSecret=cli-proxy-api-ci \
+            --set ingress.enabled=true \
+            --set ingress.hostname=cli-proxy-api.example.test \
+            --set ingress.tls=true \
+            --set ingress.tlsSecret=cli-proxy-api-ci-tls \
+            > /dev/null
+
       - name: run-forgekit-lint
         env:
           FORGEKIT_BIN: ${{ steps.forgekit.outputs.bin }}

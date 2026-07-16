@@ -1,0 +1,30 @@
+{{- if and .Values.persistence.auth.enabled (not .Values.persistence.auth.existingClaim) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "cli-proxy-api.authPvcName" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  {{- $pvcLabels := include "common.tplvalues.merge" (dict "values" (list .Values.persistence.auth.labels .Values.commonLabels) "context" .) }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" $pvcLabels "context" $) | nindent 4 }}
+  {{- if or .Values.persistence.auth.annotations .Values.commonAnnotations }}
+  {{- $annotations := include "common.tplvalues.merge" (dict "values" (list .Values.persistence.auth.annotations .Values.commonAnnotations) "context" .) }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" $annotations "context" $) | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.auth.accessModes | nindent 4 }}
+  {{- if .Values.persistence.auth.selector }}
+  selector:
+    {{- include "common.tplvalues.render" (dict "value" .Values.persistence.auth.selector "context" $) | nindent 4 }}
+  {{- end }}
+  {{- if .Values.persistence.auth.storageClass }}
+  storageClassName: {{ include "common.tplvalues.render" (dict "value" .Values.persistence.auth.storageClass "context" $) | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.auth.size }}
+  {{- if .Values.persistence.auth.dataSource }}
+  dataSource:
+    {{- include "common.tplvalues.render" (dict "value" .Values.persistence.auth.dataSource "context" $) | nindent 4 }}
+  {{- end }}
+{{- end -}}

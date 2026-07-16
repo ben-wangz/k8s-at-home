@@ -1,0 +1,82 @@
+#!/bin/sh
+
+set -eu
+umask 077
+
+cli_proxy_binary="${CLI_PROXY_BINARY:-/CLIProxyAPI/CLIProxyAPI}"
+config_path="${CLI_PROXY_CONFIG_PATH:-/CLIProxyAPI/config.yaml}"
+auth_dir="${CLI_PROXY_AUTH_DIR:-/data/auths}"
+using_api="${XAI_USING_API:-true}"
+before_state="$(mktemp)"
+active_tmp=""
+
+cleanup() {
+    rm -f "$before_state"
+    if [ -n "$active_tmp" ]; then
+        rm -f "$active_tmp"
+    fi
+}
+trap cleanup EXIT HUP INT TERM
+
+case "$using_api" in
+    true|false) ;;
+    *)
+        echo "XAI_USING_API must be true or false" >&2
+        exit 1
+        ;;
+esac
+
+for auth_file in "$auth_dir"/xai-*.json; do
+    if [ -f "$auth_file" ]; then
+        sha256sum "$auth_file" >> "$before_state"
+    fi
+done
+
+"$cli_proxy_binary" \
+    --xai-login \
+    --no-browser \
+    --config "$config_path"
+
+found_auth=false
+for auth_file in "$auth_dir"/xai-*.json; do
+    if [ ! -f "$auth_file" ]; then
+        continue
+    fi
+
+    if ! jq -e '
+        type == "object"
+        and .type == "xai"
+        and .auth_kind == "oauth"
+        and (.access_token | type == "string" and length > 0)
+        and (.refresh_token | type == "string" and length > 0)
+    ' "$auth_file" >/dev/null 2>&1; then
+        continue
+    fi
+
+    current_state="$(sha256sum "$auth_file")"
+    if grep -Fqx "$current_state" "$before_state"; then
+        continue
+    fi
+
+    active_tmp="${auth_file}.tmp.$$"
+    if ! jq --argjson using_api "$using_api" \
+        '.using_api = $using_api' \
+        "$auth_file" > "$active_tmp"; then
+        echo "failed to update xAI OAuth routing metadata" >&2
+        exit 1
+    fi
+
+    chmod 0600 "$active_tmp"
+    mv -f "$active_tmp" "$auth_file"
+    active_tmp=""
+    found_auth=true
+done
+
+if [ "$found_auth" != true ]; then
+    echo "xAI OAuth did not produce a valid authentication file" >&2
+    exit 1
+fi
+
+trap - EXIT HUP INT TERM
+rm -f "$before_state"
+echo "xAI OAuth authentication is ready"

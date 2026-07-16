@@ -5,6 +5,9 @@ apps:
   - name: clash
     type: chart
     path: application/clash/chart
+  - name: cli-proxy-api
+    type: chart
+    path: application/cli-proxy-api/chart
   - name: chromium-bridge
     type: chart
     path: application/chromium-bridge/chart

@@ -1,0 +1,48 @@
+#!/bin/sh
+
+set -eu
+
+config_base_path="${CLI_PROXY_CONFIG_BASE_PATH:-/input/config/config-base.json}"
+api_keys_path="${CLI_PROXY_API_KEYS_PATH:-/input/credentials/api-keys}"
+config_output_path="${CLI_PROXY_CONFIG_OUTPUT_PATH:-/runtime/config.yaml}"
+output_dir="$(dirname "$config_output_path")"
+tmp_path="${config_output_path}.tmp.$$"
+
+cleanup() {
+    rm -f "$tmp_path"
+}
+trap cleanup EXIT HUP INT TERM
+
+if ! jq -e '
+    type == "array"
+    and length > 0
+    and all(.[]; type == "string" and length > 0)
+' "$api_keys_path" >/dev/null 2>&1; then
+    echo "credentials api-keys must be a non-empty JSON array of non-empty strings" >&2
+    exit 1
+fi
+
+mkdir -p "$output_dir"
+umask 077
+
+if ! jq --slurpfile api_keys "$api_keys_path" \
+    '."api-keys" = $api_keys[0]' \
+    "$config_base_path" > "$tmp_path"; then
+    echo "failed to render CLIProxyAPI configuration" >&2
+    exit 1
+fi
+
+if ! jq -e '
+    type == "object"
+    and (.host | type == "string")
+    and (.port | type == "number")
+    and (."auth-dir" | type == "string" and length > 0)
+    and (."api-keys" | type == "array" and length > 0)
+' "$tmp_path" >/dev/null 2>&1; then
+    echo "rendered CLIProxyAPI configuration is invalid" >&2
+    exit 1
+fi
+
+chmod 0600 "$tmp_path"
+mv -f "$tmp_path" "$config_output_path"
+trap - EXIT HUP INT TERM

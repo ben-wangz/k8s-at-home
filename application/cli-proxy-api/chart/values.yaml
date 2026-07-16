@@ -1,0 +1,131 @@
+replicas: 1
+
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+
+revisionHistoryLimit: 10
+updateStrategy:
+  type: Recreate
+
+automountServiceAccountToken: false
+terminationGracePeriodSeconds: 30
+
+imagePullSecrets: []
+affinity: {}
+podAffinityPreset: ""
+podAntiAffinityPreset: soft
+nodeAffinityPreset:
+  type: none
+  key: ""
+  values: []
+
+podSecurityContext:
+  enabled: true
+  fsGroupChangePolicy: Always
+  supplementalGroups: []
+  fsGroup: 1001
+
+containerSecurityContext:
+  enabled: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+nodeSelector: {}
+tolerations: []
+
+image:
+  registry: ghcr.io
+  repository: ben-wangz/k8s-at-home-cli-proxy-api-runtime
+  tag: 0.1.0
+  pullPolicy: IfNotPresent
+
+credentials:
+  existingSecret: ""
+  secretKeys:
+    apiKeys: api-keys
+
+config:
+  debug: false
+  loggingToFile: false
+  logsMaxTotalSizeMB: 0
+  errorLogsMaxFiles: 10
+  usageStatisticsEnabled: false
+  requestRetry: 3
+  maxRetryCredentials: 0
+  maxRetryInterval: 30
+  disableCooling: false
+  wsAuth: true
+  routing:
+    strategy: round-robin
+    sessionAffinity: false
+    sessionAffinityTTL: 1h
+  streaming:
+    keepaliveSeconds: 15
+    bootstrapRetries: 1
+  extra: {}
+
+xai:
+  usingAPI: true
+
+persistence:
+  auth:
+    enabled: true
+    storageClass: ""
+    existingClaim: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 1Gi
+    subPath: ""
+    annotations: {}
+    labels: {}
+    selector: {}
+    dataSource: {}
+
+service:
+  type: ClusterIP
+  annotations: {}
+  clusterIP: ""
+  sessionAffinity: ""
+  sessionAffinityConfig: {}
+  externalTrafficPolicy: ""
+  loadBalancerSourceRanges: []
+  loadBalancerIP: ""
+  loadBalancerClass: ""
+  extraPorts: []
+
+ingress:
+  enabled: false
+  ingressClassName: traefik
+  hostname: cli-proxy-api.example.internal
+  path: /
+  pathType: Prefix
+  annotations: {}
+  tls: false
+  tlsSecret: ""
+  extraHosts: []
+  extraPaths: []
+  extraTls: []
+  extraRules: []
+
+resources: {}
+resourcesPreset: nano
+initContainerResources: {}
+initContainerResourcesPreset: nano
+
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+extraEnvVars: []
+extraEnvVarsSecret: ""
+extraVolumeMounts: []
+extraVolumes: []
+extraDeploy: []

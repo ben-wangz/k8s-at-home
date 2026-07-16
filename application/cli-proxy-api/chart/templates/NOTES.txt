@@ -1,0 +1,24 @@
+CLIProxyAPI has been installed.
+
+The credentials Secret must contain a JSON array under key {{ .Values.credentials.secretKeys.apiKeys | quote }}.
+Secret contents are not displayed by this chart.
+
+Complete the first xAI device login interactively:
+
+  kubectl exec -it \
+    --namespace {{ include "common.names.namespace" . | quote }} \
+    deployment/{{ include "common.names.fullname" . }} \
+    -- /usr/local/bin/cli-proxy-api-xai-login
+
+Check that an xAI authentication file exists without printing its contents:
+
+  kubectl exec \
+    --namespace {{ include "common.names.namespace" . | quote }} \
+    deployment/{{ include "common.names.fullname" . }} \
+    -- sh -c 'set -- /data/auths/xai-*.json; test -f "$1"'
+
+After rotating the credentials Secret, recreate the Pod so the init container can render a new configuration:
+
+  kubectl rollout restart \
+    --namespace {{ include "common.names.namespace" . | quote }} \
+    deployment/{{ include "common.names.fullname" . }}

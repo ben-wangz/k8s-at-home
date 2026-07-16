@@ -1,0 +1,43 @@
+{{- include "cli-proxy-api.validateValues" . }}
+{{- $routing := dict
+    "strategy" .Values.config.routing.strategy
+    "session-affinity" .Values.config.routing.sessionAffinity
+    "session-affinity-ttl" .Values.config.routing.sessionAffinityTTL
+-}}
+{{- $streaming := dict
+    "keepalive-seconds" .Values.config.streaming.keepaliveSeconds
+    "bootstrap-retries" .Values.config.streaming.bootstrapRetries
+-}}
+{{- $baseConfig := dict
+    "host" ""
+    "port" (include "cli-proxy-api.port" . | int)
+    "tls" (dict "enable" false "cert" "" "key" "")
+    "remote-management" (dict "allow-remote" false "secret-key" "" "disable-control-panel" true)
+    "auth-dir" "/data/auths"
+    "api-keys" (list)
+    "debug" .Values.config.debug
+    "logging-to-file" .Values.config.loggingToFile
+    "logs-max-total-size-mb" .Values.config.logsMaxTotalSizeMB
+    "error-logs-max-files" .Values.config.errorLogsMaxFiles
+    "usage-statistics-enabled" .Values.config.usageStatisticsEnabled
+    "request-retry" .Values.config.requestRetry
+    "max-retry-credentials" .Values.config.maxRetryCredentials
+    "max-retry-interval" .Values.config.maxRetryInterval
+    "disable-cooling" .Values.config.disableCooling
+    "ws-auth" .Values.config.wsAuth
+    "routing" $routing
+    "streaming" $streaming
+-}}
+{{- $renderedConfig := mustMergeOverwrite (deepCopy $baseConfig) .Values.config.extra -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cli-proxy-api.configMapName" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+data:
+  config-base.json: |
+    {{- $renderedConfig | toPrettyJson | nindent 4 }}

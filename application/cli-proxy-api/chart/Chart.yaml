@@ -1,0 +1,28 @@
+apiVersion: v2
+name: cli-proxy-api
+version: 0.1.0
+appVersion: "0.1.0"
+description: OpenAI-compatible proxy with OAuth-backed provider access
+type: application
+keywords:
+  - ai
+  - proxy
+  - oauth
+  - xai
+annotations:
+  cli-proxy-api/images: |
+    - name: cli-proxy-api-runtime
+      path: application/cli-proxy-api/container
+      valuesKey: image.tag
+dependencies:
+  - name: common
+    repository: oci://registry-1.docker.io/bitnamicharts
+    tags:
+      - bitnami-common
+    version: 2.x.x
+home: https://github.com/ben-wangz/k8s-at-home
+sources:
+  - https://github.com/ben-wangz/k8s-at-home/tree/main/application/cli-proxy-api
+  - https://github.com/router-for-me/CLIProxyAPI
+maintainers:
+  - name: ben
