@@ -20,7 +20,7 @@ spec:
         paths:
           - path: {{ .Values.ingress.path }}
             pathType: {{ .Values.ingress.pathType }}
-            backend: {{- include "common.ingress.backend" (dict "serviceName" (include "common.names.fullname" .) "servicePort" (include "cli-proxy-api.port" .) "context" $) | nindent 14 }}
+            backend: {{- include "common.ingress.backend" (dict "serviceName" (include "common.names.fullname" .) "servicePort" "http" "context" $) | nindent 14 }}
           {{- if .Values.ingress.extraPaths }}
           {{- include "common.tplvalues.render" (dict "value" .Values.ingress.extraPaths "context" $) | nindent 10 }}
           {{- end }}
