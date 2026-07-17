@@ -3,8 +3,13 @@ FROM ${UBUNTU_IMAGE}
 
 LABEL maintainer="k8s-at-home"
 
-ENV PATH=/root/.local/bin:/root/.grok/bin:/opt/python/bin:/opt/nodejs/bin:/usr/local/go/bin:${PATH} \
-    PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+# Preinstalled tools live under /opt and /usr/local so a PVC mounted at /root
+# does not hide image-layer binaries. User state stays in home at runtime.
+ENV PATH=/opt/python/bin:/opt/nodejs/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/playwright \
+    CODEX_INSTALL_DIR=/usr/local/bin \
+    CODEX_HOME=/opt/codex \
+    CODEX_NON_INTERACTIVE=true
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG GO_VERSION=1.26.5
@@ -115,12 +120,27 @@ RUN case "$(uname -m)" in \
     && chmod 0755 /usr/local/bin/kubectl \
     && rm -rf /tmp/helm.tar.gz "/tmp/linux-${TOOL_ARCH}"
 
+# Codex: install into global paths via installer env vars (no home layout copy).
 RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh \
-    && install -d -m 0755 /opt/codex \
-    && cp -aL /root/.codex/packages/standalone/current/. /opt/codex/ \
-    && ln -s /opt/codex/bin/codex /usr/local/bin/codex \
-    && rm -rf /root/.codex /root/.local/bin/codex \
-    && curl -fsSL https://x.ai/cli/install.sh | bash
+    && command -v codex >/dev/null \
+    && codex --version
+
+# Grok: official install.sh; downloads may use a temp HOME. Materialize the
+# real binary under /opt so runtime does not depend on home symlinks.
+RUN tmp_home="$(mktemp -d)" \
+    && install -d -m 0755 /opt/grok/bin \
+    && HOME="${tmp_home}" GROK_BIN_DIR=/opt/grok/bin \
+        bash -c 'curl -fsSL https://x.ai/cli/install.sh | bash' \
+    && real_bin="$(readlink -f /opt/grok/bin/grok)" \
+    && test -n "${real_bin}" && test -x "${real_bin}" \
+    && install -m 0755 "${real_bin}" /opt/grok/bin/grok.real \
+    && mv /opt/grok/bin/grok.real /opt/grok/bin/grok \
+    && ln -sfn /opt/grok/bin/grok /opt/grok/bin/agent \
+    && ln -sfn /opt/grok/bin/grok /usr/local/bin/grok \
+    && ln -sfn /opt/grok/bin/grok /usr/local/bin/agent \
+    && rm -rf "${tmp_home}" \
+    && command -v grok >/dev/null \
+    && grok --version
 
 RUN npm install --global "playwright@${PLAYWRIGHT_VERSION}" \
     && playwright install --with-deps chromium \
@@ -128,7 +148,7 @@ RUN npm install --global "playwright@${PLAYWRIGHT_VERSION}" \
 
 # sshd supplies its own PATH for sessions instead of inheriting the image ENV.
 RUN printf '%s\n' \
-        'SetEnv PATH=/root/.local/bin:/root/.grok/bin:/opt/python/bin:/opt/nodejs/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin PLAYWRIGHT_BROWSERS_PATH=/opt/playwright LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LANGUAGE=en_US:en' \
+        'SetEnv PATH=/opt/python/bin:/opt/nodejs/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin PLAYWRIGHT_BROWSERS_PATH=/opt/playwright LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LANGUAGE=en_US:en' \
         >> /etc/ssh/sshd_config.d/codespace.conf
 
 # The outer container is the cgroup boundary. A nested runtime cannot reliably

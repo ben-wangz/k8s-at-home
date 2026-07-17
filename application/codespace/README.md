@@ -10,12 +10,15 @@ Preinstalled components include:
 
 - Go 1.26.5, Node.js 24.13.1, and Python 3
 - kubectl 1.35.4 and Helm 4.1.4
-- Codex and Grok development CLIs
+- Codex and Grok development CLIs (under `/opt` and `/usr/local`, not home)
 - Playwright 1.61.1 with Chromium and its system dependencies
 - poppler-utils, pdftk, and img2pdf
 - Common development, terminal, archive, and network diagnostic tools
 - English and Simplified Chinese UTF-8 locales
 - Automatic `/root/.bash_profile` creation that loads an existing `.bashrc`
+
+Tool installs stay on global paths so a volume mounted at `/root` only holds
+user state and does not hide image binaries.
 
 ## Build
 
