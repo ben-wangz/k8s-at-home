@@ -15,10 +15,12 @@ Preinstalled components include:
 - poppler-utils, pdftk, and img2pdf
 - Common development, terminal, archive, and network diagnostic tools
 - English and Simplified Chinese UTF-8 locales
-- Automatic `/root/.bash_profile` creation that loads an existing `.bashrc`
 
 Tool installs stay on global paths so a volume mounted at `/root` only holds
-user state and does not hide image binaries.
+user state and does not hide image binaries. The chart init container
+`prepare-home` mounts the home PVC at `/mnt/home` (keeping image-layer `/root`
+visible) and seeds missing `.bashrc` / `.profile` without overwriting existing
+files.
 
 ## Build
 
@@ -29,9 +31,9 @@ podman build \
   .
 ```
 
-The default build uses the project's DaoCloud proxy for the Ubuntu 24.04 base
-image. Override `UBUNTU_IMAGE` if direct Docker Hub access is preferred. The Go
-archive is downloaded directly from `https://go.dev/dl`.
+The default base image is `docker.io/library/ubuntu:24.04`. Override
+`UBUNTU_IMAGE` if a mirror is preferred. The Go archive is downloaded from
+`https://go.dev/dl`.
 
 ## Run
 

@@ -47,17 +47,23 @@ spec:
       hostname: {{ .Values.hostname }}
       {{- end }}
       initContainers:
-      - name: ensure-home-permissions
+      - name: prepare-home
         image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         command:
         - /bin/sh
         - -ec
         - |
-          current_mode="$(stat -c '%a' /root)"
+          # Mount home PVC at /mnt/home so image-layer /root (skeleton) stays visible.
+          current_mode="$(stat -c '%a' /mnt/home)"
           if [ "$current_mode" != "700" ]; then
-            chmod 0700 /root
+            chmod 0700 /mnt/home
           fi
+          for f in .bashrc .profile; do
+            if [ ! -e "/mnt/home/${f}" ] && [ -f "/root/${f}" ]; then
+              cp -a "/root/${f}" "/mnt/home/${f}"
+            fi
+          done
         securityContext:
           allowPrivilegeEscalation: false
           runAsNonRoot: false
@@ -65,7 +71,7 @@ spec:
           runAsGroup: 0
         volumeMounts:
         - name: home-volume
-          mountPath: /root
+          mountPath: /mnt/home
           {{- if .Values.persistence.home.subPath }}
           subPath: {{ .Values.persistence.home.subPath | quote }}
           {{- end }}

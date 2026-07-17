@@ -56,16 +56,6 @@ PY
 
 configure_podman_network
 
-if [[ ! -f /root/.bash_profile ]]; then
-    printf '%s\n' \
-        'if [[ -f ~/.bashrc ]]; then' \
-        '    source ~/.bashrc' \
-        'fi' \
-        > /root/.bash_profile
-    chmod 0644 /root/.bash_profile
-    echo "Created /root/.bash_profile"
-fi
-
 install -d -m 0755 /run/sshd
 ssh-keygen -A
 
