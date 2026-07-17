@@ -5,6 +5,8 @@ build/
 .serena/
 node_modules/
 dist/
+.DS_Store
+**/.DS_Store
 .env
 .env.*
 !.env.example
