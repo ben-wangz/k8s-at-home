@@ -24,7 +24,8 @@ nodeSelector: {}
 tolerations: []
 extraVolumes: []
 image:
-  repository: ghcr.io/ben-wangz/k8s-at-home-codespace-base
+  registry: ghcr.io
+  repository: ben-wangz/k8s-at-home-codespace-base
   tag: 0.1.4
   pullPolicy: IfNotPresent
 ports:
