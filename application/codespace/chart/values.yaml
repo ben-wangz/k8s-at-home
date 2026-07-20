@@ -16,6 +16,10 @@ nodeAffinityPreset:
   values: []
 podSecurityContext:
   enabled: false
+serviceAccount:
+  create: true
+  name: ''
+  automountServiceAccountToken: true
 containerSecurityContext:
   enabled: true
   privileged: true

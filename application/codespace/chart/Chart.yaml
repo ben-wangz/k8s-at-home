@@ -1,6 +1,6 @@
 apiVersion: v2
 name: codespace
-version: 0.1.6
+version: 0.1.7
 appVersion: "0.1.4"
 description: Development codespace with SSH and nested Podman
 type: application

@@ -23,6 +23,7 @@ spec:
         {{- include "common.tplvalues.render" ( dict "value" .Values.podAnnotations "context" $) | nindent 8 }}
         {{- end }}
     spec:
+      serviceAccountName: {{ include "codespace.serviceAccountName" . }}
       {{- if .Values.imagePullSecrets }}
       imagePullSecrets: {{- include "common.tplvalues.render" ( dict "value" .Values.imagePullSecrets "context" $ ) | nindent 6 }}
       {{- end }}
