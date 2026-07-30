@@ -1,0 +1,4 @@
+interface:
+  display_name: "Update sub2api"
+  short_description: "Check, update, and release the sub2api chart"
+  default_prompt: "Use $update-sub2api to check the latest upstream release, update the sub2api chart when needed, and publish it."
