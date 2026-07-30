@@ -1,7 +1,7 @@
 apiVersion: v2
 name: sub2api
-version: 0.1.5
-appVersion: "0.1.164"
+version: 0.1.6
+appVersion: "0.1.168"
 description: Sub2API AI API gateway platform
 type: application
 keywords:
