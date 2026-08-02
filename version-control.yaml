@@ -17,6 +17,13 @@ apps:
   - name: ddns-go
     type: chart
     path: application/ddns-go/chart
+  - name: frp
+    type: chart
+    path: application/frp/chart
+  - name: frpcctl
+    type: binary
+    path: application/frp/client
+    versionFile: VERSION
   - name: podman-in-container
     type: chart
     path: application/podman-in-container/chart

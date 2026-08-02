@@ -9,6 +9,7 @@ This project is to develop and maintain k8s applications at home.
 * [aria2](application/aria2/README.md)
 * [clash](application/clash/README.md)
 * [cli-proxy-api](application/cli-proxy-api/README.md)
+* [frp](application/frp/README.md)
 * [yacd](application/yacd/README.md)
 * [podman-in-container](application/podman-in-container/README.md)
 * [codespace](application/codespace/README.md)

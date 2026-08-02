@@ -23,6 +23,11 @@ jobs:
       - name: setup-helm
         uses: azure/setup-helm@v4
 
+      - name: setup-go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: application/frp/client/go.mod
+
       - name: validate-codespace-chart
         run: |
           helm dependency build "$GITHUB_WORKSPACE/application/codespace/chart"
@@ -47,6 +52,21 @@ jobs:
             --set ingress.tls=true \
             --set ingress.tlsSecret=cli-proxy-api-ci-tls \
             > /dev/null
+
+      - name: validate-frp-chart
+        run: |
+          helm dependency build "$GITHUB_WORKSPACE/application/frp/chart"
+          helm lint "$GITHUB_WORKSPACE/application/frp/chart" --strict
+          helm template frp "$GITHUB_WORKSPACE/application/frp/chart" \
+            --namespace frp-ci \
+            > /dev/null
+
+      - name: validate-frpcctl
+        run: |
+          go -C "$GITHUB_WORKSPACE/application/frp/client" test ./...
+          go -C "$GITHUB_WORKSPACE/application/frp/client" build \
+            -o "$RUNNER_TEMP/frpcctl" \
+            ./cmd/frpcctl
 
       - name: run-forgekit-lint
         env:

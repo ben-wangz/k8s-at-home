@@ -1,0 +1,9 @@
+{
+  "targetHost": "dw.edge.home.geekcity.tech",
+  "targetPort": 32699,
+  "checkTimeoutSeconds": 10,
+  "failureThresholdSeconds": 3600,
+  "notificationIntervalSeconds": 21600,
+  "hostKeyPath": "/etc/ssh/ssh_host_ed25519_key.pub",
+  "sshKeyscanPath": "/usr/bin/ssh-keyscan"
+}

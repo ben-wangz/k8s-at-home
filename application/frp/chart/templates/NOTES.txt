@@ -1,0 +1,12 @@
+The frps server is configured from values and reads credentials only from existing Secrets.
+
+Create the default authentication Secret without adding the token to values:
+
+  printf '%s' "$FRP_AUTH_TOKEN" | kubectl --namespace {{ include "common.names.namespace" . | quote }} \
+    create secret generic {{ (index .Values.secretMounts 0).existingSecret }} \
+    --from-file={{ (index (index .Values.secretMounts 0).items 0).key }}=/dev/stdin
+
+After rotating a mounted Secret, restart frps so it reopens the credential file:
+
+  kubectl rollout restart --namespace {{ include "common.names.namespace" . | quote }} \
+    deployment/{{ include "common.names.fullname" . }}

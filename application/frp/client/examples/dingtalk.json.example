@@ -1,0 +1,5 @@
+{
+  "type": "dingtalk",
+  "url": "https://oapi.dingtalk.com/robot/send?access_token=REPLACE_ME",
+  "secret": "SEC_REPLACE_ME"
+}

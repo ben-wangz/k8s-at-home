@@ -1,0 +1,139 @@
+replicas: 1
+
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+
+revisionHistoryLimit: 10
+updateStrategy:
+  type: Recreate
+
+automountServiceAccountToken: false
+terminationGracePeriodSeconds: 30
+
+imagePullSecrets: []
+affinity: {}
+podAffinityPreset: ""
+podAntiAffinityPreset: soft
+nodeAffinityPreset:
+  type: none
+  key: ""
+  values: []
+
+podSecurityContext:
+  enabled: true
+  fsGroupChangePolicy: OnRootMismatch
+  supplementalGroups: []
+  fsGroup: 65532
+
+containerSecurityContext:
+  enabled: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  runAsNonRoot: true
+  privileged: false
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+nodeSelector: {}
+tolerations: []
+
+image:
+  registry: docker.io
+  repository: fatedier/frps
+  tag: v0.70.1
+  pullPolicy: IfNotPresent
+
+containerPorts:
+  - name: control
+    containerPort: 7000
+    protocol: TCP
+  - name: ssh-cloud01
+    containerPort: 6000
+    protocol: TCP
+
+config:
+  key: frps.toml
+  mountPath: /etc/frp/frps.toml
+  content: |-
+    bindAddr = "0.0.0.0"
+    bindPort = 7000
+
+    auth.method = "token"
+    auth.tokenSource.type = "file"
+    auth.tokenSource.file.path = "/run/secrets/frp-auth/token"
+
+    transport.tls.force = true
+
+    allowPorts = [
+      { single = 6000 }
+    ]
+
+    log.to = "console"
+    log.level = "info"
+    log.disablePrintColor = true
+
+# Secret data is never accepted by this chart. Each entry only references an
+# existing Kubernetes Secret and mounts its keys as files for frps.toml.
+secretMounts:
+  - name: auth
+    existingSecret: frps-auth
+    mountPath: /run/secrets/frp-auth
+    defaultMode: "0440"
+    items:
+      - key: token
+        path: token
+
+service:
+  type: NodePort
+  annotations: {}
+  clusterIP: ""
+  sessionAffinity: ""
+  sessionAffinityConfig: {}
+  externalTrafficPolicy: Cluster
+  loadBalancerSourceRanges: []
+  loadBalancerIP: ""
+  loadBalancerClass: ""
+  ports:
+    - name: control
+      port: 7000
+      targetPort: control
+      nodePort: 32700
+      protocol: TCP
+    - name: ssh-cloud01
+      port: 6000
+      targetPort: ssh-cloud01
+      nodePort: 32699
+      protocol: TCP
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 32Mi
+  limits:
+    cpu: 500m
+    memory: 128Mi
+resourcesPreset: none
+
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+probes:
+  controlPort: control
+  readiness:
+    initialDelaySeconds: 2
+    periodSeconds: 5
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+
+extraEnvVarsSecret: ""
+extraVolumeMounts: []
+extraVolumes: []
