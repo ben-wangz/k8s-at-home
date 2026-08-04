@@ -11,7 +11,6 @@ This project is to develop and maintain k8s applications at home.
 * [cli-proxy-api](application/cli-proxy-api/README.md)
 * [frp](application/frp/README.md)
 * [yacd](application/yacd/README.md)
-* [podman-in-container](application/podman-in-container/README.md)
 * [codespace](application/codespace/README.md)
 * [sub2api](application/sub2api/chart/README.md)
 
@@ -61,7 +60,7 @@ Examples:
 
 ```bash
 FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
-"$FORGEKIT_BIN" version get podman-in-container
+"$FORGEKIT_BIN" version get codespace
 "$FORGEKIT_BIN" version get aria2
 ```
 
@@ -76,7 +75,7 @@ Examples:
 
 ```bash
 FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
-"$FORGEKIT_BIN" version bump chart podman-in-container patch
+"$FORGEKIT_BIN" version bump chart codespace patch
 "$FORGEKIT_BIN" version bump container aria2-frontend patch
 ```
 
@@ -110,9 +109,9 @@ Charts use annotations to define linked release targets.
 
 ```yaml
 annotations:
-  podman-in-container/images: |
-    - name: podman-in-container-runtime
-      path: application/podman-in-container/container
+  codespace/images: |
+    - name: codespace-base
+      path: application/codespace/container
       valuesKey: image.tag
 ```
 

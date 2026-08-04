@@ -24,9 +24,6 @@ apps:
     type: binary
     path: application/frp/client
     versionFile: VERSION
-  - name: podman-in-container
-    type: chart
-    path: application/podman-in-container/chart
   - name: sshpiper
     type: chart
     path: application/sshpiper/chart
