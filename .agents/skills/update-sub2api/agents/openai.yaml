@@ -1,4 +1,4 @@
 interface:
-  display_name: "Update sub2api"
-  short_description: "Check, update, and release the sub2api chart"
-  default_prompt: "Use $update-sub2api to check the latest upstream release, update the sub2api chart when needed, and publish it."
+  display_name: "Update sub2api image"
+  short_description: "Check and update the official sub2api image"
+  default_prompt: "Use $update-sub2api to check and update only the official sub2api image tag."

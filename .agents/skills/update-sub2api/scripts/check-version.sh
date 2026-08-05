@@ -59,28 +59,22 @@ release_data="$("$GH_BIN" api repos/Wei-Shaw/sub2api/releases/latest \
 IFS=$'\t' read -r upstream_tag upstream_url published_at <<< "$release_data"
 upstream_version="${upstream_tag#v}"
 
-chart_version="$(yq -r '.version // ""' "${CHART_DIR}/Chart.yaml")"
-app_version="$(yq -r '.appVersion // ""' "${CHART_DIR}/Chart.yaml")"
 image_version="$(yq -r '.image.tag // ""' "${CHART_DIR}/values.yaml")"
 
-for version in "$upstream_version" "$chart_version" "$app_version" "$image_version"; do
+for version in "$upstream_version" "$image_version"; do
     if ! is_semver "$version"; then
         echo "Error: invalid semantic version: ${version:-<empty>}" >&2
         exit 1
     fi
 done
 
-local_consistent=true
 update_required=false
 comparison=current
 
-if [[ "$app_version" != "$image_version" ]]; then
-    local_consistent=false
-    comparison=local-inconsistent
-elif version_gt "$upstream_version" "$app_version"; then
+if version_gt "$upstream_version" "$image_version"; then
     update_required=true
     comparison=upstream-newer
-elif version_gt "$app_version" "$upstream_version"; then
+elif version_gt "$image_version" "$upstream_version"; then
     comparison=local-newer
 fi
 
@@ -89,21 +83,15 @@ jq -n \
     --arg upstreamTag "$upstream_tag" \
     --arg upstreamUrl "$upstream_url" \
     --arg publishedAt "$published_at" \
-    --arg chartVersion "$chart_version" \
-    --arg appVersion "$app_version" \
     --arg imageVersion "$image_version" \
     --arg comparison "$comparison" \
-    --argjson localConsistent "$local_consistent" \
     --argjson updateRequired "$update_required" \
     '{
         upstreamVersion: $upstreamVersion,
         upstreamTag: $upstreamTag,
         upstreamUrl: $upstreamUrl,
         publishedAt: $publishedAt,
-        chartVersion: $chartVersion,
-        appVersion: $appVersion,
         imageVersion: $imageVersion,
-        localConsistent: $localConsistent,
         updateRequired: $updateRequired,
         comparison: $comparison
     }'
