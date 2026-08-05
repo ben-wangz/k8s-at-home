@@ -38,7 +38,7 @@ application/tabminal/
       service.yaml
       ingress.yaml
       pvc.yaml
-      secret.yaml
+      ssh-keygen.yaml
       extra-list.yaml
 ```
 
@@ -78,7 +78,7 @@ replicas: 1
 
 image:
   repository: docker.io/leask/tabminal
-  tag: latest
+  tag: sha-65e7af9
   pullPolicy: IfNotPresent
 
 ports:
@@ -87,22 +87,40 @@ ports:
 tabminal:
   host: 0.0.0.0
   acceptTerms: false
-  password: ""
   existingSecret: ""
   existingSecretPasswordKey: password
+  existingSecretOpenrouterKey: ""
+  existingSecretOpenaiKey: ""
+  existingSecretGoogleKey: ""
+  existingSecretGoogleCx: ""
+  existingSecretCloudflareKey: ""
   shell: ""
-  openrouterKey: ""
-  openaiKey: ""
   openaiApi: ""
   model: ""
-  googleKey: ""
-  googleCx: ""
-  cloudflareKey: ""
   heartbeat: ""
   history: ""
   debug: false
-  extraEnvVars: {}
+  extraEnvVars: []
   extraEnvVarsSecret: ""
+
+ssh:
+  enabled: false
+  existingSecret: ""
+  privateKeyKey: ssh-privatekey
+  privateKeyFilename: id_ed25519
+  publicKeyKey: ""
+  knownHostsKey: ""
+  configKey: ""
+  keyGeneration:
+    enabled: false
+    outputSecretName: ""
+    passphraseSecret:
+      name: ""
+      key: password
+    serviceAccountTokenExpirationSeconds: 600
+    activeDeadlineSeconds: 600
+    backoffLimit: 0
+    resources: {}
 
 persistence:
   enabled: true
@@ -145,10 +163,15 @@ ingress:
 Notes:
 
 - `tabminal.acceptTerms` should default to `false` so users explicitly opt in to upstream's security warning. If false, the pod will not start, which is intentional and visible.
-- `tabminal.password` is convenient for simple installs but should be rendered into a Secret, not directly into the Deployment.
-- `tabminal.existingSecret` should be preferred for production.
-- AI provider keys and Cloudflare/Google credentials should also be Secret-backed. For simplicity, initially support rendering them into the chart-managed Secret when values are provided, plus `extraEnvVarsSecret` for externally managed secret refs.
-- `openrouterKey` and `openaiKey` are mutually exclusive upstream. Document this; optionally enforce it with a Helm template `fail`.
+- `tabminal.existingSecret` is required. Credentials must not be supplied through Helm values.
+- Do not generate a random password in a template. Random output changes on each Argo CD render and causes perpetual drift; `lookup` is not reliable in an offline GitOps renderer.
+- Optional AI provider and Cloudflare/Google credentials are selected by their key names in `existingSecret`.
+- `existingSecretOpenrouterKey` and `existingSecretOpenaiKey` are mutually exclusive upstream.
+- `extraEnvVars` is a list of Kubernetes `EnvVar` objects. `extraEnvVarsSecret` supports an additional externally managed Secret.
+- The official stable application version is `3.0.40`. Docker Hub does not publish a semantic-version tag, so the chart uses the corresponding official `sha-65e7af9` tag instead of mutable `latest`.
+- `ssh.existingSecret` is required when `ssh.enabled=true` unless `ssh.keyGeneration.enabled=true`. SSH private key material and passphrases must not be supplied through Helm values.
+- `ssh.existingSecret` and `ssh.keyGeneration.enabled` are mutually exclusive.
+- The key generation passphrase comes only from `ssh.keyGeneration.passphraseSecret` and is not injected into the Tabminal container.
 
 ## Kubernetes Resources
 
@@ -161,10 +184,10 @@ Required environment:
 - `TABMINAL_HOST`: from `tabminal.host`, default `0.0.0.0`.
 - `TABMINAL_PORT`: from `ports.http`.
 - `TABMINAL_ACCEPT_TERMS`: from `tabminal.acceptTerms`.
+- `TABMINAL_PASSWORD`: from `tabminal.existingSecret` and `tabminal.existingSecretPasswordKey`.
 
 Optional environment:
 
-- `TABMINAL_PASSWORD`: from Secret key.
 - `TABMINAL_SHELL`
 - `TABMINAL_OPENROUTER_KEY`
 - `TABMINAL_OPENAI_KEY`
@@ -177,15 +200,7 @@ Optional environment:
 - `TABMINAL_HISTORY`
 - `TABMINAL_DEBUG`
 
-Container args should start the server rather than showing help. Two viable options:
-
-- `args: ["--accept-terms"]` when `tabminal.acceptTerms` is true.
-- Prefer environment-only startup with command args omitted if upstream starts when no args are passed. Because the upstream image default `CMD` is `--help`, the chart should explicitly set `args` to `[]` or `--accept-terms` after verifying rendered Pod behavior.
-
-Recommended implementation:
-
-- Set `args` to `[]` plus environment variables if Kubernetes preserves an explicit empty args list as intended.
-- If that is not reliable, set `args: ["--accept-terms"]` when `tabminal.acceptTerms=true` and fail rendering otherwise.
+Container args must override the image's default `--help` command. Pass the configured host, port, password environment reference, optional settings, and `--accept-terms` when accepted.
 
 Probes:
 
@@ -198,6 +213,30 @@ Persistence:
 
 - Mount the PVC at `persistence.mountPath`, default `/root/.tabminal`, matching the official image's likely root home directory.
 - Keep `replicas: 1` by default. Multiple replicas would not share live terminal sessions safely and would require sticky sessions plus shared or per-replica state decisions.
+
+SSH client files:
+
+- Mount the selected existing or generated SSH Secret read-only in an init container.
+- Copy the selected private key, optional public key, `known_hosts`, and `config` files into a memory-backed `emptyDir`.
+- Set the target directory to mode `0700` and files to `0600`, then mount it at `/root/.ssh` in the Tabminal container.
+- Set public key files to mode `0644`.
+- Keep the target writable so interactive SSH sessions can update `known_hosts`.
+- Require a Pod restart after the external Secret is rotated.
+
+SSH key generation:
+
+- Run a pre-install/pre-upgrade Helm Hook and Argo CD `PreSync` Job when `ssh.keyGeneration.enabled=true`.
+- Use the pinned Tabminal image, which includes Node.js and `ssh-keygen`, rather than adding another mutable image dependency.
+- Generate `id_ed25519` and `id_ed25519.pub` only when the configured output Secret does not exist.
+- When the output Secret exists, decrypt its private key with the configured passphrase and compare the derived public key with the stored public key.
+- Fail without changing the Secret when the passphrase, key type, or public key does not match.
+- Never print secret values, public key content, or a passphrase hash. Log only the namespace, Secret name, action, and key names.
+- Do not set an owner reference from the generated Secret to the Hook Job. The Secret must remain stable across Job cleanup, Helm renders, Argo CD syncs, and uninstall operations.
+- Require the passphrase Secret to exist before an Argo CD sync. A `PreSync` Hook cannot consume a Secret that is first created later in the same sync.
+- Require a full Argo CD sync because selective sync does not execute hooks.
+- Use a dedicated ServiceAccount with a projected token. Make its lifetime configurable with a minimum and default of 600 seconds.
+- Grant `get` only for the target Secret name and namespace-wide `create` for Secrets. Standard Kubernetes RBAC cannot restrict a top-level `create` request by `resourceNames`.
+- Do not grant `list`, `watch`, `update`, `patch`, or `delete`.
 
 Security context:
 
@@ -234,18 +273,17 @@ The PVC stores `~/.tabminal`, including auth/session/agent state. This data can 
 
 ### Secret
 
-Create a Secret when at least one chart-managed sensitive value is set and `tabminal.existingSecret` is empty.
+The chart does not template credential Secrets. `tabminal.existingSecret` is required and its password key is configured with `tabminal.existingSecretPasswordKey`. Optional credential key selectors include:
 
-Suggested keys:
+- `tabminal.existingSecretOpenrouterKey`
+- `tabminal.existingSecretOpenaiKey`
+- `tabminal.existingSecretGoogleKey`
+- `tabminal.existingSecretGoogleCx`
+- `tabminal.existingSecretCloudflareKey`
 
-- `password`
-- `openrouter-key`
-- `openai-key`
-- `google-key`
-- `google-cx`
-- `cloudflare-key`
+The Deployment reads configured credentials with `valueFrom.secretKeyRef`.
 
-The Deployment should read each configured value via `valueFrom.secretKeyRef`.
+The optional SSH key generation Job creates one runtime `Opaque` Secret containing `id_ed25519` and `id_ed25519.pub`. This generated output is not a chart-rendered credential Secret and is intentionally not owned by the Hook Job.
 
 ### Extra Deploy
 
@@ -259,10 +297,12 @@ Chart documentation must make these constraints explicit:
 
 - Require `tabminal.acceptTerms=true` before the application starts.
 - Require a stable password for normal deployments; do not rely on the generated temporary password in Kubernetes.
-- Prefer `existingSecret` for credentials.
+- Require `existingSecret` for credentials and reject credentials in Helm values.
 - Keep ingress disabled by default.
 - Recommend an external access-control layer for any remote access.
 - Treat the PVC as sensitive because it can contain session snapshots, auth state, cluster host registry, agent settings, and command context.
+- Treat SSH Secrets and passphrases as privileged credentials. Keep the mounted runtime copy in memory rather than the PVC.
+- Document that a short passphrase provides limited offline protection and that the generated Secret persists until explicitly deleted.
 - Warn that AI keys may send terminal context, file paths, or command history to the configured provider, consistent with upstream behavior.
 
 ## Initial Implementation Plan
@@ -270,7 +310,7 @@ Chart documentation must make these constraints explicit:
 1. Create `application/tabminal/chart` by adapting the `yacd` chart structure.
 2. Add `Chart.yaml` with the Bitnami `common` dependency and upstream Tabminal metadata.
 3. Add `values.yaml` with image, port, Tabminal config, service, ingress, persistence, probes, resources, and extra deploy values.
-4. Add `secret.yaml` for chart-managed credentials and support `existingSecret` for production use.
+4. Require a pre-existing Secret for the password and optional provider credentials.
 5. Add `deployment.yaml` with required environment, optional secret-backed environment, PVC mount, probes, resources, scheduling knobs, and image pull secrets.
 6. Add `service.yaml`, `ingress.yaml`, `pvc.yaml`, `_helpers.tpl`, and `extra-list.yaml` following existing templates.
 7. Add `application/tabminal/README.md` with install examples and security warnings.
@@ -284,7 +324,8 @@ Minimal local/cluster-internal install:
 ```yaml
 tabminal:
   acceptTerms: true
-  password: "change-me"
+  existingSecret: tabminal-secret
+  existingSecretPasswordKey: password
 
 ingress:
   enabled: false
@@ -325,7 +366,4 @@ stringData:
 
 ## Open Questions
 
-- Confirm whether the official image runs correctly with an explicit empty args list, or whether the chart should always use `args: ["--accept-terms"]` when accepted.
-- Confirm the official image runtime user. If it is not root, adjust the default `persistence.mountPath` from `/root/.tabminal` to that user's home directory.
 - Decide whether to enforce `replicas=1` with a template failure or only document it as the safe default.
-- Decide whether the first chart version should pin the current upstream `3.0.40` image tag or use `latest`. Pinning is more reproducible, but version updates must follow this repository's version workflow.

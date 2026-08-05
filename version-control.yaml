@@ -30,6 +30,9 @@ apps:
   - name: sub2api
     type: chart
     path: application/sub2api/chart
+  - name: tabminal
+    type: chart
+    path: application/tabminal/chart
   - name: yacd
     type: chart
     path: application/yacd/chart

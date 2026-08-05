@@ -1,0 +1,394 @@
+{{- if and .Values.ssh.enabled .Values.ssh.keyGeneration.enabled }}
+{{- $keygenName := include "tabminal.ssh.keygen.fullname" . -}}
+{{- $targetSecretName := include "tabminal.ssh.generatedSecretName" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $keygenName }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-10"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+data:
+  generate-ssh-key.mjs: |
+    import crypto from 'node:crypto';
+    import fs from 'node:fs/promises';
+    import https from 'node:https';
+    import path from 'node:path';
+    import { spawnSync } from 'node:child_process';
+
+    const tokenPath = '/var/run/secrets/kubernetes.io/serviceaccount/token';
+    const caPath = '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt';
+    const privateKeyName = 'id_ed25519';
+    const publicKeyName = 'id_ed25519.pub';
+
+    function requireEnv(name) {
+        const value = String(process.env[name] || '').trim();
+        if (!value) throw new Error(`${name} is required`);
+        return value;
+    }
+
+    function requireSecretEnv(name) {
+        const value = String(process.env[name] || '');
+        if (!value) throw new Error(`${name} is required`);
+        return value;
+    }
+
+    function runSshKeygen(args, allowFailure = false) {
+        const result = spawnSync('ssh-keygen', args, {
+            encoding: 'utf8',
+            maxBuffer: 1024 * 1024
+        });
+        if (result.error) throw result.error;
+        if (!allowFailure && result.status !== 0) {
+            const detail = String(result.stderr || '').trim();
+            throw new Error(
+                `ssh-keygen failed with status ${result.status}`
+                + (detail ? `: ${detail}` : '')
+            );
+        }
+        return result;
+    }
+
+    function normalizePublicKey(value) {
+        const fields = String(value || '').trim().split(/\s+/);
+        return fields.length >= 2 ? `${fields[0]} ${fields[1]}` : '';
+    }
+
+    function decodeSecretKey(secret, key) {
+        const encoded = secret?.data?.[key];
+        if (typeof encoded !== 'string' || !encoded) {
+            throw new Error(`Secret is missing required key ${key}`);
+        }
+        return Buffer.from(encoded, 'base64');
+    }
+
+    async function verifyExistingSecret(secret, workDir, passphrase) {
+        const privateKey = decodeSecretKey(secret, privateKeyName);
+        const publicKey = decodeSecretKey(secret, publicKeyName);
+        const privateKeyPath = path.join(workDir, privateKeyName);
+        await fs.writeFile(privateKeyPath, privateKey, { mode: 0o600 });
+
+        let derived;
+        try {
+            derived = runSshKeygen([
+                '-y', '-P', passphrase, '-f', privateKeyPath
+            ]).stdout;
+        } catch {
+            throw new Error(
+                'Existing private key cannot be decrypted with the configured passphrase'
+            );
+        }
+
+        const wrongPassphrase = `${passphrase}-${crypto.randomUUID()}`;
+        const unprotectedCheck = runSshKeygen([
+            '-y', '-P', wrongPassphrase, '-f', privateKeyPath
+        ], true);
+        if (unprotectedCheck.status === 0) {
+            throw new Error('Existing private key is not passphrase protected');
+        }
+
+        const normalizedDerived = normalizePublicKey(derived);
+        const normalizedStored = normalizePublicKey(publicKey.toString('utf8'));
+        if (!normalizedDerived.startsWith('ssh-ed25519 ') ||
+            normalizedDerived !== normalizedStored) {
+            throw new Error('Existing SSH public key does not match the private key');
+        }
+    }
+
+    async function generateKeyPair(workDir, passphrase, comment) {
+        const privateKeyPath = path.join(workDir, privateKeyName);
+        runSshKeygen([
+            '-q', '-t', 'ed25519', '-N', passphrase,
+            '-C', comment, '-f', privateKeyPath
+        ]);
+        return {
+            privateKey: await fs.readFile(privateKeyPath),
+            publicKey: await fs.readFile(`${privateKeyPath}.pub`)
+        };
+    }
+
+    async function main() {
+        const namespace = requireEnv('TARGET_NAMESPACE');
+        const secretName = requireEnv('TARGET_SECRET_NAME');
+        const passphrase = requireSecretEnv('SSH_KEY_PASSPHRASE');
+        const comment = requireEnv('SSH_KEY_COMMENT');
+        const apiHost = requireEnv('KUBERNETES_SERVICE_HOST');
+        const apiPort = Number.parseInt(
+            requireEnv('KUBERNETES_SERVICE_PORT_HTTPS'),
+            10
+        );
+        const [token, ca] = await Promise.all([
+            fs.readFile(tokenPath, 'utf8'),
+            fs.readFile(caPath)
+        ]);
+        const workDir = await fs.mkdtemp('/work/tabminal-ssh-');
+        const secretPath = `/api/v1/namespaces/${encodeURIComponent(namespace)}`
+            + `/secrets/${encodeURIComponent(secretName)}`;
+
+        const apiRequest = (method, requestPath, payload = null) => {
+            const requestBody = payload ? JSON.stringify(payload) : '';
+            return new Promise((resolve, reject) => {
+                const request = https.request({
+                    hostname: apiHost,
+                    port: apiPort,
+                    path: requestPath,
+                    method,
+                    ca,
+                    headers: {
+                        Authorization: `Bearer ${token.trim()}`,
+                        Accept: 'application/json',
+                        ...(requestBody ? {
+                            'Content-Type': 'application/json',
+                            'Content-Length': Buffer.byteLength(requestBody)
+                        } : {})
+                    }
+                }, (response) => {
+                    const chunks = [];
+                    response.on('data', (chunk) => chunks.push(chunk));
+                    response.on('end', () => {
+                        const raw = Buffer.concat(chunks).toString('utf8');
+                        let body = null;
+                        try {
+                            body = raw ? JSON.parse(raw) : null;
+                        } catch {
+                            body = null;
+                        }
+                        resolve({ status: response.statusCode || 0, body });
+                    });
+                });
+                request.on('error', reject);
+                if (requestBody) request.write(requestBody);
+                request.end();
+            });
+        };
+
+        try {
+            const existing = await apiRequest('GET', secretPath);
+            if (existing.status === 200) {
+                await verifyExistingSecret(existing.body, workDir, passphrase);
+                console.log(
+                    `[ssh-keygen] Verified existing Secret ${namespace}/${secretName} `
+                    + `with keys: ${privateKeyName}, ${publicKeyName}`
+                );
+                return;
+            }
+            if (existing.status !== 404) {
+                throw new Error(`Kubernetes API GET returned HTTP ${existing.status}`);
+            }
+
+            const generated = await generateKeyPair(workDir, passphrase, comment);
+            const createResponse = await apiRequest(
+                'POST',
+                `/api/v1/namespaces/${encodeURIComponent(namespace)}/secrets`,
+                {
+                    apiVersion: 'v1',
+                    kind: 'Secret',
+                    metadata: {
+                        name: secretName,
+                        namespace,
+                        labels: {
+                            'app.kubernetes.io/managed-by': 'tabminal-ssh-keygen'
+                        }
+                    },
+                    type: 'Opaque',
+                    data: {
+                        [privateKeyName]: generated.privateKey.toString('base64'),
+                        [publicKeyName]: generated.publicKey.toString('base64')
+                    }
+                }
+            );
+            if (createResponse.status === 409) {
+                const raced = await apiRequest('GET', secretPath);
+                if (raced.status !== 200) {
+                    throw new Error('Generated Secret was created concurrently but cannot be read');
+                }
+                await verifyExistingSecret(raced.body, workDir, passphrase);
+                console.log(
+                    `[ssh-keygen] Verified concurrently created Secret `
+                    + `${namespace}/${secretName} with keys: `
+                    + `${privateKeyName}, ${publicKeyName}`
+                );
+                return;
+            }
+            if (createResponse.status !== 201) {
+                throw new Error(
+                    `Kubernetes API Secret create returned HTTP ${createResponse.status}`
+                );
+            }
+            console.log(
+                `[ssh-keygen] Created Secret ${namespace}/${secretName} `
+                + `with keys: ${privateKeyName}, ${publicKeyName}`
+            );
+        } finally {
+            await fs.rm(workDir, { recursive: true, force: true });
+        }
+    }
+
+    main().catch((error) => {
+        console.error(`[ssh-keygen] ERROR: ${error.message}`);
+        process.exitCode = 1;
+    });
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $keygenName }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-10"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $keygenName }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-10"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  resourceNames:
+  - {{ $targetSecretName | quote }}
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $keygenName }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-10"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $keygenName }}
+subjects:
+- kind: ServiceAccount
+  name: {{ $keygenName }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $keygenName }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-5"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  activeDeadlineSeconds: {{ .Values.ssh.keyGeneration.activeDeadlineSeconds }}
+  backoffLimit: {{ .Values.ssh.keyGeneration.backoffLimit }}
+  template:
+    metadata:
+      labels: {{- include "common.labels.standard" (dict "customLabels" .Values.podLabels "context" $) | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $keygenName }}
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: generate-ssh-key
+        image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command:
+        - node
+        - /opt/tabminal-keygen/generate-ssh-key.mjs
+        env:
+        - name: TARGET_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: TARGET_SECRET_NAME
+          value: {{ $targetSecretName | quote }}
+        - name: SSH_KEY_COMMENT
+          value: {{ printf "tabminal@%s" .Release.Name | quote }}
+        - name: SSH_KEY_PASSPHRASE
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "common.tplvalues.render" (dict "value" .Values.ssh.keyGeneration.passphraseSecret.name "context" $) | quote }}
+              key: {{ .Values.ssh.keyGeneration.passphraseSecret.key | quote }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        {{- with .Values.ssh.keyGeneration.resources }}
+        resources: {{- toYaml . | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: script
+          mountPath: /opt/tabminal-keygen
+          readOnly: true
+        - name: work
+          mountPath: /work
+        - name: api-access
+          mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+          readOnly: true
+      volumes:
+      - name: script
+        configMap:
+          name: {{ $keygenName }}
+          defaultMode: 0444
+      - name: work
+        emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi
+      - name: api-access
+        projected:
+          defaultMode: 0440
+          sources:
+          - serviceAccountToken:
+              path: token
+              expirationSeconds: {{ .Values.ssh.keyGeneration.serviceAccountTokenExpirationSeconds }}
+          - configMap:
+              name: kube-root-ca.crt
+              items:
+              - key: ca.crt
+                path: ca.crt
+{{- end }}

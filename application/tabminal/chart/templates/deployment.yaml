@@ -1,3 +1,4 @@
+{{- include "tabminal.validateValues" . }}
 apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
 kind: Deployment
 metadata:
@@ -43,27 +44,49 @@ spec:
       {{- if .Values.podSecurityContext.enabled }}
       securityContext: {{- include "common.compatibility.renderSecurityContext" ( dict "secContext" .Values.podSecurityContext "context" $ ) | nindent 8 }}
       {{- end }}
+      {{- if .Values.ssh.enabled }}
+      initContainers:
+      - name: prepare-ssh
+        image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          cp -L /ssh-source/* /ssh-home/
+          chmod 0700 /ssh-home
+          chmod 0600 /ssh-home/*
+          for public_key in /ssh-home/*.pub; do
+            [ -e "$public_key" ] || continue
+            chmod 0644 "$public_key"
+          done
+        volumeMounts:
+        - name: ssh-source
+          mountPath: /ssh-source
+          readOnly: true
+        - name: ssh-home
+          mountPath: /ssh-home
+      {{- end }}
       containers:
       - name: tabminal
         image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
         imagePullPolicy: {{ .Values.image.pullPolicy }}
-        {{- /* Override the image CMD (--help) so the server starts. Pass CLI flags because the upstream image predates env-var support. */}}
+        {{- /* Override the image CMD (--help) so the server starts with the configured settings. */}}
         args:
           - --host={{ .Values.tabminal.host }}
           - --port={{ .Values.ports.http }}
           {{- if .Values.tabminal.acceptTerms }}
           - --accept-terms
           {{- end }}
-          {{- if or .Values.tabminal.password .Values.tabminal.existingSecret }}
           - --password=$(TABMINAL_PASSWORD)
-          {{- end }}
           {{- if .Values.tabminal.shell }}
           - --shell={{ .Values.tabminal.shell }}
           {{- end }}
-          {{- if .Values.tabminal.openrouterKey }}
+          {{- if .Values.tabminal.existingSecretOpenrouterKey }}
           - --openrouter-key=$(TABMINAL_OPENROUTER_KEY)
           {{- end }}
-          {{- if .Values.tabminal.openaiKey }}
+          {{- if .Values.tabminal.existingSecretOpenaiKey }}
           - --openai-key=$(TABMINAL_OPENAI_KEY)
           {{- end }}
           {{- if .Values.tabminal.openaiApi }}
@@ -81,13 +104,13 @@ spec:
           {{- if .Values.tabminal.debug }}
           - --debug
           {{- end }}
-          {{- if .Values.tabminal.googleKey }}
+          {{- if .Values.tabminal.existingSecretGoogleKey }}
           - --google-key=$(TABMINAL_GOOGLE_KEY)
           {{- end }}
-          {{- if .Values.tabminal.googleCx }}
+          {{- if .Values.tabminal.existingSecretGoogleCx }}
           - --google-cx=$(TABMINAL_GOOGLE_CX)
           {{- end }}
-          {{- if .Values.tabminal.cloudflareKey }}
+          {{- if .Values.tabminal.existingSecretCloudflareKey }}
           - --cloudflare-key=$(TABMINAL_CLOUDFLARE_KEY)
           {{- end }}
         ports:
@@ -98,6 +121,10 @@ spec:
           mountPath: {{ .Values.persistence.mountPath }}
         {{- if .Values.persistence.subPath }}
           subPath: {{ .Values.persistence.subPath }}
+        {{- end }}
+        {{- if .Values.ssh.enabled }}
+        - name: ssh-home
+          mountPath: /root/.ssh
         {{- end }}
         {{- if .Values.extraVolumeMounts }}
           {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 8 }}
@@ -135,56 +162,53 @@ spec:
         {{- end }}
         {{- /* Secret-backed environment variables */}}
         {{- $secretName := include "tabminal.secret.name" . }}
-        {{- $existing := .Values.tabminal.existingSecret }}
-        {{- if or $existing .Values.tabminal.password }}
         - name: TABMINAL_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: {{ $secretName }}
-              key: {{ .Values.tabminal.existingSecretPasswordKey }}
-        {{- end }}
-        {{- if .Values.tabminal.openrouterKey }}
+              name: {{ $secretName | quote }}
+              key: {{ required "tabminal.existingSecretPasswordKey is required" .Values.tabminal.existingSecretPasswordKey | quote }}
+        {{- if .Values.tabminal.existingSecretOpenrouterKey }}
         - name: TABMINAL_OPENROUTER_KEY
           valueFrom:
             secretKeyRef:
-              name: {{ $secretName }}
-              key: openrouter-key
+              name: {{ $secretName | quote }}
+              key: {{ .Values.tabminal.existingSecretOpenrouterKey | quote }}
         {{- end }}
-        {{- if .Values.tabminal.openaiKey }}
+        {{- if .Values.tabminal.existingSecretOpenaiKey }}
         - name: TABMINAL_OPENAI_KEY
           valueFrom:
             secretKeyRef:
-              name: {{ $secretName }}
-              key: openai-key
+              name: {{ $secretName | quote }}
+              key: {{ .Values.tabminal.existingSecretOpenaiKey | quote }}
         {{- end }}
-        {{- if .Values.tabminal.googleKey }}
+        {{- if .Values.tabminal.existingSecretGoogleKey }}
         - name: TABMINAL_GOOGLE_KEY
           valueFrom:
             secretKeyRef:
-              name: {{ $secretName }}
-              key: google-key
+              name: {{ $secretName | quote }}
+              key: {{ .Values.tabminal.existingSecretGoogleKey | quote }}
         {{- end }}
-        {{- if .Values.tabminal.googleCx }}
+        {{- if .Values.tabminal.existingSecretGoogleCx }}
         - name: TABMINAL_GOOGLE_CX
           valueFrom:
             secretKeyRef:
-              name: {{ $secretName }}
-              key: google-cx
+              name: {{ $secretName | quote }}
+              key: {{ .Values.tabminal.existingSecretGoogleCx | quote }}
         {{- end }}
-        {{- if .Values.tabminal.cloudflareKey }}
+        {{- if .Values.tabminal.existingSecretCloudflareKey }}
         - name: TABMINAL_CLOUDFLARE_KEY
           valueFrom:
             secretKeyRef:
-              name: {{ $secretName }}
-              key: cloudflare-key
+              name: {{ $secretName | quote }}
+              key: {{ .Values.tabminal.existingSecretCloudflareKey | quote }}
         {{- end }}
         {{- if .Values.tabminal.extraEnvVars }}
-        {{- include "common.tplvalues.render" (dict "value" .Values.tabminal.extraEnvVars "context" $) | nindent 10 }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.tabminal.extraEnvVars "context" $) | nindent 8 }}
         {{- end }}
         {{- if .Values.tabminal.extraEnvVarsSecret }}
         envFrom:
         - secretRef:
-            name: {{ .Values.tabminal.extraEnvVarsSecret }}
+            name: {{ include "common.tplvalues.render" (dict "value" .Values.tabminal.extraEnvVarsSecret "context" $) | quote }}
         {{- end }}
         {{- if .Values.resources }}
         resources: {{- toYaml .Values.resources | nindent 10 }}
@@ -229,6 +253,38 @@ spec:
         {{- else }}
         emptyDir: {}
         {{- end }}
+      {{- if .Values.ssh.enabled }}
+      - name: ssh-source
+        secret:
+          secretName: {{ include "tabminal.ssh.secretName" . | quote }}
+          defaultMode: 0400
+          items:
+          {{- if .Values.ssh.keyGeneration.enabled }}
+          - key: id_ed25519
+            path: id_ed25519
+          - key: id_ed25519.pub
+            path: id_ed25519.pub
+          {{- else }}
+          - key: {{ .Values.ssh.privateKeyKey | quote }}
+            path: {{ .Values.ssh.privateKeyFilename | quote }}
+          {{- if .Values.ssh.publicKeyKey }}
+          - key: {{ .Values.ssh.publicKeyKey | quote }}
+            path: {{ printf "%s.pub" .Values.ssh.privateKeyFilename | quote }}
+          {{- end }}
+          {{- if .Values.ssh.knownHostsKey }}
+          - key: {{ .Values.ssh.knownHostsKey | quote }}
+            path: known_hosts
+          {{- end }}
+          {{- if .Values.ssh.configKey }}
+          - key: {{ .Values.ssh.configKey | quote }}
+            path: config
+          {{- end }}
+          {{- end }}
+      - name: ssh-home
+        emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi
+      {{- end }}
       {{- if .Values.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 6 }}
       {{- end }}

@@ -24,7 +24,7 @@ extraVolumes: []
 
 image:
   repository: docker.io/leask/tabminal
-  tag: latest
+  tag: sha-65e7af9
   pullPolicy: IfNotPresent
 
 ports:
@@ -36,33 +36,61 @@ tabminal:
   acceptTerms: false
   ## Listen address for the Kubernetes pod. Overrides the default 127.0.0.1 bind.
   host: 0.0.0.0
-  ## Plain-text password rendered into a chart-managed Secret.
-  ## Prefer existingSecret for production.
-  password: ""
-  ## Pre-existing Secret containing tabminal credentials.
+  ## Pre-existing Secret containing the required tabminal password and optional credentials.
   existingSecret: ""
   ## Key inside the Secret holding the tabminal password.
   existingSecretPasswordKey: password
+  ## Optional keys inside existingSecret. Leave empty when the credential is not configured.
+  existingSecretOpenrouterKey: ""
+  existingSecretOpenaiKey: ""
+  existingSecretGoogleKey: ""
+  existingSecretGoogleCx: ""
+  existingSecretCloudflareKey: ""
   ## Shell path override (e.g. /bin/bash).
   shell: ""
-  ## AI provider keys (password and key values go into a Secret).
-  openrouterKey: ""
-  openaiKey: ""
   openaiApi: ""
   model: ""
-  googleKey: ""
-  googleCx: ""
-  cloudflareKey: ""
   ## Heartbeat interval string (e.g. "30s").
   heartbeat: ""
   ## History limit (e.g. "1000").
   history: ""
   ## Enable debug logging.
   debug: false
-  ## Extra environment variables injected directly into the container.
-  extraEnvVars: {}
+  ## Extra Kubernetes EnvVar entries injected directly into the container.
+  extraEnvVars: []
   ## Name of an existing Secret whose keys become environment variables.
   extraEnvVarsSecret: ""
+
+ssh:
+  ## Mount SSH client keys from an existing or generated Secret.
+  enabled: false
+  ## Pre-existing Secret containing the private key and optional SSH client files.
+  ## Must be empty when keyGeneration.enabled is true.
+  existingSecret: ""
+  ## Secret key containing the private key.
+  privateKeyKey: ssh-privatekey
+  ## Private key filename under /root/.ssh.
+  privateKeyFilename: id_ed25519
+  ## Optional Secret key copied next to the private key with a .pub suffix.
+  publicKeyKey: ""
+  ## Optional Secret key copied to /root/.ssh/known_hosts.
+  knownHostsKey: ""
+  ## Optional Secret key copied to /root/.ssh/config.
+  configKey: ""
+  keyGeneration:
+    ## Generate an encrypted Ed25519 key pair with a pre-install/pre-upgrade Job.
+    enabled: false
+    ## Generated Secret name. Defaults to <release-fullname>-ssh when empty.
+    outputSecretName: ""
+    ## Pre-existing Secret read only by the key generation Job.
+    passphraseSecret:
+      name: ""
+      key: password
+    ## Lifetime of the projected ServiceAccount token. Kubernetes requires >= 600.
+    serviceAccountTokenExpirationSeconds: 600
+    activeDeadlineSeconds: 600
+    backoffLimit: 0
+    resources: {}
 
 persistence:
   enabled: true
