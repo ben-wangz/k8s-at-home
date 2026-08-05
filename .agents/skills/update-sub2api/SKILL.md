@@ -107,7 +107,7 @@ Do not include `.forgekit-tmp` or unrelated worktree changes.
 
 ### 6. Delegate chart bump and release
 
-If the user requests a chart version bump, lint, commit, push, tag, or publication, stop following this workflow after reviewing the image diff. Read `release-version` completely and follow it for all remaining actions, including test permission and release verification.
+If the user requests a chart version bump, commit, push, tag, or publication, stop following this workflow after reviewing the image diff. Read `release-version` completely and follow it for all remaining actions, including the pushed commit's remote lint gate and release verification. Do not run local lint unless the user explicitly requests it.
 
 ## Guardrails
 

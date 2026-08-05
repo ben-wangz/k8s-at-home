@@ -3,7 +3,7 @@ name: release-version
 description: |
   Release a version in this repository with forgekit. Use when you need
   to bump chart, container, or binary versions, create the release commit, tag
-  the app with <app-name>-v<semver>, and verify the tag-driven GitHub Actions
+  the app with its name and semantic version, and verify the tag-driven GitHub Actions
   release workflows.
 metadata:
   forgekit-version: "0.6.1"
@@ -25,6 +25,7 @@ This repository uses:
 - Do not edit version fields manually when `forgekit` owns them.
 - Use `forgekit` to bump chart, container, or binary versions.
 - Release is triggered by pushing a tag, not by manually dispatching workflows.
+- Use the pushed commit's remote `lint` workflow as the normal release gate; do not duplicate it locally.
 - For chart apps, linked containers and linked binaries are resolved from `Chart.yaml` annotations.
 - `version-control.yaml` is the source of truth for app registration.
 - When `setup/forgekit.sh` changes its default forgekit version, update
@@ -44,10 +45,13 @@ FORGEKIT_BIN="$(bash ./setup/forgekit.sh)"
 build/bin/gh --version
 ```
 
-## Local Lint
+## Optional Local Lint
 
-Run the same forgekit lint configuration used by GitHub Actions from any
-directory inside the repository:
+Do not run local forgekit lint during the normal release flow. Push the release commit and use its remote `lint` workflow as the required validation.
+
+Run local lint only when the user explicitly requests it. Because it executes every command declared in `lint.yaml`, including repository test commands, ask for permission before running it:
+
+Run the same forgekit lint configuration used by GitHub Actions from any directory inside the repository:
 
 ```bash
 PROJECT_ROOT="$(git rev-parse --show-toplevel)"
@@ -55,9 +59,6 @@ FORGEKIT_BIN="$(bash "$PROJECT_ROOT/setup/forgekit.sh")"
 "$FORGEKIT_BIN" --project-root "$PROJECT_ROOT" lint \
   --config "$PROJECT_ROOT/lint.yaml"
 ```
-
-This executes every command declared in `lint.yaml`, including repository test
-commands. When operating as Codex, ask for permission before running it.
 
 ## Release Flow
 
