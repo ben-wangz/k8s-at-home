@@ -30,7 +30,7 @@ Examples:
 ```bash
 ssh git+gitea-ssh.basic-components@<node-ip> -p 32022
 ssh git+gitea-ssh.basic-components+22@<node-ip> -p 32022
-ssh root+alice.codespace@<node-ip> -p 32022
+ssh coder+alice.codespace@<node-ip> -p 32022
 ```
 
 ## Allowlist example

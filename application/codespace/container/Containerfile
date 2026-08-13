@@ -3,8 +3,8 @@ FROM ${UBUNTU_IMAGE}
 
 LABEL maintainer="k8s-at-home"
 
-# Preinstalled tools live under /opt and /usr/local so a PVC mounted at /root
-# does not hide image-layer binaries. User state stays in home at runtime.
+# Preinstalled tools live under /opt and /usr/local so a PVC mounted at the
+# coder home does not hide image-layer binaries. User state stays in home.
 ENV PATH=/opt/python/bin:/opt/nodejs/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PLAYWRIGHT_BROWSERS_PATH=/opt/playwright \
     CODEX_INSTALL_DIR=/usr/local/bin \
@@ -28,6 +28,7 @@ RUN apt-get update \
         curl \
         debianutils \
         dnsutils \
+        gcc \
         git \
         gh \
         fuse-overlayfs \
@@ -36,6 +37,7 @@ RUN apt-get update \
         iputils-ping \
         jq \
         language-pack-zh-hans \
+        libc6-dev \
         locales \
         ncurses-bin \
         openssh-server \
@@ -50,6 +52,7 @@ RUN apt-get update \
         ripgrep \
         screen \
         slirp4netns \
+        sudo \
         telnet \
         tini \
         tmux \
@@ -66,15 +69,26 @@ RUN apt-get update \
     && rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub \
     && install -d -m 0755 /run/sshd \
     && install -d -m 0700 /root/.ssh \
+    && install -d -m 0755 /etc/ssh/authorized_keys.d \
     && printf '%s\n' \
         'PermitRootLogin prohibit-password' \
         'PasswordAuthentication no' \
         'KbdInteractiveAuthentication no' \
+        'AuthorizedKeysFile .ssh/authorized_keys /etc/ssh/authorized_keys.d/%u' \
         > /etc/ssh/sshd_config.d/codespace.conf
 
 ENV LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8 \
     LANGUAGE=en_US:en
+
+# Non-root account for unattended coding agents; root SSH stays available as a
+# recovery path. Ubuntu 24.04 ships an "ubuntu" user at UID 1000 -- replace it
+# with coder so home PVC ownership stays predictable.
+RUN userdel -r ubuntu \
+    && groupadd --gid 1000 coder \
+    && useradd --uid 1000 --gid coder --shell /bin/bash --create-home coder \
+    && printf 'coder ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/coder \
+    && chmod 0440 /etc/sudoers.d/coder
 
 RUN case "$(uname -m)" in \
         x86_64) GO_ARCH=amd64 ;; \
@@ -144,6 +158,7 @@ RUN tmp_home="$(mktemp -d)" \
 
 RUN npm install --global "playwright@${PLAYWRIGHT_VERSION}" \
     && playwright install --with-deps chromium \
+    && if [ "$(uname -m)" = "x86_64" ]; then playwright install --with-deps chrome; fi \
     && rm -rf /root/.npm /var/lib/apt/lists/*
 
 # sshd supplies its own PATH for sessions instead of inheriting the image ENV.

@@ -55,16 +55,22 @@ spec:
         - /bin/sh
         - -ec
         - |
-          # Mount home PVC at /mnt/home so image-layer /root (skeleton) stays visible.
+          # Home PVC mounts at /home/coder in the main container. Seed shell
+          # files from /etc/skel, then hand ownership to coder (UID 1000).
+          # The recursive chown only runs when ownership differs, i.e. on the
+          # first boot after migrating from the old /root mount.
           current_mode="$(stat -c '%a' /mnt/home)"
           if [ "$current_mode" != "700" ]; then
             chmod 0700 /mnt/home
           fi
           for f in .bashrc .profile; do
-            if [ ! -e "/mnt/home/${f}" ] && [ -f "/root/${f}" ]; then
-              cp -a "/root/${f}" "/mnt/home/${f}"
+            if [ ! -e "/mnt/home/${f}" ] && [ -f "/etc/skel/${f}" ]; then
+              cp -a "/etc/skel/${f}" "/mnt/home/${f}"
             fi
           done
+          if [ "$(stat -c '%u:%g' /mnt/home)" != "1000:1000" ]; then
+            chown -R 1000:1000 /mnt/home
+          fi
         securityContext:
           allowPrivilegeEscalation: false
           runAsNonRoot: false
@@ -95,13 +101,17 @@ spec:
           subPath: {{ .Values.persistence.container.subPath | quote }}
           {{- end }}
         - name: home-volume
-          mountPath: /root
+          mountPath: /home/coder
           {{- if .Values.persistence.home.subPath }}
           subPath: {{ .Values.persistence.home.subPath | quote }}
           {{- end }}
         {{- if .Values.ssh.enabled }}
         - name: ssh-authorized-keys
-          mountPath: /root/.ssh/authorized_keys
+          mountPath: /etc/ssh/authorized_keys.d/root
+          subPath: authorized_keys
+          readOnly: true
+        - name: ssh-authorized-keys
+          mountPath: /etc/ssh/authorized_keys.d/coder
           subPath: authorized_keys
           readOnly: true
         {{- end }}
@@ -178,7 +188,9 @@ spec:
       - name: ssh-authorized-keys
         secret:
           secretName: {{ include "codespace.sshSecret.name" . }}
-          defaultMode: 0600
+          # Public keys are not secret; sshd reads this file as the login user
+          # after dropping privileges, so it must be world-readable.
+          defaultMode: 0644
       {{- end }}
       {{- if .Values.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 6 }}
