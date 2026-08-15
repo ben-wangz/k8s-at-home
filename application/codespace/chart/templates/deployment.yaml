@@ -107,10 +107,6 @@ spec:
           {{- end }}
         {{- if .Values.ssh.enabled }}
         - name: ssh-authorized-keys
-          mountPath: /etc/ssh/authorized_keys.d/root
-          subPath: authorized_keys
-          readOnly: true
-        - name: ssh-authorized-keys
           mountPath: /etc/ssh/authorized_keys.d/coder
           subPath: authorized_keys
           readOnly: true

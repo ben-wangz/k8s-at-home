@@ -37,6 +37,7 @@ RUN apt-get update \
         iputils-ping \
         jq \
         language-pack-zh-hans \
+        less \
         libc6-dev \
         locales \
         ncurses-bin \
@@ -81,9 +82,9 @@ ENV LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8 \
     LANGUAGE=en_US:en
 
-# Non-root account for unattended coding agents; root SSH stays available as a
-# recovery path. Ubuntu 24.04 ships an "ubuntu" user at UID 1000 -- replace it
-# with coder so home PVC ownership stays predictable.
+# Non-root account for unattended coding agents. Ubuntu 24.04 ships an
+# "ubuntu" user at UID 1000 -- replace it with coder so home PVC ownership
+# stays predictable.
 RUN userdel -r ubuntu \
     && groupadd --gid 1000 coder \
     && useradd --uid 1000 --gid coder --shell /bin/bash --create-home coder \
@@ -113,6 +114,12 @@ RUN case "$(uname -m)" in \
     && install -d -m 0755 /opt/nodejs \
     && tar -xJf /tmp/nodejs.tar.xz -C /opt/nodejs --strip-components=1 \
     && rm -f /tmp/nodejs.tar.xz
+
+# Claude Code: install globally under /usr/local so the coder home PVC does
+# not hide the CLI or its native package.
+RUN NPM_CONFIG_PREFIX=/usr/local npm install --global "@anthropic-ai/claude-code" \
+    && command -v claude \
+    && claude --version
 
 RUN python3 -m venv /opt/python \
     && pip install --no-cache-dir --upgrade pip setuptools wheel \

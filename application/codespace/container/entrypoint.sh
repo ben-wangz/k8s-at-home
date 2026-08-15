@@ -59,14 +59,12 @@ configure_podman_network
 install -d -m 0755 /run/sshd
 ssh-keygen -A
 
-# Shared key material for both coder logins and the root recovery path. Files
-# stay root-owned under /etc/ssh so sshd StrictModes accepts them for any user.
+# The runtime key is only for coder; passwordless sudo provides the required
+# administrative access without exposing the same key to root SSH.
 install -d -m 0755 /etc/ssh/authorized_keys.d
 if [[ -n "${AUTHORIZED_KEYS:-}" ]]; then
-    for ssh_user in root coder; do
-        printf '%s\n' "${AUTHORIZED_KEYS}" > "/etc/ssh/authorized_keys.d/${ssh_user}"
-        chmod 0644 "/etc/ssh/authorized_keys.d/${ssh_user}"
-    done
+    printf '%s\n' "${AUTHORIZED_KEYS}" > /etc/ssh/authorized_keys.d/coder
+    chmod 0644 /etc/ssh/authorized_keys.d/coder
 fi
 
 exec /usr/sbin/sshd -D -e

@@ -10,15 +10,17 @@ Preinstalled components include:
 
 - Go 1.26.5, Node.js 24.13.1, and Python 3
 - kubectl 1.35.4 and Helm 4.1.4
-- Codex and Grok development CLIs (under `/opt` and `/usr/local`, not home)
+- Claude Code, Codex, and Grok development CLIs (under `/opt` and `/usr/local`,
+  not home)
 - Playwright 1.61.1 with Chromium; amd64 images also include Google Chrome
 - poppler-utils, pdftk, and img2pdf
-- Common development, terminal, archive, and network diagnostic tools
+- Common development, terminal, archive, and network diagnostic tools,
+  including `less`
 - English and Simplified Chinese UTF-8 locales
 
 The image ships a `coder` user (UID 1000) with passwordless sudo for
-unattended coding agents. Root SSH login stays enabled as a recovery path;
-both accounts share the same public keys via `/etc/ssh/authorized_keys.d/`.
+unattended coding agents. The configured SSH public key authenticates only
+`coder`; use `sudo` for administrative commands.
 
 Tool installs stay on global paths so a volume mounted at `/home/coder` only
 holds user state and does not hide image binaries. The chart init container
@@ -54,7 +56,7 @@ podman run --rm --privileged \
   localhost/k8s-at-home-codespace-base:dev
 ```
 
-Connect over SSH (`root` works the same way as a recovery path):
+Connect over SSH as `coder`:
 
 ```bash
 ssh -p 2222 coder@127.0.0.1

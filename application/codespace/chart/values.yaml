@@ -30,7 +30,7 @@ extraVolumes: []
 image:
   registry: ghcr.io
   repository: ben-wangz/k8s-at-home-codespace-base
-  tag: 0.1.5
+  tag: 0.1.6
   pullPolicy: IfNotPresent
 ports:
   ssh: 22
