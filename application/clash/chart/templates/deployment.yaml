@@ -43,19 +43,77 @@ spec:
       {{- if .Values.podSecurityContext.enabled }}
       securityContext: {{- include "common.compatibility.renderSecurityContext" ( dict "secContext" .Values.podSecurityContext "context" $ ) | nindent 8 }}
       {{- end }}
+      initContainers:
+      - name: render-config
+        image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          subscription_url="$(cat /input/subscription-url)"
+          if [ -z "$subscription_url" ]; then
+            echo "subscription URL is empty" >&2
+            exit 1
+          fi
+          if printf '%s' "$subscription_url" | grep -q '[[:space:]]'; then
+            echo "subscription URL must be a single line" >&2
+            exit 1
+          fi
+          mkdir -p "$MIHOMO_CONFIG_DIR/$(dirname "$MIHOMO_PROVIDER_PATH")"
+          awk '
+            $0 == "      __SUBSCRIPTION_URL__" {
+              if ((getline url < "/input/subscription-url") <= 0) {
+                exit 1
+              }
+              print "      " url
+              next
+            }
+            { print }
+          ' /input/config.yaml.template > "$MIHOMO_CONFIG_DIR/config.yaml"
+          if grep -q '__SUBSCRIPTION_URL__' "$MIHOMO_CONFIG_DIR/config.yaml"; then
+            echo "failed to render subscription URL" >&2
+            exit 1
+          fi
+        env:
+        - name: MIHOMO_CONFIG_DIR
+          value: {{ .Values.config.dir | quote }}
+        - name: MIHOMO_PROVIDER_PATH
+          value: {{ .Values.provider.cachePath | quote }}
+        volumeMounts:
+        - name: config-template
+          mountPath: /input/config.yaml.template
+          subPath: config.yaml.template
+          readOnly: true
+        - name: subscription-url
+          mountPath: /input/subscription-url
+          subPath: subscription-url
+          readOnly: true
+        - name: runtime-config
+          mountPath: {{ .Values.config.dir | quote }}
       containers:
       - name: clash
         image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
         imagePullPolicy: {{ .Values.image.pullPolicy }}
+        {{- if .Values.command }}
+        command: {{- include "common.tplvalues.render" (dict "value" .Values.command "context" $) | nindent 8 }}
+        {{- end }}
+        {{- if .Values.args }}
+        args: {{- include "common.tplvalues.render" (dict "value" .Values.args "context" $) | nindent 8 }}
+        {{- else }}
+        args:
+        - -d
+        - {{ .Values.config.dir | quote }}
+        {{- end }}
         ports:
         - containerPort: {{ .Values.ports.http }}
           name: http
         - containerPort: {{ .Values.ports.controller }}
           name: controller
         volumeMounts:
-        - name: config
-          mountPath: /root/.config/clash/config.yaml
-          subPath: config.yaml
+        - name: runtime-config
+          mountPath: {{ .Values.config.dir | quote }}
         {{- if .Values.extraVolumeMounts }}
           {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 8 }}
         {{- end }}
@@ -103,9 +161,19 @@ spec:
           periodSeconds: 15
         {{- end }}
       volumes:
-      - name: config
+      - name: config-template
+        configMap:
+          name: {{ include "clash.configTemplate.fullname" . }}
+          defaultMode: 0444
+      - name: subscription-url
         secret:
-          secretName: {{ if .Values.config.existingSecret }}{{ .Values.config.existingSecret }}{{ else }}{{ include "clash.secret.fullname" . }}{{ end }}
+          secretName: {{ include "clash.subscription.secretName" . }}
+          defaultMode: 0440
+          items:
+          - key: subscription-url
+            path: subscription-url
+      - name: runtime-config
+        emptyDir: {}
       {{- if .Values.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 6 }}
       {{- end }}

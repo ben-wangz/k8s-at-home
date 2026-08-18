@@ -1,0 +1,45 @@
+{{- $providerCachePath := required "provider.cachePath is required" .Values.provider.cachePath -}}
+{{- if or (hasPrefix "/" $providerCachePath) (contains ".." $providerCachePath) }}
+{{- fail "provider.cachePath must be relative and must not contain '..'" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "clash.configTemplate.fullname" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" ( dict "value" .Values.commonAnnotations "context" $ ) | nindent 4 }}
+  {{- end }}
+data:
+  config.yaml.template: |
+    mixed-port: {{ .Values.ports.http }}
+    allow-lan: true
+    mode: rule
+    log-level: {{ .Values.config.logLevel }}
+    external-controller: 0.0.0.0:{{ .Values.ports.controller }}
+
+    proxy-providers:
+      subscription:
+        type: http
+        url: |-
+          __SUBSCRIPTION_URL__
+        path: {{ printf "./%s" $providerCachePath | quote }}
+        interval: {{ .Values.provider.interval }}
+        {{ if .Values.provider.healthCheck.enabled }}
+        health-check:
+          enable: true
+          url: {{ .Values.provider.healthCheck.url | quote }}
+          interval: {{ .Values.provider.healthCheck.interval }}
+        {{ end }}
+
+    proxy-groups:
+      - name: PROXY
+        type: select
+        use:
+          - subscription
+        proxies:
+          - DIRECT
+
+    rules:
+      - MATCH,PROXY

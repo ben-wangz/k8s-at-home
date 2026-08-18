@@ -3,8 +3,15 @@ Expand the name of the chart.
 */}}
 
 {{/*
-Generate full name of the Secret.
+Generate the name of the generated config template.
 */}}
-{{- define "clash.secret.fullname" -}}
-{{- printf "%s-config" (include "common.names.fullname" .) -}}
+{{- define "clash.configTemplate.fullname" -}}
+{{- printf "%s-config-template" (include "common.names.fullname" .) -}}
+{{- end -}}
+
+{{/*
+Resolve the required subscription Secret.
+*/}}
+{{- define "clash.subscription.secretName" -}}
+{{- required "subscription.existingSecret is required" .Values.subscription.existingSecret -}}
 {{- end -}}
