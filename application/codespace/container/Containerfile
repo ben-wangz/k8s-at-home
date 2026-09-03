@@ -150,12 +150,11 @@ RUN case "$(uname -m)" in \
     && rm -rf /tmp/helm.tar.gz "/tmp/linux-${TOOL_ARCH}"
 
 # Cursor publishes its official CLI through cursor.com rather than an npm
-# package. This npm wrapper downloads that official binary; disable its
-# generic `agent` bin link so Cursor is exposed only as `cursor-agent`.
-RUN NPM_CONFIG_PREFIX=/usr/local npm install --global --no-bin-links \
+# package. This npm wrapper downloads that official binary; remove its generic
+# `agent` bin link so Cursor is exposed only as `cursor-agent`.
+RUN NPM_CONFIG_PREFIX=/usr/local npm install --global \
         "@nothumanwork/cursor-agent-cli" \
-    && cursor_pkg="$(NPM_CONFIG_PREFIX=/usr/local npm root --global)/@nothumanwork/cursor-agent-cli" \
-    && ln -sfn "${cursor_pkg}/bin/agent.js" /usr/local/bin/cursor-agent \
+    && rm -f /usr/local/bin/agent \
     && command -v cursor-agent \
     && test ! -e /usr/local/bin/agent \
     && cursor-agent --version
