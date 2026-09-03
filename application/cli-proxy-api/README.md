@@ -245,4 +245,4 @@ podman build \
 
 The upstream base image is pinned in the Containerfile. Upgrading that version
 requires rerunning the script, chart, OAuth, and restart tests described in
-`DESIGN_CN.md`.
+`DESIGN.md`.
