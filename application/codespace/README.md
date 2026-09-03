@@ -10,13 +10,17 @@ Preinstalled components include:
 
 - Go 1.26.5, Node.js 24.13.1, and Python 3
 - kubectl 1.35.4 and Helm 4.1.4
-- Claude Code, Codex, and Grok development CLIs (under `/opt` and `/usr/local`,
-  not home)
+- Claude Code (`claude`), Codex (`codex`), Grok (`grok` and `grok-agent`), and
+  Cursor Agent (`cursor-agent`) development CLIs (under `/usr/local`, not home)
 - Playwright 1.61.1 with Chromium; amd64 images also include Google Chrome
 - poppler-utils, pdftk, and img2pdf
 - Common development, terminal, archive, and network diagnostic tools,
   including `less`
 - English and Simplified Chinese UTF-8 locales
+
+Cursor does not currently publish an npm package for its CLI. The image uses
+`@nothumanwork/cursor-agent-cli` to install the official Cursor Agent binary via
+npm and exposes it only as `cursor-agent`.
 
 The image ships a `coder` user (UID 1000) with passwordless sudo for
 unattended coding agents. The configured SSH public key authenticates only
