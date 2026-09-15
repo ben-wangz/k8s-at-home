@@ -1,0 +1,283 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "git-repo-backup.cronjob.name" . }}
+  labels:
+    {{- include "git-repo-backup.labels" . | nindent 4 }}
+    {{- with .Values.commonLabels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.cronJobAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  schedule: {{ .Values.schedule | quote }}
+  {{- with .Values.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  suspend: {{ .Values.suspend }}
+  concurrencyPolicy: {{ .Values.concurrencyPolicy }}
+  startingDeadlineSeconds: {{ .Values.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ .Values.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      parallelism: 1
+      completions: 1
+      backoffLimit: {{ .Values.backoffLimit }}
+      activeDeadlineSeconds: {{ .Values.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "git-repo-backup.selectorLabels" . | nindent 12 }}
+            {{- with .Values.commonLabels }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- with .Values.podLabels }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            {{- with .Values.podAnnotations }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+            checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+            {{- if and .Values.repositories (not .Values.repositoriesConfigMap.existingConfigMap) }}
+            checksum/repositories: {{ include (print $.Template.BasePath "/repositories-configmap.yaml") . | sha256sum }}
+            {{- end }}
+        spec:
+          restartPolicy: Never
+          serviceAccountName: {{ include "git-repo-backup.serviceAccountName" . }}
+          automountServiceAccountToken: {{ .Values.automountServiceAccountToken | default false }}
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.topologySpreadConstraints }}
+          topologySpreadConstraints:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          initContainers:
+            - name: prepare
+              image: {{ include "git-repo-backup.image" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command:
+                - /usr/local/bin/git-repo-backup
+                - prepare
+                - --config
+                - /etc/git-repo-backup/config/config.yaml
+              securityContext:
+                runAsNonRoot: false
+                runAsUser: 0
+                runAsGroup: 0
+                readOnlyRootFilesystem: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                  add:
+                    - CHOWN
+              resources:
+                {{- toYaml .Values.initResources | nindent 16 }}
+              volumeMounts:
+                - name: config
+                  mountPath: /etc/git-repo-backup/config
+                  readOnly: true
+                - name: input-ssh
+                  mountPath: /input/ssh
+                  readOnly: true
+                - name: input-known-hosts
+                  mountPath: /input/known-hosts
+                  readOnly: true
+                - name: prepared-ssh
+                  mountPath: /prepared-ssh
+                - name: tmp
+                  mountPath: /tmp
+                {{- if eq .Values.storage.type "local" }}
+                - name: backup
+                  mountPath: {{ .Values.storage.local.mountPath }}
+                {{- end }}
+                - name: workspace
+                  mountPath: /workspace
+                {{- if and .Values.cache.enabled .Values.cache.existingClaim }}
+                - name: cache
+                  mountPath: /cache
+                {{- end }}
+          containers:
+            - name: git-repo-backup
+              image: {{ include "git-repo-backup.image" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command:
+                - /usr/local/bin/git-repo-backup
+                - run
+                - --config
+                - /etc/git-repo-backup/config/config.yaml
+              securityContext:
+                {{- toYaml .Values.containerSecurityContext | nindent 16 }}
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+              env:
+                - name: POD_UID
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.uid
+                - name: JOB_UID
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.labels['batch.kubernetes.io/controller-uid']
+              volumeMounts:
+                - name: config
+                  mountPath: /etc/git-repo-backup/config
+                  readOnly: true
+                - name: repositories
+                  mountPath: /etc/git-repo-backup/repositories
+                  readOnly: true
+                - name: prepared-ssh
+                  mountPath: /etc/git-repo-backup/ssh
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+                {{- if eq .Values.storage.type "local" }}
+                - name: backup
+                  mountPath: {{ .Values.storage.local.mountPath }}
+                {{- end }}
+                - name: workspace
+                  mountPath: /workspace
+                {{- if and .Values.cache.enabled .Values.cache.existingClaim }}
+                - name: cache
+                  mountPath: /cache
+                {{- end }}
+                {{- if and (eq .Values.storage.type "s3") (eq .Values.storage.s3.credentialsMode "secret") }}
+                - name: s3-credentials
+                  mountPath: /etc/git-repo-backup/s3
+                  readOnly: true
+                {{- end }}
+                {{- if and (eq .Values.storage.type "s3") (or .Values.customCA.existingConfigMap .Values.customCA.existingSecret) }}
+                - name: ca-bundle
+                  mountPath: /etc/git-repo-backup/ca
+                  readOnly: true
+                {{- end }}
+                {{- if and (eq .Values.storage.type "s3") (eq .Values.storage.s3.credentialsMode "workloadIdentity") }}
+                - name: web-identity-token
+                  mountPath: /etc/git-repo-backup/web-identity
+                  readOnly: true
+                {{- end }}
+          volumes:
+            - name: config
+              configMap:
+                name: {{ include "git-repo-backup.configMapName" . }}
+            - name: repositories
+              configMap:
+                name: {{ include "git-repo-backup.repositoryListSource" . }}
+                items:
+                  - key: {{ include "git-repo-backup.repositoryListKey" . }}
+                    path: repositories.yaml
+            - name: prepared-ssh
+              emptyDir:
+                medium: Memory
+            - name: input-ssh
+              secret:
+                secretName: {{ .Values.ssh.existingSecret }}
+                defaultMode: 256
+                items:
+                  - key: {{ .Values.ssh.privateKeyKey }}
+                    path: id
+            {{- if .Values.ssh.knownHosts.existingConfigMap }}
+            - name: input-known-hosts
+              configMap:
+                name: {{ .Values.ssh.knownHosts.existingConfigMap }}
+                defaultMode: 420
+                items:
+                  - key: {{ .Values.ssh.knownHosts.key }}
+                    path: known_hosts
+            {{- else }}
+            - name: input-known-hosts
+              secret:
+                secretName: {{ .Values.ssh.knownHosts.existingSecret }}
+                defaultMode: 420
+                items:
+                  - key: {{ .Values.ssh.knownHosts.key }}
+                    path: known_hosts
+            {{- end }}
+            - name: tmp
+              emptyDir: {}
+            {{- if eq .Values.storage.type "local" }}
+              {{- if .Values.storage.local.existingClaim }}
+            - name: backup
+              persistentVolumeClaim:
+                claimName: {{ .Values.storage.local.existingClaim }}
+              {{- else }}
+            - name: backup
+              persistentVolumeClaim:
+                claimName: {{ include "git-repo-backup.rawfullname" . }}-backup
+              {{- end }}
+            {{- end }}
+            {{- if .Values.workspace.existingClaim }}
+            - name: workspace
+              persistentVolumeClaim:
+                claimName: {{ .Values.workspace.existingClaim }}
+            {{- else }}
+            - name: workspace
+              emptyDir:
+                sizeLimit: {{ .Values.workspace.emptyDir.sizeLimit | default "20Gi" | quote }}
+            {{- end }}
+            {{- if and .Values.cache.enabled .Values.cache.existingClaim }}
+            - name: cache
+              persistentVolumeClaim:
+                claimName: {{ .Values.cache.existingClaim }}
+            {{- end }}
+            {{- if and (eq .Values.storage.type "s3") (eq .Values.storage.s3.credentialsMode "secret") }}
+            - name: s3-credentials
+              secret:
+                secretName: {{ .Values.storage.s3.existingSecret }}
+                defaultMode: 292
+                items:
+                  - key: {{ .Values.storage.s3.accessKeyIdKey }}
+                    path: access-key-id
+                  - key: {{ .Values.storage.s3.secretAccessKeyKey }}
+                    path: secret-access-key
+                  {{- if .Values.storage.s3.sessionTokenKey }}
+                  - key: {{ .Values.storage.s3.sessionTokenKey }}
+                    path: session-token
+                  {{- end }}
+            {{- end }}
+            {{- if and (eq .Values.storage.type "s3") (or .Values.customCA.existingConfigMap .Values.customCA.existingSecret) }}
+              {{- if .Values.customCA.existingConfigMap }}
+            - name: ca-bundle
+              configMap:
+                name: {{ .Values.customCA.existingConfigMap }}
+                items:
+                  - key: {{ .Values.customCA.key }}
+                    path: ca.crt
+              {{- else }}
+            - name: ca-bundle
+              secret:
+                secretName: {{ .Values.customCA.existingSecret }}
+                items:
+                  - key: {{ .Values.customCA.key }}
+                    path: ca.crt
+              {{- end }}
+            {{- end }}
+            {{- if and (eq .Values.storage.type "s3") (eq .Values.storage.s3.credentialsMode "workloadIdentity") }}
+            - name: web-identity-token
+              projected:
+                sources:
+                  - serviceAccountToken:
+                      audience: sts.amazonaws.com
+                      path: token
+                      expirationSeconds: 3600
+            {{- end }}

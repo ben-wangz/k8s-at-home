@@ -1,0 +1,30 @@
+# Local storage with a chart-managed PVC and an inline repository list.
+# Prerequisites: ssh.existingSecret with the private key, and a known-hosts
+# ConfigMap or Secret — see the README for creation commands.
+image:
+  tag: 0.1.0
+
+repositories:
+  - name: team-main
+    url: git@git.example.com:team/main.git
+  - name: team-tools
+    url: git@git.example.com:team/tools.git
+
+ssh:
+  existingSecret: git-repo-backup-ssh
+  privateKeyKey: ssh-privatekey
+  knownHosts:
+    existingConfigMap: git-repo-backup-known-hosts
+    key: known_hosts
+
+storage:
+  type: local
+  local:
+    mountPath: /backup
+    existingClaim: ""
+    persistence:
+      enabled: true
+      storageClass: ""
+      accessModes:
+        - ReadWriteOnce
+      size: 100Gi

@@ -68,6 +68,30 @@ jobs:
             -o "$RUNNER_TEMP/frpcctl" \
             ./cmd/frpcctl
 
+      - name: validate-git-repo-backup
+        run: |
+          CHART="$GITHUB_WORKSPACE/application/git-repo-backup/chart"
+          SRC="$GITHUB_WORKSPACE/application/git-repo-backup/src"
+          helm lint "$CHART" --strict \
+            -f "$CHART/examples/local.yaml"
+          helm lint "$CHART" --strict \
+            -f "$CHART/examples/local-existing-pvc.yaml"
+          helm lint "$CHART" --strict \
+            -f "$CHART/examples/s3-secret.yaml"
+          helm lint "$CHART" --strict \
+            -f "$CHART/examples/s3-workload-identity.yaml"
+          helm template backup "$CHART" --namespace git-repo-backup-ci \
+            -f "$CHART/examples/local.yaml" > /dev/null
+          helm template backup "$CHART" --namespace git-repo-backup-ci \
+            -f "$CHART/examples/local-existing-pvc.yaml" > /dev/null
+          helm template backup "$CHART" --namespace git-repo-backup-ci \
+            -f "$CHART/examples/s3-secret.yaml" > /dev/null
+          helm template backup "$CHART" --namespace git-repo-backup-ci \
+            -f "$CHART/examples/s3-workload-identity.yaml" > /dev/null
+          go -C "$SRC" test ./...
+          go -C "$SRC" build -o "$RUNNER_TEMP/git-repo-backup" \
+            ./cmd/git-repo-backup
+
       - name: run-forgekit-lint
         env:
           FORGEKIT_BIN: ${{ steps.forgekit.outputs.bin }}

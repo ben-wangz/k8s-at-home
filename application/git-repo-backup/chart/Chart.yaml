@@ -1,0 +1,21 @@
+apiVersion: v2
+name: git-repo-backup
+version: 0.1.0
+appVersion: "0.1.0"
+description: Periodic Git repository backups over SSH to a PVC or S3-compatible storage
+type: application
+keywords:
+  - backup
+  - git
+  - cronjob
+annotations:
+  git-repo-backup/images: |
+    - name: git-repo-backup-image
+      path: application/git-repo-backup/container
+      valuesKey: image.tag
+kubeVersion: ">=1.27.0-0"
+home: https://github.com/ben-wangz/k8s-at-home
+sources:
+  - https://github.com/ben-wangz/k8s-at-home/tree/main/application/git-repo-backup
+maintainers:
+  - name: ben

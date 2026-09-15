@@ -1,0 +1,38 @@
+# S3 storage on AWS with IRSA/workload identity: a chart-managed
+# ServiceAccount annotated for the IAM role, a projected
+# sts.amazonaws.com audience token, and no static credentials.
+image:
+  tag: 0.1.0
+
+repositories:
+  - name: team-main
+    url: git@github.com:team/main.git
+
+ssh:
+  existingSecret: git-repo-backup-ssh
+  knownHosts:
+    existingConfigMap: git-repo-backup-known-hosts
+
+storage:
+  type: s3
+  s3:
+    endpoint: "" # regional AWS endpoint
+    region: us-east-1
+    bucket: git-backups
+    prefix: repositories
+    forcePathStyle: false
+    credentialsMode: workloadIdentity
+    existingSecret: ""
+    roleArn: arn:aws:iam::123456789012:role/git-repo-backup
+    serverSideEncryption: ""
+    kmsKeyId: ""
+
+serviceAccount:
+  # The role's trust policy must allow this provider/subject; see README.
+  create: true
+  name: ""
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/git-repo-backup
+
+workspace:
+  existingClaim: backup-workspace

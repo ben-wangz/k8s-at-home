@@ -1,0 +1,22 @@
+{{- if and .Values.repositories (not .Values.repositoriesConfigMap.existingConfigMap) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "git-repo-backup.repositoriesConfigMapName" . }}
+  labels:
+    {{- include "git-repo-backup.labels" . | nindent 4 }}
+    {{- with .Values.commonLabels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.commonAnnotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+data:
+  repositories.yaml: |
+    repositories:
+      {{- range .Values.repositories }}
+      - name: {{ .name | quote }}
+        url: {{ .url | quote }}
+      {{- end }}
+{{- end }}

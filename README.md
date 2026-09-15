@@ -13,6 +13,7 @@ This project is to develop and maintain k8s applications at home.
 * [yacd](application/yacd/README.md)
 * [codespace](application/codespace/README.md)
 * [sub2api](application/sub2api/chart/README.md)
+* [git-repo-backup](application/git-repo-backup/README.md)
 
 ## contributing
 

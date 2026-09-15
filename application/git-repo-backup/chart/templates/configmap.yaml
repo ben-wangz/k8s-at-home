@@ -1,0 +1,69 @@
+{{- include "git-repo-backup.validateValues" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "git-repo-backup.configMapName" . }}
+  labels:
+    {{- include "git-repo-backup.labels" . | nindent 4 }}
+    {{- with .Values.commonLabels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with .Values.commonAnnotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+data:
+  config.yaml: |
+    schemaVersion: 1
+    repositoriesFile: /etc/git-repo-backup/repositories/repositories.yaml
+    ssh:
+      privateKeyFile: /etc/git-repo-backup/ssh/id
+      knownHostsFile: /etc/git-repo-backup/ssh/known_hosts
+    storage:
+      type: {{ .Values.storage.type }}
+      {{- if eq .Values.storage.type "local" }}
+      local:
+        root: {{ .Values.storage.local.mountPath }}
+      {{- else }}
+      s3:
+        endpoint: {{ .Values.storage.s3.endpoint | quote }}
+        region: {{ .Values.storage.s3.region | quote }}
+        bucket: {{ .Values.storage.s3.bucket | quote }}
+        prefix: {{ .Values.storage.s3.prefix | quote }}
+        forcePathStyle: {{ .Values.storage.s3.forcePathStyle }}
+        credentialsMode: {{ .Values.storage.s3.credentialsMode }}
+        credentialsDir: /etc/git-repo-backup/s3
+        roleArn: {{ .Values.storage.s3.roleArn | quote }}
+        serverSideEncryption: {{ .Values.storage.s3.serverSideEncryption | quote }}
+        kmsKeyId: {{ .Values.storage.s3.kmsKeyId | quote }}
+        {{- if or .Values.customCA.existingConfigMap .Values.customCA.existingSecret }}
+        caBundleFile: /etc/git-repo-backup/ca/ca.crt
+        {{- else }}
+        caBundleFile: ""
+        {{- end }}
+        webIdentityTokenDir: /etc/git-repo-backup/web-identity
+      {{- end }}
+    workspace:
+      root: /workspace
+    cache:
+      enabled: {{ .Values.cache.enabled }}
+      root: {{ include "git-repo-backup.cacheRoot" . }}
+    prepare:
+      targetUID: {{ .Values.podSecurityContext.runAsUser }}
+      targetGID: {{ .Values.podSecurityContext.runAsGroup }}
+      inputPrivateKeyFile: /input/ssh/id
+      inputKnownHostsFile: /input/known-hosts/known_hosts
+      sshDir: /prepared-ssh
+      tempDir: /tmp
+    backup:
+      compressionLevel: {{ .Values.backup.compressionLevel }}
+      maxRunDuration: {{ .Values.backup.maxRunDuration | quote }}
+      gitTimeout: {{ .Values.backup.gitTimeout | quote }}
+      minFreeBytes: {{ .Values.backup.minFreeBytes | int64 }}
+    retention:
+      enabled: {{ .Values.retention.enabled }}
+      maxBackups: {{ .Values.retention.maxBackups }}
+      maxAge: {{ .Values.retention.maxAge | quote }}
+      incompleteMaxAge: {{ .Values.retention.incompleteMaxAge | quote }}
+    log:
+      level: {{ .Values.log.level }}

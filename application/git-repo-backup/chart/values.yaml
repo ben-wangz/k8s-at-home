@@ -1,0 +1,151 @@
+# git-repo-backup chart values.
+#
+# The defaults intentionally contain no example repositories or secrets:
+# a bare `helm lint` fails on the missing required configuration, and the
+# examples under chart/examples/ provide complete, installable values.
+
+nameOverride: ""
+fullnameOverride: ""
+
+schedule: "0 2 * * *"
+timeZone: Etc/UTC
+suspend: false
+concurrencyPolicy: Forbid
+startingDeadlineSeconds: 3600
+activeDeadlineSeconds: 21600
+backoffLimit: 1
+successfulJobsHistoryLimit: 3
+failedJobsHistoryLimit: 5
+terminationGracePeriodSeconds: 60
+
+image:
+  registry: ghcr.io
+  repository: ben-wangz/k8s-at-home-git-repo-backup-image
+  # Managed by forgekit; do not edit manually.
+  tag: 0.1.0
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Exactly one repository source: an inline list or an existing ConfigMap.
+repositories: []
+repositoriesConfigMap:
+  existingConfigMap: ""
+  key: repositories.yaml
+
+ssh:
+  existingSecret: ""
+  privateKeyKey: ssh-privatekey
+  knownHosts:
+    existingConfigMap: ""
+    existingSecret: ""
+    key: known_hosts
+
+storage:
+  type: local
+  local:
+    mountPath: /backup
+    existingClaim: ""
+    persistence:
+      enabled: true
+      storageClass: ""
+      accessModes:
+        - ReadWriteOnce
+      size: 100Gi
+      annotations: {}
+  s3:
+    endpoint: ""
+    region: us-east-1
+    bucket: ""
+    prefix: repositories
+    forcePathStyle: false
+    credentialsMode: secret
+    existingSecret: ""
+    accessKeyIdKey: AWS_ACCESS_KEY_ID
+    secretAccessKeyKey: AWS_SECRET_ACCESS_KEY
+    sessionTokenKey: ""
+    roleArn: ""
+    serverSideEncryption: ""
+    kmsKeyId: ""
+
+workspace:
+  existingClaim: ""
+  emptyDir:
+    sizeLimit: 20Gi
+
+cache:
+  enabled: false
+  existingClaim: ""
+
+backup:
+  compressionLevel: 6
+  maxRunDuration: 5h30m
+  gitTimeout: 1h
+  minFreeBytes: 1073741824
+
+# retention.enabled=false only disables maxAge/maxBackups deletion of
+# complete backups; stale incomplete data is still cleaned up.
+retention:
+  enabled: true
+  maxBackups: 30
+  maxAge: 720h
+  incompleteMaxAge: 24h
+
+log:
+  level: info
+
+serviceAccount:
+  create: false
+  name: ""
+  annotations: {}
+automountServiceAccountToken: false
+
+customCA:
+  existingConfigMap: ""
+  existingSecret: ""
+  key: ca.crt
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+    ephemeral-storage: 1Gi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+    ephemeral-storage: 25Gi
+initResources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+cronJobAnnotations: {}
+
+# When enabled, egress holds NetworkPolicy rule objects; an empty list
+# denies all egress. Standard NetworkPolicy cannot match FQDNs — see README.
+networkPolicy:
+  enabled: false
+  egress: []

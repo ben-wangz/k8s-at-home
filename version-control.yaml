@@ -24,6 +24,9 @@ apps:
     type: binary
     path: application/frp/client
     versionFile: VERSION
+  - name: git-repo-backup
+    type: chart
+    path: application/git-repo-backup/chart
   - name: sshpiper
     type: chart
     path: application/sshpiper/chart

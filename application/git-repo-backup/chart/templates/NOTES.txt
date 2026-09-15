@@ -1,0 +1,22 @@
+git-repo-backup has been installed as a CronJob.
+
+  CronJob: {{ include "git-repo-backup.cronjob.name" . }}
+  Schedule: {{ .Values.schedule }} ({{ .Values.timeZone }})
+  Storage:  {{ .Values.storage.type }}{{ if eq .Values.storage.type "s3" }} (bucket {{ .Values.storage.s3.bucket }}, prefix {{ .Values.storage.s3.prefix }}){{ end }}
+
+Trigger a run manually without changing the chart:
+
+  kubectl create job --from=cronjob/{{ include "git-repo-backup.cronjob.name" . }} {{ include "git-repo-backup.cronjob.name" . }}-manual
+
+Watch the logs of the created job to follow one backup run.
+
+Backup layout per successful run:
+
+  <backup-id>/manifest.json
+  <backup-id>/checksums.sha256
+  <backup-id>/repositories/<name>.tar.gz
+  <backup-id>/_SUCCESS
+
+See the application README for restore steps and the retained-claim caveat
+(local backups outlive the release: `helm uninstall` does not delete the
+backup PVC).

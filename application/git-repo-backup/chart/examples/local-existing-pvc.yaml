@@ -1,0 +1,33 @@
+# Local storage on an existing (pre-provisioned) PVC with an external
+# repositories ConfigMap and the persistent mirror cache enabled on a
+# separate claim.
+image:
+  tag: 0.1.0
+
+repositoriesConfigMap:
+  existingConfigMap: git-repo-backup-repositories
+  key: repositories.yaml
+
+ssh:
+  existingSecret: git-repo-backup-ssh
+  knownHosts:
+    existingSecret: git-repo-backup-known-hosts
+    key: known_hosts
+
+storage:
+  type: local
+  local:
+    mountPath: /backup
+    existingClaim: backup-data
+    persistence:
+      enabled: false
+
+cache:
+  enabled: true
+  existingClaim: backup-mirror-cache
+
+retention:
+  enabled: true
+  maxBackups: 30
+  maxAge: 720h
+  incompleteMaxAge: 24h

@@ -1,0 +1,34 @@
+{{- if and (eq .Values.storage.type "local") (not .Values.storage.local.existingClaim) .Values.storage.local.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "git-repo-backup.rawfullname" . }}-backup
+  labels:
+    {{- include "git-repo-backup.labels" . | nindent 4 }}
+    {{- with .Values.commonLabels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    # Uninstalling the release must never delete backup data.
+    helm.sh/resource-policy: keep
+    {{- with .Values.commonAnnotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.storage.local.persistence.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.storage.local.persistence.accessModes | nindent 4 }}
+  {{- with .Values.storage.local.persistence.size }}
+  resources:
+    requests:
+      storage: {{ . | quote }}
+  {{- end }}
+  {{- $sc := .Values.storage.local.persistence.storageClass | default "" }}
+  {{- if eq $sc "-" }}
+  storageClassName: ""
+  {{- else if $sc }}
+  storageClassName: {{ $sc | quote }}
+  {{- end }}
+{{- end }}

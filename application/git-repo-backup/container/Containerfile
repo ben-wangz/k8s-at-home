@@ -1,0 +1,37 @@
+# git-repo-backup image. Build context is the repository root, matching
+# the release-container workflow.
+ARG GO_IMAGE=docker.io/library/golang:1.25-bookworm
+ARG RUNTIME_IMAGE=docker.io/library/debian:bookworm-slim
+
+FROM ${GO_IMAGE} AS builder
+# TARGETPLATFORM is supplied by the release tooling for cross builds; when
+# absent the builder's own architecture is used.
+ARG TARGETARCH
+
+WORKDIR /src
+COPY application/git-repo-backup/src/go.mod ./go.mod
+COPY application/git-repo-backup/src/go.sum ./go.sum
+RUN go mod download
+
+COPY application/git-repo-backup/src/ ./
+COPY application/git-repo-backup/container/VERSION ./VERSION
+
+RUN test -s VERSION \
+    && CGO_ENABLED=0 GOOS=linux GOARCH="${TARGETARCH:-$(go env GOARCH)}" \
+       go build -trimpath \
+       -ldflags "-s -w -X git-repo-backup/internal/version.Version=$(cat VERSION)" \
+       -o /out/git-repo-backup ./cmd/git-repo-backup
+
+FROM ${RUNTIME_IMAGE}
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       git openssh-client ca-certificates tar gzip coreutils \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -g 10001 backup \
+    && useradd -u 10001 -g 10001 -d /home/backup -m -s /usr/sbin/nologin backup \
+    && mkdir -p /tmp /etc/git-repo-backup/ssh
+
+COPY --from=builder /out/git-repo-backup /usr/local/bin/git-repo-backup
+
+USER 10001:10001
+ENTRYPOINT ["/usr/local/bin/git-repo-backup"]
