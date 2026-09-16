@@ -87,6 +87,24 @@ func TestSelectDeletionsProtectsCurrentAndNewer(t *testing.T) {
 	}
 }
 
+func TestSelectDeletionsByCountWithCurrentInList(t *testing.T) {
+	// The current run's backup occupies one of the newest keep slots.
+	o := base
+	o.MaxAge = 0
+	o.MaxBackups = 2
+	current := "20260914T120000Z"
+	list := []storage.Backup{
+		mk(current, 0),
+		mk("20260914T110000Z", 1*time.Hour),
+		mk("20260914T100000Z", 2*time.Hour),
+		mk("20260914T090000Z", 3*time.Hour),
+	}
+	got := ids(SelectDeletions(list, current, o))
+	if len(got) != 2 || got[0] != "20260914T100000Z" || got[1] != "20260914T090000Z" {
+		t.Fatalf("current must consume a keep slot; deletions: %v", got)
+	}
+}
+
 func TestSelectDeletionsSkipsAnomaliesAndIncomplete(t *testing.T) {
 	o := base
 	o.MaxBackups = 0

@@ -252,10 +252,25 @@ git-repo-backup prepare  --config /etc/git-repo-backup/config/config.yaml
 Exit codes: `0` success, `2` configuration/input error, `1` runtime,
 publication, or retention error, `130` SIGINT, `143` SIGTERM.
 
-Integration tests (opt-in, need root and the fixtures):
+Integration tests run through a single rootless-Podman entry point; no
+host root, Go toolchain, or manual fixture lifecycle is required:
 
 ```bash
-application/git-repo-backup/container/test/launch-fixtures.sh start   # S3 fixture (podman)
-go -C application/git-repo-backup/src test -tags integration ./integration/
-application/git-repo-backup/container/test/launch-fixtures.sh stop
+application/git-repo-backup/container/test/run-integration.sh local
+
+application/git-repo-backup/container/test/run-integration.sh all \
+  --minio-image docker.io/minio/minio:RELEASE.<pinned-tag> \
+  --mc-image docker.io/minio/mc:RELEASE.<pinned-tag>
 ```
+
+`local` runs only the `TestLocal*` cases without S3 resources; `all` also
+starts an in-pod TLS MinIO (explicit non-`latest` tag or digest required)
+and runs the whole suite. The runner uses container-internal uid 0 in a
+disposable pod — never the host's `/etc` — emits only `go test` JSON on
+stdout, and verifies the results itself: every discovered test must
+complete with zero skips or failures. Evidence (Go events, logs, exit
+codes, `result.json`, resource list) is kept under
+`build/git-repo-backup-integration/<run-id>/`; leftovers after a forced
+interruption can be removed with the exact names in `resources.txt`.
+Exit codes: `0` success, `1` infrastructure/verifier failure, `2` usage
+error, `130/143` interrupted, otherwise the preserved `go test` code.

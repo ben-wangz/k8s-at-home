@@ -1,66 +1,86 @@
 //go:build integration
 
+// S3 backend acceptance through the recording proxy: upload order (claim,
+// archives, manifest, checksums, _SUCCESS last), conditional writes on
+// every create, and a full download/verify/extract/restore cycle that does
+// not trust ETags as checksums.
 package integration
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// S3 fixture endpoints are provided by container/test/launch-fixtures.sh
-// through these environment variables; tests skip when absent.
-const (
-	envEndpoint = "GIT_REPO_BACKUP_IT_S3_ENDPOINT"
-	envCA       = "GIT_REPO_BACKUP_IT_S3_CA"
-	envAccess   = "GIT_REPO_BACKUP_IT_S3_ACCESS_KEY"
-	envSecret   = "GIT_REPO_BACKUP_IT_S3_SECRET_KEY"
-	envBucket   = "GIT_REPO_BACKUP_IT_S3_BUCKET"
-)
-
-func s3Fixture(t *testing.T) (endpoint, caPath, accessKey, secretKey, bucket string) {
-	t.Helper()
-	values := []string{
-		os.Getenv(envEndpoint), os.Getenv(envCA), os.Getenv(envAccess),
-		os.Getenv(envSecret), os.Getenv(envBucket),
-	}
-	for _, v := range values {
-		if v == "" {
-			t.Skip("S3 fixture environment not set; run container/test/launch-fixtures.sh")
-		}
-	}
-	return values[0], values[1], values[2], values[3], values[4]
+// s3RunConfig renders one S3-backend run configuration.
+type s3RunConfig struct {
+	dir         string
+	endpoint    string
+	caFile      string // empty: untrusted-CA negative case
+	credentials string // directory holding fixture credentials
+	bucket      string
+	prefix      string
+	workspace   string
+	reposYAML   string
+	maxBackups  int
+	retentionOn bool
 }
 
-// fixtureClient talks to the MinIO fixture directly for verification.
-func fixtureClient(t *testing.T, endpoint, caPath, accessKey, secretKey string) *s3.Client {
+func writeS3Config(t *testing.T, rc s3RunConfig) string {
 	t.Helper()
-	cfg, err := awsconfig.LoadDefaultConfig(context.Background(),
-		awsconfig.WithRegion("us-east-1"),
-		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")),
-		awsconfig.WithBaseEndpoint(endpoint),
-	)
-	if err != nil {
+	configPath := filepath.Join(rc.dir, "config.yaml")
+	reposPath := filepath.Join(rc.dir, "repositories.yaml")
+	if err := os.WriteFile(reposPath, []byte(rc.reposYAML), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return s3.NewFromConfig(cfg, func(o *s3.Options) { o.UsePathStyle = true })
+	caLine := "        caBundleFile: \"\"\n"
+	if rc.caFile != "" {
+		caLine = fmt.Sprintf("    caBundleFile: %s\n", rc.caFile)
+	}
+	body := fmt.Sprintf(`schemaVersion: 1
+repositoriesFile: %s
+ssh:
+  privateKeyFile: /etc/git-repo-backup/ssh/id
+  knownHostsFile: /etc/git-repo-backup/ssh/known_hosts
+storage:
+  type: s3
+  s3:
+    endpoint: %s
+    region: us-east-1
+    bucket: %s
+    prefix: %s
+    forcePathStyle: true
+    credentialsMode: secret
+    credentialsDir: %s
+%sworkspace:
+  root: %s
+backup:
+  maxRunDuration: 10m
+  gitTimeout: 2m
+retention:
+  enabled: %t
+  maxBackups: %d
+  maxAge: ""
+  incompleteMaxAge: 30m
+log:
+  level: debug
+`, reposPath, rc.endpoint, rc.bucket, rc.prefix, rc.credentials, caLine,
+		rc.workspace, rc.retentionOn, rc.maxBackups)
+	if err := os.WriteFile(configPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return configPath
 }
 
-// TestS3EndToEnd backs up one repository to the TLS S3 fixture and checks
-// the object layout, the marker-last protocol via absence before commit
-// data, and digest agreement with the local archive.
+// TestS3EndToEnd checks the object protocol and a full restore.
 func TestS3EndToEnd(t *testing.T) {
 	canRunRooted(t)
-	endpoint, caPath, accessKey, secretKey, bucket := s3Fixture(t)
-	client := fixtureClient(t, endpoint, caPath, accessKey, secretKey)
+	f := s3Fixture(t)
+	client := fixtureClient(t, f)
+	proxy, proxyEndpoint := startRecordingProxy(t, f)
 
 	dir := t.TempDir()
 	srv := startSSHGitServer(t, dir)
@@ -73,143 +93,103 @@ func TestS3EndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, value := range map[string]string{
-		"access-key-id": accessKey, "secret-access-key": secretKey,
+		"access-key-id": f.accessKey, "secret-access-key": f.secretKey,
 	} {
 		if err := os.WriteFile(filepath.Join(credentialsDir, name), []byte(value), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	repos := fmt.Sprintf("repositories:\n  - name: alpha\n    url: ssh://root@127.0.0.1:%d%s\n", srv.port, origin)
-	reposPath := filepath.Join(dir, "repositories.yaml")
-	configPath := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(reposPath, []byte(repos), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	body := fmt.Sprintf(`schemaVersion: 1
-repositoriesFile: %s
-ssh:
-  privateKeyFile: /etc/git-repo-backup/ssh/id
-  knownHostsFile: /etc/git-repo-backup/ssh/known_hosts
-storage:
-  type: s3
-  s3:
-    endpoint: %s
-    region: us-east-1
-    bucket: %s
-    prefix: %s
-    forcePathStyle: true
-    credentialsMode: secret
-    credentialsDir: %s
-    caBundleFile: %s
-workspace:
-  root: %s
-backup:
-  maxRunDuration: 10m
-  gitTimeout: 2m
-retention:
-  enabled: true
-  maxBackups: 5
-  maxAge: ""
-  incompleteMaxAge: 30m
-log:
-  level: debug
-`, reposPath, endpoint, bucket, prefix, credentialsDir, caPath, filepath.Join(dir, "workspace"))
-	if err := os.WriteFile(configPath, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	code, out := runBackup(t, bin, configPath)
-	if code != 0 {
+	cfg := writeS3Config(t, s3RunConfig{
+		dir: dir, endpoint: proxyEndpoint, caFile: proxy.caFile,
+		credentials: credentialsDir, bucket: f.bucket, prefix: prefix,
+		workspace: filepath.Join(dir, "workspace"), reposYAML: repos,
+		maxBackups: 5, retentionOn: true,
+	})
+	if code, out := runBackup(t, bin, cfg); code != 0 {
 		t.Fatalf("s3 run failed (%d):\n%s", code, out)
 	}
+	assertUploadProtocol(t, proxy.snapshot(), prefix)
 
-	// Verify layout through an independent client.
-	keys := listAll(t, client, bucket, prefix+"/")
-	var backupID string
-	for _, k := range keys {
-		if !strings.Contains(k, "/") {
-			continue
-		}
-		parts := strings.SplitN(strings.TrimPrefix(k, prefix+"/"), "/", 2)
-		if len(parts) == 2 && len(parts[0]) == 16 && parts[0] != ".control" {
-			backupID = parts[0]
-			break
-		}
+	// Full download-and-verify restore, independent of the proxy.
+	backupID := backupIDOf(t, client, f, prefix)
+	runPrefix := prefix + "/" + backupID + "/"
+	restoreDir := filepath.Join(dir, "restore")
+	if err := os.MkdirAll(filepath.Join(restoreDir, "repositories"), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if backupID == "" {
-		t.Fatalf("no backup prefix found, keys: %v", keys)
-	}
-	runPrefix := fmt.Sprintf("%s/%s/", prefix, backupID)
-	for _, suffix := range []string{"manifest.json", "checksums.sha256", "_SUCCESS", "repositories/alpha.tar.gz"} {
-		if err := headOK(t, client, bucket, runPrefix+suffix); err != nil {
-			t.Fatalf("missing %s: %v", suffix, err)
+	for _, obj := range listAll(t, client, f.bucket, runPrefix) {
+		rel := strings.TrimPrefix(obj, runPrefix)
+		if strings.Contains(rel, "/") {
+			if err := os.MkdirAll(filepath.Join(restoreDir, filepath.Dir(rel)), 0o700); err != nil {
+				t.Fatal(err)
+			}
 		}
+		downloadToFile(t, client, f.bucket, obj, filepath.Join(restoreDir, rel))
 	}
-	// The claim tombstone must exist and never count as backup content.
-	if err := headOK(t, client, bucket, fmt.Sprintf("%s/.control/claims/%s.json", prefix, backupID)); err != nil {
+	verifyDownloadedRun(t, restoreDir, origin)
+	// The permanent claim must exist and stay out of the run namespace.
+	if err := headOK(t, client, f.bucket,
+		fmt.Sprintf("%s/.control/claims/%s.json", prefix, backupID)); err != nil {
 		t.Fatalf("claim missing: %v", err)
-	}
-	// Manifest must not leak the source URL.
-	manifest := getObject(t, client, bucket, runPrefix+"manifest.json")
-	if strings.Contains(string(manifest), "127.0.0.1") {
-		t.Fatal("manifest must not contain source URLs")
 	}
 }
 
-// TestS3UntrustedCAFails proves the run cannot talk to the fixture when the
-// CA bundle is not provided: TLS verification is never bypassed.
-func TestS3UntrustedCAFails(t *testing.T) {
-	canRunRooted(t)
-	endpoint, _, accessKey, secretKey, bucket := s3Fixture(t)
-
-	dir := t.TempDir()
-	srv := startSSHGitServer(t, dir)
-	bin := buildBinary(t)
-	origin := seedSourceRepo(t, dir, "alpha")
-	prefix := fmt.Sprintf("it-noca-%d", time.Now().UnixNano())
-	credentialsDir := filepath.Join(dir, "s3creds")
-	_ = os.MkdirAll(credentialsDir, 0o700)
-	_ = os.WriteFile(filepath.Join(credentialsDir, "access-key-id"), []byte(accessKey), 0o600)
-	_ = os.WriteFile(filepath.Join(credentialsDir, "secret-access-key"), []byte(secretKey), 0o600)
-	repos := fmt.Sprintf("repositories:\n  - name: alpha\n    url: ssh://root@127.0.0.1:%d%s\n", srv.port, origin)
-	reposPath := filepath.Join(dir, "repositories.yaml")
-	configPath := filepath.Join(dir, "config.yaml")
-	_ = os.WriteFile(reposPath, []byte(repos), 0o600)
-	body := fmt.Sprintf(`schemaVersion: 1
-repositoriesFile: %s
-ssh:
-  privateKeyFile: /etc/git-repo-backup/ssh/id
-  knownHostsFile: /etc/git-repo-backup/ssh/known_hosts
-storage:
-  type: s3
-  s3:
-    endpoint: %s
-    region: us-east-1
-    bucket: %s
-    prefix: %s
-    forcePathStyle: true
-    credentialsMode: secret
-    credentialsDir: %s
-workspace:
-  root: %s
-backup:
-  maxRunDuration: 10m
-  gitTimeout: 2m
-retention:
-  enabled: false
-  maxBackups: 1
-  maxAge: ""
-  incompleteMaxAge: 30m
-`, reposPath, endpoint, bucket, prefix, credentialsDir, filepath.Join(dir, "workspace"))
-	if err := os.WriteFile(configPath, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
+// assertUploadProtocol validates the recorded request stream:
+//   - the claim is the first content-related conditional write;
+//   - every PUT to the final namespace and every multipart completion is
+//     conditional (If-None-Match: *);
+//   - archives precede manifest.json, then checksums.sha256, then
+//     _SUCCESS, and _SUCCESS is the very last write of the run.
+func assertUploadProtocol(t *testing.T, recs []recordedRequest, prefix string) {
+	t.Helper()
+	underPrefix := func(key string) bool { return strings.HasPrefix(key, prefix+"/") }
+	isWrite := func(r recordedRequest) bool {
+		if r.Method == "PUT" && underPrefix(r.Key) {
+			return true
+		}
+		return r.Method == "POST" && (strings.Contains(r.Query, "uploads") ||
+			strings.Contains(r.Query, "uploadId=") || strings.Contains(r.Query, "delete"))
 	}
-	code, _ := runBackup(t, bin, configPath)
-	if code == 0 {
-		t.Fatal("run must fail against a TLS endpoint whose CA is not trusted")
+	claimKey := "/.control/claims/"
+	writes := filterRecs(recs, isWrite)
+	claimWrites := filterRecs(recs, func(r recordedRequest) bool {
+		return r.Method == "PUT" && strings.Contains(r.Key, claimKey)
+	})
+	if len(writes) == 0 || len(claimWrites) == 0 {
+		t.Fatal("no recorded writes or claim")
 	}
-	client := fixtureClient(t, endpoint, "", accessKey, secretKey)
-	if keys := listAll(t, client, bucket, prefix+"/"); len(keys) != 0 {
-		t.Fatalf("no objects may be written when TLS fails, got %v", keys)
+	if claimWrites[0].Seq > writes[0].Seq {
+		t.Fatal("claim must be created before any content write")
+	}
+	var marker, manifestPut, checksumsPut int
+	archivePuts := 0
+	for i, w := range writes {
+		switch {
+		case strings.HasSuffix(w.Key, "/_SUCCESS"):
+			marker = i
+		case strings.HasSuffix(w.Key, "/manifest.json") && w.Method == "PUT":
+			manifestPut = i
+		case strings.HasSuffix(w.Key, "/checksums.sha256") && w.Method == "PUT":
+			checksumsPut = i
+		case strings.Contains(w.Key, "/repositories/") && w.Method == "PUT":
+			archivePuts++
+		}
+		if w.Method == "PUT" && underPrefix(w.Key) && !w.IfNoneMatch {
+			t.Fatalf("unconditional PUT to %s", w.Key)
+		}
+		if w.Method == "POST" && strings.Contains(w.Query, "uploadId=") && !w.IfNoneMatch {
+			t.Fatalf("unconditional multipart completion for %s", w.Key)
+		}
+	}
+	if archivePuts == 0 {
+		t.Fatal("no archive PUT recorded")
+	}
+	if !(manifestPut < checksumsPut && checksumsPut < marker) {
+		t.Fatalf("metadata order wrong: manifest=%d checksums=%d marker=%d",
+			manifestPut, checksumsPut, marker)
+	}
+	if marker != len(writes)-1 {
+		t.Fatalf("_SUCCESS must be the last write, got index %d of %d", marker, len(writes))
 	}
 }

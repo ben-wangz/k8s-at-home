@@ -51,21 +51,22 @@ func SelectDeletions(backups []storage.Backup, currentID string, o Options) []st
 	}
 	keep := o.MaxBackups
 	var deletions []storage.Backup
-	unprotectedSeen := 0
+	// newer counts unprotected entries newer than the current candidate;
+	// the current run's own backup (never deletable) occupies one of the
+	// newest maxBackups slots and is therefore counted here as well.
+	newer := 0
 	for _, b := range complete {
-		if b.ID == currentID {
-			continue
-		}
 		if currentID != "" && b.ID > currentID {
-			// Started earlier, finished later than the current run.
-			continue
+			continue // protected concurrent run; consumes no slot
 		}
-		byCount := o.Enabled && keep > 0 && unprotectedSeen >= keep
-		byAge := o.Enabled && o.MaxAge > 0 && b.StartedAt.Before(cutoff)
-		unprotectedSeen++
-		if byCount || byAge {
-			deletions = append(deletions, b)
+		if b.ID != currentID {
+			byCount := o.Enabled && keep > 0 && newer >= keep
+			byAge := o.Enabled && o.MaxAge > 0 && b.StartedAt.Before(cutoff)
+			if byCount || byAge {
+				deletions = append(deletions, b)
+			}
 		}
+		newer++
 	}
 	return deletions
 }

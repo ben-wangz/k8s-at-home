@@ -52,7 +52,7 @@ func preflight(cfg *config.Config) error {
 }
 
 func ownedByCurrentUser(info os.FileInfo) bool {
-	st, ok := info.Sys().(syscallStat)
+	st, ok := info.Sys().(*syscallStat)
 	if !ok {
 		return false
 	}

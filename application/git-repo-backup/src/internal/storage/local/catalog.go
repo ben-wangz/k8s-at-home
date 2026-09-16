@@ -116,7 +116,7 @@ func (s *Store) DeleteBackup(_ context.Context, b storage.Backup) error {
 // valid-ID backup dirs. Ages come from the parsed backup ID, never mtime.
 func (s *Store) ListIncomplete(_ context.Context) ([]storage.IncompleteRun, error) {
 	var out []storage.IncompleteRun
-	appendIDs := func(base string, requireNoMarker bool) error {
+	collect := func(base string, idOf func(string) string, requireNoMarker bool) error {
 		entries, err := os.ReadDir(base)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -125,8 +125,7 @@ func (s *Store) ListIncomplete(_ context.Context) ([]storage.IncompleteRun, erro
 			return err
 		}
 		for _, e := range entries {
-			name := e.Name()
-			id := stagingIDPart(name)
+			id := idOf(e.Name())
 			if id == "" {
 				continue
 			}
@@ -134,7 +133,7 @@ func (s *Store) ListIncomplete(_ context.Context) ([]storage.IncompleteRun, erro
 			if err != nil {
 				continue
 			}
-			full := filepath.Join(base, name)
+			full := filepath.Join(base, e.Name())
 			if requireNoMarker {
 				if _, err := os.Lstat(filepath.Join(full, manifest.MarkerName)); err == nil {
 					continue // published marker present: not incomplete
@@ -144,13 +143,15 @@ func (s *Store) ListIncomplete(_ context.Context) ([]storage.IncompleteRun, erro
 		}
 		return nil
 	}
-	if err := appendIDs(s.stagingBase(), false); err != nil {
+	bareID := func(name string) string { return name }
+	if err := collect(s.stagingBase(), stagingIDPart, false); err != nil {
 		return nil, observability.WrapSafe(observability.CodeStorageFailed, "list staging", err)
 	}
-	if err := appendIDs(s.trashBase(), false); err != nil {
+	if err := collect(s.trashBase(), stagingIDPart, false); err != nil {
 		return nil, observability.WrapSafe(observability.CodeStorageFailed, "list trash", err)
 	}
-	if err := appendIDs(s.backupsDir(), true); err != nil {
+	// Backup directories are bare backup IDs, not <id>-<owner> names.
+	if err := collect(s.backupsDir(), bareID, true); err != nil {
 		return nil, observability.WrapSafe(observability.CodeStorageFailed, "list incomplete backups", err)
 	}
 	return out, nil

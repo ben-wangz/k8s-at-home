@@ -76,15 +76,26 @@ func isNullOID(oid string) bool {
 
 // SyncHead aligns the local bare mirror HEAD with the remote HEAD. It is run
 // after every clone or fetch because fetch does not update symbolic HEAD.
+// For an unborn (empty-repository) HEAD the advertised symbolic target is
+// applied when the server reports it — still unborn, never fabricated —
+// and otherwise the HEAD git clone produced is kept.
 func (r *Runner) SyncHead(ctx context.Context, dir, url string, allowRefetch bool) error {
 	remote, err := r.LsRemoteHead(ctx, url)
 	if err != nil {
 		return err
 	}
-	if !remote.HasHead || remote.Unborn {
-		// Empty repository or unborn default branch: keep the HEAD git
-		// clone/fetch produced instead of fabricating a default branch.
+	if !remote.HasHead {
 		return nil
+	}
+	if remote.Unborn {
+		if remote.Ref == "" {
+			return nil
+		}
+		if _, err := r.Run(ctx, "check-ref-format", remote.Ref); err != nil {
+			return observability.WrapSafe(observability.CodeGitFailed,
+				"remote unborn HEAD target failed ref-format validation", nil)
+		}
+		return r.setSymbolicHead(ctx, dir, remote.Ref)
 	}
 	if remote.Symbolic {
 		return r.syncSymbolicHead(ctx, dir, url, remote.Ref, allowRefetch)

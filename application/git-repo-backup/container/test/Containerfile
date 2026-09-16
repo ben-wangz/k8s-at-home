@@ -1,0 +1,38 @@
+# git-repo-backup integration test image. Build context is the repository
+# root, same as the production image. This image is only built and used
+# locally by container/test/run-integration.sh; it is never registered in
+# forgekit, published, or given a VERSION file.
+ARG GO_IMAGE=docker.io/library/golang:1.25-bookworm
+
+FROM ${GO_IMAGE}
+# Optional Go module proxy override for restricted-egress environments;
+# empty keeps the toolchain default. Set through run-integration.sh.
+ARG GOPROXY=""
+RUN if [ -n "$GOPROXY" ]; then go env -w "GOPROXY=$GOPROXY"; fi
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       openssh-server openssh-client ca-certificates python3 curl openssl \
+    && rm -rf /var/lib/apt/lists/* \
+    # sshd requires /run/sshd at startup; the tests provision the fixed
+    # SSH directory themselves for every case.
+    && mkdir -p /run/sshd /etc/git-repo-backup/ssh /results /opt/git-repo-backup-test \
+    # The base image root account is password-locked, which blocks pubkey
+    # authentication; unlock to "*" (no valid password, not locked). No
+    # password authentication is enabled anywhere.
+    && usermod -p '*' root
+
+WORKDIR /src
+COPY application/git-repo-backup/src/go.mod application/git-repo-backup/src/go.sum ./
+RUN go mod download
+
+COPY application/git-repo-backup/src/ ./
+COPY application/git-repo-backup/container/test/in-container.sh \
+     application/git-repo-backup/container/test/check-results.py \
+     /opt/git-repo-backup-test/
+RUN chmod 0755 /opt/git-repo-backup-test/in-container.sh /opt/git-repo-backup-test/check-results.py
+
+# Tests run as container root (mapped to an unprivileged host user under
+# rootless Podman) so the fixture sshd and the fixed /etc SSH directory
+# work unchanged. Default container capabilities are kept: the in-test
+# sshd needs them; production hardening is not applied to test runners.
+USER 0:0

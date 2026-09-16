@@ -92,6 +92,13 @@ func newClient(ctx context.Context, cfg config.S3Storage) (*s3.Client, error) {
 		awsconfig.WithRegion(cfg.Region),
 		awsconfig.WithRetryMaxAttempts(maxRetryAttempts),
 		awsconfig.WithHTTPClient(hc),
+		// Default CRC32 checksums switch large uploads to aws-chunked
+		// encoding with one chunk per part, which S3-compatible services
+		// (MinIO) reject for parts above 16 MiB. Data integrity is already
+		// covered by the recorded SHA-256 and the post-upload HeadObject
+		// verification, so checksums are computed only when required.
+		awsconfig.WithRequestChecksumCalculation(aws.RequestChecksumCalculationWhenRequired),
+		awsconfig.WithResponseChecksumValidation(aws.ResponseChecksumValidationWhenRequired),
 	}
 	if cfg.Endpoint != "" {
 		loadOpts = append(loadOpts, awsconfig.WithBaseEndpoint(cfg.Endpoint))

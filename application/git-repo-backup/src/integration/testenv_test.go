@@ -26,13 +26,40 @@ func runBackup(t *testing.T, bin, configPath string) (int, string) {
 	return code, string(out)
 }
 
+// runConfig controls the rendered test configuration.
+type runConfig struct {
+	backupRoot   string
+	workspace    string
+	cacheRoot    string // empty disables the cache
+	reposYAML    string
+	maxBackups   int
+	retentionOn  bool
+	minFreeBytes string // empty uses a small default
+}
+
 // writeRunConfig renders a complete local-backend configuration.
 func writeRunConfig(t *testing.T, dir, backupRoot, workspace string, reposYAML string, maxBackups int) string {
 	t.Helper()
+	return writeRunConfigOpts(t, dir, runConfig{
+		backupRoot: backupRoot, workspace: workspace,
+		reposYAML: reposYAML, maxBackups: maxBackups, retentionOn: true,
+	})
+}
+
+func writeRunConfigOpts(t *testing.T, dir string, rc runConfig) string {
+	t.Helper()
 	configPath := filepath.Join(dir, "config.yaml")
 	reposPath := filepath.Join(dir, "repositories.yaml")
-	if err := os.WriteFile(reposPath, []byte(reposYAML), 0o600); err != nil {
+	if err := os.WriteFile(reposPath, []byte(rc.reposYAML), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	minFree := rc.minFreeBytes
+	if minFree == "" {
+		minFree = "1"
+	}
+	cacheBlock := "  enabled: false\n  root: /nonexistent-cache\n"
+	if rc.cacheRoot != "" {
+		cacheBlock = fmt.Sprintf("  enabled: true\n  root: %s\n", rc.cacheRoot)
 	}
 	body := fmt.Sprintf(`schemaVersion: 1
 repositoriesFile: %s
@@ -45,17 +72,19 @@ storage:
     root: %s
 workspace:
   root: %s
-backup:
+cache:
+%sbackup:
   maxRunDuration: 10m
   gitTimeout: 2m
+  minFreeBytes: %s
 retention:
-  enabled: true
+  enabled: %t
   maxBackups: %d
   maxAge: ""
   incompleteMaxAge: 30m
 log:
   level: debug
-`, reposPath, backupRoot, workspace, maxBackups)
+`, reposPath, rc.backupRoot, rc.workspace, cacheBlock, minFree, rc.retentionOn, rc.maxBackups)
 	if err := os.WriteFile(configPath, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}

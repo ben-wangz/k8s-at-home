@@ -59,7 +59,8 @@ func gitEnv() []string {
 }
 
 // seedSourceRepo creates a bare origin with main+feature branches, an
-// annotated tag, notes, and a deleted branch, returning its path.
+// annotated tag, notes, a custom advertised ref, and a deleted branch,
+// returning its path.
 func seedSourceRepo(t *testing.T, dir, name string) string {
 	t.Helper()
 	work := filepath.Join(dir, name+".work")
@@ -71,8 +72,10 @@ func seedSourceRepo(t *testing.T, dir, name string) string {
 	runCmd(t, work, env, "git", "branch", "feature")
 	runCmd(t, work, env, "git", "tag", "-a", "v1", "-m", "release one")
 	runCmd(t, work, env, "git", "notes", "add", "-m", "a note")
+	runCmd(t, work, env, "git", "update-ref", "refs/custom/it-ref", "HEAD")
 	runCmd(t, work, env, "git", "remote", "add", "origin", bare)
-	runCmd(t, work, env, "git", "push", "origin", "main", "feature", "v1", "refs/notes/commits")
+	runCmd(t, work, env, "git", "push", "origin", "main", "feature", "v1",
+		"refs/notes/commits", "refs/custom/it-ref")
 	// A branch that exists only transiently: create, push, delete again.
 	runCmd(t, work, env, "git", "branch", "temporary")
 	runCmd(t, work, env, "git", "push", "origin", "temporary")
@@ -109,7 +112,8 @@ func startSSHGitServer(t *testing.T, dir string) *sshGitServer {
 		runCmd(t, dir, nil, "/usr/bin/ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", hostKey)
 	}
 	if _, err := os.Stat(clientKey); err != nil {
-		runCmd(t, dir, nil, "/usr/bin/ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", clientKey)
+		runCmd(t, dir, nil, "/usr/bin/ssh-keygen", "-q", "-t", "ed25519", "-N", "",
+			"-C", secretMarker, "-f", clientKey)
 	}
 	clientPub, err := os.ReadFile(clientKey + ".pub")
 	if err != nil {

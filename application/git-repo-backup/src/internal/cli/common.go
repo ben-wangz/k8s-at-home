@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"git-repo-backup/internal/config"
+	"git-repo-backup/internal/observability"
 )
 
 // parseConfigFlag handles the shared --config flag.
@@ -27,9 +28,15 @@ func parseConfigFlag(name string, args []string) (string, int, bool) {
 	return *configPath, exitOK, true
 }
 
-// loadConfig reads and validates the configuration file.
+// loadConfig reads and validates the configuration file. Errors are
+// classified as configuration errors; their messages name fields only and
+// never echo values.
 func loadConfig(path string) (*config.Config, error) {
-	return config.Load(path)
+	cfg, err := config.Load(path)
+	if err != nil {
+		return nil, observability.WrapSafe(observability.CodeConfigInvalid, err.Error(), nil)
+	}
+	return cfg, nil
 }
 
 // validateCommand decodes and validates the configuration and every local
