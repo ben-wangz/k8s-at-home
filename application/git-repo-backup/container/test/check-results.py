@@ -69,18 +69,26 @@ def main():
         reasons.append(str(exc))
 
     started = {}  # test name (including subtests) -> terminal action or None
+    run_events = set()
     package_pass = False
     package_fail = False
     for event in events:
+        if not isinstance(event, dict):
+            reasons.append("event is not a JSON object")
+            continue
         action = event.get("Action", "")
         test = event.get("Test", "")
         if not isinstance(action, str) or not isinstance(test, str):
             reasons.append("event with non-string Action/Test field")
             continue
         if action == "run" and test:
+            run_events.add(test)
             started.setdefault(test, None)
         elif action in TERMINALS and test:
-            current = started.setdefault(test, None)
+            if test not in run_events:
+                reasons.append(f"terminal event without run event: {test}")
+                continue
+            current = started[test]
             # Worst terminal wins: a fail/skip after a pass still fails.
             if current in TERMINALS:
                 if action == "fail" or (action == "skip" and current != "fail"):
@@ -101,11 +109,11 @@ def main():
         elif terminal == "skip":
             reasons.append(f"skipped: {name}")
 
-    top_names = sorted({name.split("/", 1)[0] for name in started})
-    if not started:
+    top_names = sorted({name.split("/", 1)[0] for name in run_events})
+    if not run_events:
         reasons.append("no tests started (empty or truncated output)")
     for name in expected:
-        if name not in started:
+        if name not in run_events:
             reasons.append(f"expected test did not run: {name}")
     if args.mode == "local":
         for name in top_names:

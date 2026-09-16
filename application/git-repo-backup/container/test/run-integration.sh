@@ -34,6 +34,7 @@ IMAGE_TAG="localhost/git-repo-backup-integration:${RUN_ID}"
 BUCKET="git-repo-backup-it"
 OUT="${REPO_ROOT}/build/git-repo-backup-integration/${RUN_ID}"
 IMAGE_ID="unavailable"
+IMAGE_PREEXISTING=0
 MINIO_IMAGE_ID="unavailable"
 MC_IMAGE_ID="unavailable"
 RUNNER_EXIT="unavailable"
@@ -41,6 +42,7 @@ SIGNALLED=0
 CLEANUP_FAILED=0
 FINAL_EXIT=""
 EXIT_SOURCE=""
+CREATED_VOLUMES=()
 
 usage() {
     cat <<'USAGE'
@@ -163,7 +165,15 @@ create_evidence() {
 
 build_image() {
     info "building test image (context: repository root)"
-    local -a build_args=(--file "${REPO_ROOT}/application/git-repo-backup/container/test/Containerfile" --tag "$IMAGE_TAG")
+    if [ "$IMAGE_PREEXISTING" -eq 0 ] && podman image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+        IMAGE_PREEXISTING=1
+        fail_infra "test image tag already exists: $IMAGE_TAG"
+    fi
+    local -a build_args=(
+        --file "${REPO_ROOT}/application/git-repo-backup/container/test/Containerfile"
+        --tag "$IMAGE_TAG"
+        --label "$LABEL"
+    )
     # Optional builder-image override for environments where the pinned
     # default registry is unreachable (e.g. docker.io blocked); any
     # replacement must still satisfy the src/go.mod toolchain baseline.
@@ -182,19 +192,15 @@ build_image() {
     IMAGE_ID="$(podman image inspect "$IMAGE_TAG" --format '{{.Id}}' 2>/dev/null || echo unavailable)"
     write_run_info "test_image=${IMAGE_TAG}"
     write_run_info "test_image_id=${IMAGE_ID}"
+    add_resource image "$IMAGE_TAG"
 }
 
 create_pod() {
     local -a pod_args=(--name "$POD" --label "$LABEL")
-    # Rootless podman builds its pause image from the catatonit binary.
-    # Environments without catatonit can point the pod at an existing
-    # infra image (and optionally an infra command, e.g. "sleep infinity"
-    # for a general-purpose base image) through these environment
-    # variables; both are recorded in run-info.txt.
-    if ! command -v catatonit >/dev/null 2>&1; then
-        if [ -z "${GIT_REPO_BACKUP_IT_PAUSE_IMAGE:-}" ]; then
-            fail_infra "catatonit not installed and GIT_REPO_BACKUP_IT_PAUSE_IMAGE not set (pod infra image required)"
-        fi
+    # Podman normally selects its configured infra image. An explicit image
+    # override is useful on installations with a restricted infra registry,
+    # but a host-side catatonit binary is not required.
+    if [ -n "${GIT_REPO_BACKUP_IT_PAUSE_IMAGE:-}" ]; then
         pod_args+=(--infra-image "${GIT_REPO_BACKUP_IT_PAUSE_IMAGE}")
         if [ -n "${GIT_REPO_BACKUP_IT_PAUSE_COMMAND:-}" ]; then
             pod_args+=(--infra-command "${GIT_REPO_BACKUP_IT_PAUSE_COMMAND}")
@@ -210,8 +216,12 @@ create_pod() {
 prepare_fixture() {
     local vol
     for vol in "$CA_VOL" "$CERT_VOL" "$DATA_VOL"; do
+        if podman volume inspect "$vol" >/dev/null 2>&1; then
+            fail_infra "fixture volume already exists: $vol"
+        fi
         podman volume create --label "$LABEL" "$vol" >/dev/null 2>&1 \
             || fail_infra "volume create failed: $vol"
+        CREATED_VOLUMES+=("$vol")
         add_resource volume "$vol"
     done
     info "generating fixture certificates"
@@ -323,17 +333,47 @@ check_result() {
 cleanup_resources() {
     local rc=0 id
     : >"${OUT}/cleanup.log"
-    for id in "$RUNNER" "$MINIO_NAME"; do
-        if podman inspect "$id" >/dev/null 2>&1; then
-            podman rm -f -t 5 "$id" >>"${OUT}/cleanup.log" 2>&1 || rc=1
+    resource_label() {
+        local kind="$1" name="$2"
+        case "$kind" in
+            container) podman inspect -f '{{ index .Config.Labels "git-repo-backup-it-run" }}' "$name" 2>/dev/null || true ;;
+            pod) podman pod inspect -f '{{ index .Labels "git-repo-backup-it-run" }}' "$name" 2>/dev/null || true ;;
+            volume) podman volume inspect -f '{{ index .Labels "git-repo-backup-it-run" }}' "$name" 2>/dev/null || true ;;
+            image) podman image inspect -f '{{ index .Config.Labels "git-repo-backup-it-run" }}' "$name" 2>/dev/null || true ;;
+        esac
+    }
+    remove_container() {
+        local name="$1"
+        if podman inspect "$name" >/dev/null 2>&1; then
+            if [ "$(resource_label container "$name")" != "$LABEL" ]; then
+                err "cleanup refused unowned container: $name"
+                rc=1
+            elif ! podman rm -f -t 5 "$name" >>"${OUT}/cleanup.log" 2>&1; then
+                rc=1
+            fi
         fi
+    }
+    for id in "$RUNNER" "$MINIO_NAME"; do
+        remove_container "$id"
     done
     if podman pod inspect "$POD" >/dev/null 2>&1; then
-        podman pod rm -f "$POD" >>"${OUT}/cleanup.log" 2>&1 || rc=1
+        if [ "$(resource_label pod "$POD")" != "$LABEL" ]; then
+            err "cleanup refused unowned pod: $POD"
+            rc=1
+        elif ! podman pod rm -f "$POD" >>"${OUT}/cleanup.log" 2>&1; then
+            rc=1
+        fi
     fi
     local vol
-    for vol in "$CA_VOL" "$CERT_VOL" "$DATA_VOL"; do
-        podman volume rm "$vol" >>"${OUT}/cleanup.log" 2>&1 || true
+    for vol in "${CREATED_VOLUMES[@]}"; do
+        if podman volume inspect "$vol" >/dev/null 2>&1; then
+            if [ "$(resource_label volume "$vol")" != "$LABEL" ]; then
+                err "cleanup refused unowned volume: $vol"
+                rc=1
+            elif ! podman volume rm "$vol" >>"${OUT}/cleanup.log" 2>&1; then
+                rc=1
+            fi
+        fi
     done
     # Safety net for partially created resources with this run's label.
     for id in $(podman ps -aq --filter "label=${LABEL}" 2>/dev/null); do
@@ -343,9 +383,16 @@ cleanup_resources() {
         podman pod rm -f "$id" >>"${OUT}/cleanup.log" 2>&1 || rc=1
     done
     for id in $(podman volume ls -q --filter "label=${LABEL}" 2>/dev/null); do
-        podman volume rm "$id" >>"${OUT}/cleanup.log" 2>&1 || true
+        podman volume rm "$id" >>"${OUT}/cleanup.log" 2>&1 || rc=1
     done
-    podman image rm "$IMAGE_TAG" >>"${OUT}/cleanup.log" 2>&1 || true
+    if [ "$IMAGE_PREEXISTING" -eq 0 ] && podman image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+        if [ "$(resource_label image "$IMAGE_TAG")" != "$LABEL" ]; then
+            err "cleanup refused unowned image tag: $IMAGE_TAG"
+            rc=1
+        elif ! podman image rm "$IMAGE_TAG" >>"${OUT}/cleanup.log" 2>&1; then
+            rc=1
+        fi
+    fi
     if [ "$rc" -ne 0 ]; then
         CLEANUP_FAILED=1
         err "cleanup reported failures (see cleanup.log)"

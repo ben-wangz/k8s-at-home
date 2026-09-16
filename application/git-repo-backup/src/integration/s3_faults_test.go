@@ -129,9 +129,12 @@ func TestS3UntrustedCAFails(t *testing.T) {
 		workspace: filepath.Join(dir, "workspace"), reposYAML: repos,
 		maxBackups: 1, retentionOn: false,
 	})
-	code, _ := runBackup(t, bin, cfg)
+	code, out := runBackup(t, bin, cfg)
 	if code == 0 {
 		t.Fatal("run must fail against a TLS endpoint whose CA is not trusted")
+	}
+	if !strings.Contains(out, "storage_failed") || strings.Contains(out, "config_invalid") {
+		t.Fatalf("run must fail during TLS-backed storage access, not config parsing:\n%s", out)
 	}
 	if keys := listAll(t, client, f.bucket, prefix+"/"); len(keys) != 0 {
 		t.Fatalf("no objects may be written when TLS fails, got %v", keys)

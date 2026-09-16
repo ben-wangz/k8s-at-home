@@ -11,15 +11,16 @@ ARG GOPROXY=""
 RUN if [ -n "$GOPROXY" ]; then go env -w "GOPROXY=$GOPROXY"; fi
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       openssh-server openssh-client ca-certificates python3 curl openssl \
+       git openssh-server openssh-client ca-certificates tar gzip coreutils \
+       python3 curl openssl passwd \
     && rm -rf /var/lib/apt/lists/* \
     # sshd requires /run/sshd at startup; the tests provision the fixed
     # SSH directory themselves for every case.
     && mkdir -p /run/sshd /etc/git-repo-backup/ssh /results /opt/git-repo-backup-test \
-    # The base image root account is password-locked, which blocks pubkey
-    # authentication; unlock to "*" (no valid password, not locked). No
-    # password authentication is enabled anywhere.
-    && usermod -p '*' root
+    # Remove the base image's shadow lock so public-key root authentication
+    # works with the fixture's UsePAM=no configuration. The fixture disables
+    # password authentication, and this image never starts a default sshd.
+    && passwd -d root
 
 WORKDIR /src
 COPY application/git-repo-backup/src/go.mod application/git-repo-backup/src/go.sum ./

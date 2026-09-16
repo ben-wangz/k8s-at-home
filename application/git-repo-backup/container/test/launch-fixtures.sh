@@ -74,7 +74,7 @@ grb_minio_ready() {
 # MC_HOST URLs, so SSL_CERT_FILE carries the same bundle as well.
 grb_s3_precheck() {
     local mc_image="$1" pod="$2" ca_vol="$3" bucket="$4" label="$5"
-    local -a run_args=(--rm --pod "$pod" --label "$label"
+    local -a run_args=(--rm --pod "$pod" --label "$label" --user 0:0
         -v "${ca_vol}:/fixture-ca:ro"
         -e MC_HOST_it="https://gitrepobackup:gitrepobackup-secret@127.0.0.1:9000"
         -e MC_CA_BUNDLE=/fixture-ca/ca.crt
@@ -93,7 +93,11 @@ grb_s3_precheck() {
     fi
     podman run "${run_args[@]}" "$mc_image" rm "it/$bucket/fixture-check.txt" >&2 \
         || return 1
-    if podman run "${run_args[@]}" "$mc_image" ls "it/$bucket/" 2>/dev/null | grep -q fixture-check; then
+    if ! content="$(podman run "${run_args[@]}" "$mc_image" ls "it/$bucket/" 2>/dev/null)"; then
+        echo "fixture object listing failed after delete" >&2
+        return 1
+    fi
+    if printf '%s\n' "$content" | grep -q fixture-check; then
         echo "fixture object still listed after delete" >&2
         return 1
     fi

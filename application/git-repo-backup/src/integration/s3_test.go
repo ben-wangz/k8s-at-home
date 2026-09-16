@@ -36,9 +36,9 @@ func writeS3Config(t *testing.T, rc s3RunConfig) string {
 	if err := os.WriteFile(reposPath, []byte(rc.reposYAML), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	caLine := "        caBundleFile: \"\"\n"
+	caLine := "    caBundleFile: \"\"\n"
 	if rc.caFile != "" {
-		caLine = fmt.Sprintf("    caBundleFile: %s\n", rc.caFile)
+		caLine = fmt.Sprintf("    caBundleFile: %q\n", rc.caFile)
 	}
 	body := fmt.Sprintf(`schemaVersion: 1
 repositoriesFile: %s

@@ -28,7 +28,7 @@ import (
 	"git-repo-backup/internal/manifest"
 )
 
-// S3 fixture endpoints are provided by container/test/launch-fixtures.sh
+// S3 fixture endpoints are provided by container/test/run-integration.sh
 // through these environment variables; tests skip when absent.
 const (
 	envEndpoint = "GIT_REPO_BACKUP_IT_S3_ENDPOINT"
@@ -57,7 +57,7 @@ func s3Fixture(t *testing.T) s3FixtureInfo {
 	}
 	for _, v := range []string{f.endpoint, f.caPath, f.accessKey, f.secretKey, f.bucket} {
 		if v == "" {
-			t.Skip("S3 fixture environment not set; run container/test/launch-fixtures.sh start and import the five exported variables")
+			t.Skip("S3 fixture environment not set; run container/test/run-integration.sh all so the runner injects the fixture")
 		}
 	}
 	return f
