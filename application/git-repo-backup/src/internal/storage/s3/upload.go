@@ -218,6 +218,12 @@ func (s *Store) abortLogged(ctx context.Context, key, uploadID string) {
 }
 
 func (s *Store) abortUpload(ctx context.Context, key, uploadID string) error {
+	// A cancelled run context is expected during SIGTERM cleanup. Keep the
+	// abort request alive long enough to reach S3; normal cleanup contexts still
+	// retain their caller deadline and cancellation semantics.
+	if ctx.Err() != nil {
+		ctx = context.WithoutCancel(ctx)
+	}
 	reqCtx, cancel := withTimeout(ctx)
 	defer cancel()
 	_, err := s.client.AbortMultipartUpload(reqCtx, &s3.AbortMultipartUploadInput{

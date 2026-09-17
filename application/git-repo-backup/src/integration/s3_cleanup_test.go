@@ -196,9 +196,7 @@ func TestS3SIGTERMDuringMultipart(t *testing.T) {
 	if code := cmd.ProcessState.ExitCode(); code != 143 {
 		t.Fatalf("expected exit code 143, got %d", code)
 	}
-	if uploads := listMultipartUploads(t, client, f, prefix); len(uploads) != 0 {
-		t.Fatalf("in-flight multipart uploads must be aborted, got %v", uploads)
-	}
+	waitForNoMultipartUploads(t, client, f, prefix)
 	if keys := listAll(t, client, f.bucket, prefix+"/"); len(keys) != 1 {
 		// Only the permanent claim may remain.
 		t.Fatalf("expected only the claim object, got %v", keys)
@@ -221,4 +219,21 @@ func listMultipartUploads(t *testing.T, client *s3.Client, f s3FixtureInfo, pref
 		}
 	}
 	return keys
+}
+
+// waitForNoMultipartUploads gives the S3 service a short window to finish
+// requests that were already in flight when the process received SIGTERM.
+func waitForNoMultipartUploads(t *testing.T, client *s3.Client, f s3FixtureInfo, prefix string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		uploads := listMultipartUploads(t, client, f, prefix)
+		if len(uploads) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("in-flight multipart uploads must be aborted, got %v", uploads)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
