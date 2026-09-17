@@ -27,8 +27,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        git openssh-client ca-certificates tar gzip coreutils \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd -g 10001 backup \
-    && useradd -u 10001 -g 10001 -d /home/backup -m -s /usr/sbin/nologin backup \
+    && groupadd -g 10001 git-repo-backup \
+    && useradd -u 10001 -g 10001 -d /home/backup -m -s /usr/sbin/nologin git-repo-backup \
     && mkdir -p /tmp /etc/git-repo-backup/ssh
 
 COPY --from=builder /out/git-repo-backup /usr/local/bin/git-repo-backup
