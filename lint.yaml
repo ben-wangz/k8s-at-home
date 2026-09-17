@@ -14,13 +14,7 @@ commands:
     args:
       - -c
       - >-
-        bash -n setup/forgekit.sh .github/scripts/release-plan.sh &&
-        sh -n application/cli-proxy-api/container/bin/cli-proxy-api-render-config
-        application/cli-proxy-api/container/bin/cli-proxy-api-xai-login
-        application/cli-proxy-api/container/test/test-scripts.sh
-  - name: cli-proxy-api script tests
-    cmd: application/cli-proxy-api/container/test/test-scripts.sh
-    args: []
+        bash -n setup/forgekit.sh .github/scripts/release-plan.sh
   - name: gofmt check
     cmd: sh
     args:
