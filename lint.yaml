@@ -20,8 +20,3 @@ commands:
     args:
       - -c
       - test -z "$(gofmt -l .)"
-  - name: sshpiper tests
-    cmd: sh
-    args:
-      - -c
-      - go -C application/sshpiper/src test ./...

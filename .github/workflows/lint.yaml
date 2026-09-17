@@ -7,7 +7,119 @@ on:
       - main
 
 jobs:
+  discover_go:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
+      gofmt_version: ${{ steps.discover.outputs.gofmt_version }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: discover-go-modules
+        id: discover
+        shell: bash
+        run: |
+          python3 - <<'PY' > "$RUNNER_TEMP/go-discovery.outputs"
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+
+
+          def version_key(value: str) -> tuple[int, int, int]:
+              parts = [int(part) for part in value.split(".")]
+              return tuple((parts + [0, 0, 0])[:3])
+
+
+          tracked_files = subprocess.check_output(
+              ["git", "ls-files"], text=True
+          ).splitlines()
+          go_mod_paths = sorted(
+              path
+              for path in tracked_files
+              if path == "go.mod" or path.endswith("/go.mod")
+          )
+          if not go_mod_paths:
+              raise SystemExit("No tracked go.mod files were found")
+
+          entries = []
+          required_versions = []
+          for go_mod_path in go_mod_paths:
+              content = Path(go_mod_path).read_text(encoding="utf-8")
+              go_match = re.search(
+                  r"(?m)^\s*go\s+([0-9]+(?:\.[0-9]+){1,2})\s*$", content
+              )
+              if not go_match:
+                  raise SystemExit(f"Missing go directive in {go_mod_path}")
+
+              required_version = go_match.group(1)
+              toolchain_match = re.search(
+                  r"(?m)^\s*toolchain\s+go([0-9]+(?:\.[0-9]+){1,2})\s*$",
+                  content,
+              )
+              if toolchain_match:
+                  required_version = toolchain_match.group(1)
+
+              module_path = str(Path(go_mod_path).parent)
+              if module_path == ".":
+                  module_path = ""
+              entries.append({"module": module_path, "go_mod": go_mod_path})
+              required_versions.append(version_key(required_version))
+
+          gofmt_version = ".".join(str(part) for part in max(required_versions))
+          matrix = {"include": entries}
+          print(f"matrix={json.dumps(matrix, separators=(',', ':'))}")
+          print(f"gofmt_version={gofmt_version}")
+          PY
+          cat "$RUNNER_TEMP/go-discovery.outputs" >> "$GITHUB_OUTPUT"
+
+  validate_go:
+    needs: discover_go
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover_go.outputs.matrix) }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup-go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.go_mod }}
+
+      - name: validate-go-module-and-binaries
+        env:
+          MODULE_DIR: ${{ matrix.module }}
+        run: |
+          set -Eeuo pipefail
+          module_dir="$GITHUB_WORKSPACE"
+          if [[ -n "$MODULE_DIR" ]]; then
+            module_dir="$GITHUB_WORKSPACE/$MODULE_DIR"
+          fi
+
+          go -C "$module_dir" test ./...
+
+          main_packages="$(go -C "$module_dir" list \
+            -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' ./...)"
+          if [[ -z "$main_packages" ]]; then
+            echo "No main packages found in ${MODULE_DIR:-.}"
+            exit 0
+          fi
+
+          while IFS= read -r package; do
+            [[ -n "$package" ]] || continue
+            binary_name="$(basename "$package")"
+            output_name="${MODULE_DIR//\//-}-$binary_name"
+            [[ "$output_name" == -* ]] && output_name="root$output_name"
+            go -C "$module_dir" build -trimpath \
+              -o "$RUNNER_TEMP/$output_name" \
+              "$package"
+          done <<< "$main_packages"
+
   lint:
+    needs: discover_go
     runs-on: ubuntu-latest
     steps:
       - name: checkout
@@ -26,7 +138,7 @@ jobs:
       - name: setup-go
         uses: actions/setup-go@v5
         with:
-          go-version-file: application/frp/client/go.mod
+          go-version: ${{ needs.discover_go.outputs.gofmt_version }}
 
       - name: validate-codespace-chart
         run: |
@@ -45,13 +157,6 @@ jobs:
           helm template frp "$GITHUB_WORKSPACE/application/frp/chart" \
             --namespace frp-ci \
             > /dev/null
-
-      - name: validate-frpcctl
-        run: |
-          go -C "$GITHUB_WORKSPACE/application/frp/client" test ./...
-          go -C "$GITHUB_WORKSPACE/application/frp/client" build \
-            -o "$RUNNER_TEMP/frpcctl" \
-            ./cmd/frpcctl
 
       - name: run-forgekit-lint
         env:
