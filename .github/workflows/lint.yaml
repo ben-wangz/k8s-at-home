@@ -14,7 +14,7 @@ jobs:
       gofmt_version: ${{ steps.discover.outputs.gofmt_version }}
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: discover-go-modules
         id: discover
@@ -82,12 +82,13 @@ jobs:
       matrix: ${{ fromJSON(needs.discover_go.outputs.matrix) }}
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: setup-go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: ${{ matrix.go_mod }}
+          cache-dependency-path: ${{ matrix.go_mod }}
 
       - name: validate-go-module-and-binaries
         env:
@@ -123,7 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: setup-forgekit
         id: forgekit
@@ -133,12 +134,13 @@ jobs:
           "${FORGEKIT_BIN}" --version
 
       - name: setup-helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
 
       - name: setup-go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ needs.discover_go.outputs.gofmt_version }}
+          cache-dependency-path: '**/go.mod'
 
       - name: validate-codespace-chart
         run: |

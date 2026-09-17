@@ -15,7 +15,7 @@ jobs:
       chart_dir: ${{ steps.plan.outputs.chart_dir }}
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -43,12 +43,12 @@ jobs:
       packages: write
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: setup-helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
 
       - name: setup-forgekit
         id: forgekit

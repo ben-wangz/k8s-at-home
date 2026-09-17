@@ -16,7 +16,7 @@ jobs:
       matrix_json: ${{ steps.plan.outputs.matrix_json }}
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -45,7 +45,7 @@ jobs:
       matrix: ${{ fromJson(needs.plan.outputs.matrix_json) }}
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -73,9 +73,10 @@ jobs:
           echo "cmd_path=./cmd/$TARGET_NAME" >> "$GITHUB_OUTPUT"
 
       - name: setup-go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: ${{ steps.target.outputs.source_root }}/go.mod
+          cache-dependency-path: ${{ steps.target.outputs.source_root }}/go.mod
 
       - name: build-multi-platform-binaries
         env:
