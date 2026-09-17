@@ -140,7 +140,7 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version: ${{ needs.discover_go.outputs.gofmt_version }}
-          cache-dependency-path: '**/go.mod'
+          cache: false
 
       - name: validate-codespace-chart
         run: |
