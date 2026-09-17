@@ -18,9 +18,7 @@ commands:
         sh -n application/cli-proxy-api/container/bin/cli-proxy-api-render-config
         application/cli-proxy-api/container/bin/cli-proxy-api-xai-login
         application/cli-proxy-api/container/test/test-scripts.sh &&
-        bash -n application/git-repo-backup/container/test/launch-fixtures.sh
-        application/git-repo-backup/container/test/run-integration.sh
-        application/git-repo-backup/container/test/in-container.sh
+        bash -n application/git-repo-backup/tests/run-helm-acceptance.sh
   - name: cli-proxy-api script tests
     cmd: application/cli-proxy-api/container/test/test-scripts.sh
     args: []

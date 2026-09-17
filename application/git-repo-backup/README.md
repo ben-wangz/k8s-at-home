@@ -252,24 +252,13 @@ git-repo-backup prepare  --config /etc/git-repo-backup/config/config.yaml
 Exit codes: `0` success, `2` configuration/input error, `1` runtime,
 publication, or retention error, `130` SIGINT, `143` SIGTERM.
 
-Integration acceptance runs in the existing Kubernetes `develop` namespace;
-the host does not need root, Go, sshd, or a container runtime. Build the test
-image from `container/test/Containerfile` through the cluster's approved
-Kubernetes-native image pipeline and use its immutable digest. The canonical
-Job commands are documented in
-`build/git-repo-backup.validation.md` and use the image's fixed entry point:
-
-```yaml
-command: ["/opt/git-repo-backup-test/in-container.sh"]
-args: ["run-tests", "local"] # use all after the TLS MinIO precheck
-```
-
-The Job runs with container-internal UID 0 in an isolated Pod, never with a
-host mount. `local` runs only `TestLocal*`; `all` also uses the run's TLS
-MinIO Service and CA Secret and runs the complete integration package. The
-entry point verifies that every discovered test completes with zero skips or
-failures and writes Go events, logs, exit codes, and `result.json` under
-`/results`. Copy that directory before deleting the Job, then clean only
-resources carrying the run label. The existing
-`container/test/run-integration.sh` remains a local convenience wrapper; its
-result is not Kubernetes acceptance evidence.
+Helm acceptance runs in the existing Kubernetes `develop` namespace. The
+authoritative entry point is
+`tests/run-helm-acceptance.sh`: it installs the chart, creates a one-shot Job
+from the installed CronJob, verifies the production security context, and
+checks a committed local or S3 backup. It requires a pullable production image
+digest and caller-provided disposable SSH/S3 fixtures; it never builds a test
+image, starts a test container, mounts host paths, or runs Podman. See
+`tests/README.md` for the required fixture Secrets and examples. The opt-in Go
+tests under `src/integration` remain useful developer tests, but they are not
+the chart acceptance path.
