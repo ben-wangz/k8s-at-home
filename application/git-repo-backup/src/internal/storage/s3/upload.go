@@ -15,20 +15,13 @@ import (
 	"git-repo-backup/internal/storage"
 )
 
-// defaultPartSize is the multipart part size; uploads larger than it use the
-// explicit multipart API with concurrency 1.
-const defaultPartSize int64 = 64 << 20
+const (
+	defaultPartSize int64 = 64 << 20
+	maxParts              = 10000
+	partTimeout           = 10 * time.Minute
+)
 
-// maxParts bounds the number of parts per multipart upload.
-const maxParts = 10000
-
-// partTimeout bounds a single part upload; large parts on slow links need
-// more headroom than small control requests.
-const partTimeout = 10 * time.Minute
-
-// PutArchive uploads one finished archive conditionally and verifies it via
-// HeadObject. The local staging file is kept until the upload is confirmed;
-// the caller removes it afterwards.
+// PutArchive uploads one finished archive conditionally and verifies it via HeadObject.
 func (s *Store) PutArchive(ctx context.Context, a storage.Artifact) error {
 	key := archiveObjectKey(s.prefix, s.identity.BackupID, manifest.ArchivePath(a.Name))
 	f, err := os.Open(a.Path)
