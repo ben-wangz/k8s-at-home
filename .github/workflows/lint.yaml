@@ -165,13 +165,14 @@ jobs:
             echo "Validating chart: ${chart_name}"
             helm dependency build "$chart_dir"
             helm lint "$chart_dir" --strict
-            helm template "$chart_name" "$chart_dir" \
-              --namespace "${chart_name}-ci" \
-              > /dev/null
 
             if [[ ! -d "$chart_dir/examples" ]]; then
               continue
             fi
+
+            helm template "$chart_name" "$chart_dir" \
+              --namespace "${chart_name}-ci" \
+              > /dev/null
 
             examples=()
             while IFS= read -r -d '' values_file; do
