@@ -52,9 +52,17 @@ func validateCommand(args []string) int {
 		fmt.Fprintf(os.Stderr, "git-repo-backup: %s\n", safeMessage(err))
 		return exitInput
 	}
-	checks := []struct{ name, path string }{
-		{"ssh.privateKeyFile", cfg.SSH.PrivateKeyFile},
-		{"ssh.knownHostsFile", cfg.SSH.KnownHostsFile},
+	checks := []struct{ name, path string }{}
+	if cfg.SSH.IsEnabled() {
+		checks = append(checks, struct{ name, path string }{"ssh.privateKeyFile", cfg.SSH.PrivateKeyFile})
+		switch cfg.SSH.EffectiveHostKeyPolicy() {
+		case "pinned":
+			checks = append(checks, struct{ name, path string }{"ssh.knownHostsFile", cfg.SSH.KnownHostsFile})
+		case "accept-new":
+			if cfg.Prepare.InputKnownHostsFile != "" {
+				checks = append(checks, struct{ name, path string }{"prepare.inputKnownHostsFile", cfg.Prepare.InputKnownHostsFile})
+			}
+		}
 	}
 	if cfg.Storage.Type == "s3" && cfg.Storage.S3.CABundleFile != "" {
 		checks = append(checks, struct{ name, path string }{"storage.s3.caBundleFile", cfg.Storage.S3.CABundleFile})
@@ -65,7 +73,7 @@ func validateCommand(args []string) int {
 			return exitInput
 		}
 	}
-	if _, err := config.LoadRepositories(cfg.RepositoriesFile); err != nil {
+	if _, err := loadRepositories(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "git-repo-backup: %s\n", safeMessage(err))
 		return exitInput
 	}

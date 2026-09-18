@@ -56,9 +56,11 @@
     "ssh": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["existingSecret"],
+      "required": ["enabled"],
       "properties": {
-        "existingSecret": {"type": "string", "minLength": 1},
+        "enabled": {"type": "boolean"},
+        "hostKeyPolicy": {"enum": ["pinned", "accept-new", "none"]},
+        "existingSecret": {"type": "string"},
         "privateKeyKey": {"type": "string", "minLength": 1},
         "knownHosts": {
           "type": "object",
@@ -67,22 +69,56 @@
           "properties": {
             "existingConfigMap": {"type": "string"},
             "existingSecret": {"type": "string"},
-            "key": {"type": "string", "minLength": 1}
+            "key": {"type": "string", "minLength": 1},
+            "existingClaim": {"type": "string"},
+            "persistence": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["enabled", "accessModes", "size"],
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "storageClass": {"type": "string"},
+                "accessModes": {"type": "array", "minItems": 1},
+                "size": {"type": "string", "minLength": 1},
+                "annotations": {"type": "object"}
+              }
+            }
           },
           "oneOf": [
             {
-              "properties": {"existingConfigMap": {"minLength": 1}},
-              "required": ["existingConfigMap"],
-              "not": {"properties": {"existingSecret": {"minLength": 1}}}
+              "properties": {
+                "existingConfigMap": {"maxLength": 0},
+                "existingSecret": {"maxLength": 0}
+              }
             },
             {
-              "properties": {"existingSecret": {"minLength": 1}},
+              "required": ["existingConfigMap"],
+              "properties": {
+                "existingConfigMap": {"minLength": 1},
+                "existingSecret": {"maxLength": 0}
+              }
+            },
+            {
               "required": ["existingSecret"],
-              "not": {"properties": {"existingConfigMap": {"minLength": 1}}}
+              "properties": {
+                "existingConfigMap": {"maxLength": 0},
+                "existingSecret": {"minLength": 1}
+              }
             }
           ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"enabled": {"const": true}}},
+          "then": {
+            "required": ["existingSecret", "privateKeyKey", "knownHosts"],
+            "properties": {
+              "existingSecret": {"minLength": 1}
+            }
+          }
+        }
+      ]
     },
     "storage": {
       "type": "object",
@@ -334,6 +370,13 @@
     "podLabels": {"type": "object"},
     "podAnnotations": {"type": "object"},
     "cronJobAnnotations": {"type": "object"},
+    "extraDeploy": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
     "networkPolicy": {
       "type": "object",
       "additionalProperties": false,

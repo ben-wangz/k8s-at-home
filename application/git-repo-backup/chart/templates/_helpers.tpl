@@ -84,6 +84,33 @@ sanctioned nesting, a sibling of backups/ and .staging/).
 {{- end -}}
 {{- end -}}
 
+{{- define "git-repo-backup.knownHostsFile" -}}
+{{- $policy := default "accept-new" .Values.ssh.hostKeyPolicy -}}
+{{- if eq $policy "none" -}}
+/dev/null
+{{- else if eq $policy "accept-new" -}}
+/etc/git-repo-backup/ssh-state/state/known_hosts
+{{- else -}}
+/etc/git-repo-backup/ssh/known_hosts
+{{- end -}}
+{{- end -}}
+
+{{- define "git-repo-backup.inputKnownHostsFile" -}}
+{{- if or .Values.ssh.knownHosts.existingConfigMap .Values.ssh.knownHosts.existingSecret -}}
+/input/known-hosts/known_hosts
+{{- else -}}
+""
+{{- end -}}
+{{- end -}}
+
+{{- define "git-repo-backup.prepareKnownHostsStateFile" -}}
+{{- if and .Values.ssh.enabled (eq (default "accept-new" .Values.ssh.hostKeyPolicy) "accept-new") -}}
+/known-hosts-state/state/known_hosts
+{{- else -}}
+""
+{{- end -}}
+{{- end -}}
+
 {{- define "git-repo-backup.repositoryListSource" -}}
 {{- if .Values.repositoriesConfigMap.existingConfigMap -}}
 {{- .Values.repositoriesConfigMap.existingConfigMap -}}

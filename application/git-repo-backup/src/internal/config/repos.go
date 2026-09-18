@@ -37,8 +37,28 @@ func ValidateRepository(idx int, repo Repository) error {
 	if repo.URL == "" {
 		return fmt.Errorf("repository %s: url must not be empty", repo.Name)
 	}
-	if _, err := ParseSSHURL(repo.URL); err != nil {
+	if _, err := ParseGitURL(repo.URL); err != nil {
 		return fmt.Errorf("repository %s: url: %w", repo.Name, err)
+	}
+	return nil
+}
+
+// ValidateSSHRequirement rejects SSH repositories when the SSH material was
+// explicitly disabled. HTTPS repositories remain usable without credentials;
+// Git reports authentication_failed if a private HTTPS repository requires
+// credentials that are not configured.
+func ValidateSSHRequirement(repos []Repository, sshEnabled bool) error {
+	if sshEnabled {
+		return nil
+	}
+	for _, repo := range repos {
+		parsed, err := ParseGitURL(repo.URL)
+		if err != nil {
+			return fmt.Errorf("repository %s: url: %w", repo.Name, err)
+		}
+		if parsed.Scheme == "ssh" {
+			return fmt.Errorf("repository %s requires ssh credentials", repo.Name)
+		}
 	}
 	return nil
 }

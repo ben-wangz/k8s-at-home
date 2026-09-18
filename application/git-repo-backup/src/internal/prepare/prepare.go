@@ -1,6 +1,6 @@
 // Package prepare implements the root-restricted initContainer setup: it
-// copies the projected SSH secret and known_hosts into a memory emptyDir
-// with correct ownership, and hands fresh empty volumes to the backup UID.
+// copies the projected SSH secret and known_hosts into a memory emptyDir when
+// SSH is enabled, and hands fresh empty volumes to the backup UID.
 // It never runs Git, SSH, or any network call.
 package prepare
 
@@ -15,12 +15,19 @@ import (
 	"git-repo-backup/internal/safefs"
 )
 
-// Run prepares the SSH volume and managed volume roots. It is idempotent:
-// an already-prepared volume is verified at its root and skipped.
+// Run prepares the optional SSH volume and managed volume roots. It is
+// idempotent: an already-prepared volume is verified at its root and skipped.
 func Run(cfg *config.Config) error {
 	p := preparer{cfg: cfg}
-	if err := p.prepareSSH(); err != nil {
-		return err
+	if cfg.SSH.IsEnabled() {
+		if err := p.prepareSSH(); err != nil {
+			return err
+		}
+		if cfg.SSH.EffectiveHostKeyPolicy() == "accept-new" {
+			if err := p.prepareKnownHostsState(); err != nil {
+				return err
+			}
+		}
 	}
 	return p.prepareVolumes()
 }
@@ -29,19 +36,22 @@ type preparer struct {
 	cfg *config.Config
 }
 
-// prepareSSH copies the private key (0400) and known_hosts (0444) into a
-// fresh empty volume, chowning files first and the directory last, so a
-// CHOWN-only root process never loses access mid-setup. An already
-// prepared volume (owned by the target uid, mode 0700) is verified at its
-// root and skipped.
+// prepareSSH copies the private key (0400) into a fresh empty volume. Pinned
+// host keys are copied there as well; accept-new stores them in a separate
+// persistent writable volume. Files are chowned before the directory is
+// handed over so a CHOWN-only root process never loses access mid-setup.
 func (p *preparer) prepareSSH() error {
 	dir := p.cfg.Prepare.SSHDir
+	policy := p.cfg.SSH.EffectiveHostKeyPolicy()
 	info, err := os.Lstat(dir)
 	if err != nil {
 		return observability.WrapSafe(observability.CodePrepareFailed, "prepared ssh volume missing", err)
 	}
 	if !info.IsDir() {
 		return observability.WrapSafe(observability.CodePrepareFailed, "prepared ssh path is not a directory", nil)
+	}
+	if ownedByTarget(info, p.cfg) && info.Mode().Perm() == 0o700 {
+		return p.verifyPreparedRoot(dir, info)
 	}
 	empty, err := safefs.IsEmptyDir(dir)
 	if err != nil {
@@ -58,22 +68,83 @@ func (p *preparer) prepareSSH() error {
 	if err != nil {
 		return err
 	}
-	knownData, err := readInputFile(p.cfg.Prepare.InputKnownHostsFile)
-	if err != nil {
-		return err
-	}
-	if len(bytes.TrimSpace(knownData)) == 0 {
-		return observability.WrapSafe(observability.CodePrepareFailed, "known_hosts input is empty", nil)
-	}
 	idPath := filepath.Join(dir, "id")
 	if err := writeOwnedFile(idPath, keyData, 0o400, p.cfg); err != nil {
 		return err
 	}
-	knownPath := filepath.Join(dir, "known_hosts")
-	if err := writeOwnedFile(knownPath, knownData, 0o444, p.cfg); err != nil {
-		return err
+	if policy == "pinned" {
+		knownData, err := readInputFile(p.cfg.Prepare.InputKnownHostsFile)
+		if err != nil {
+			return err
+		}
+		knownPath := filepath.Join(dir, "known_hosts")
+		if err := writeOwnedFile(knownPath, knownData, 0o444, p.cfg); err != nil {
+			return err
+		}
 	}
 	return handOverDir(dir, p.cfg)
+}
+
+// prepareKnownHostsState creates or validates the writable known_hosts file
+// used by accept-new. The state directory is a child of the mounted claim so
+// filesystem-created entries such as lost+found do not become application
+// data. Existing non-empty state is never replaced or reseeded.
+func (p *preparer) prepareKnownHostsState() error {
+	path := p.cfg.Prepare.KnownHostsStateFile
+	dir := filepath.Dir(path)
+	parent := filepath.Dir(dir)
+	parentInfo, err := os.Lstat(parent)
+	if err != nil {
+		return observability.WrapSafe(observability.CodePrepareFailed, "known_hosts state volume missing", err)
+	}
+	if !parentInfo.IsDir() {
+		return observability.WrapSafe(observability.CodePrepareFailed, "known_hosts state volume is not a directory", nil)
+	}
+	info, err := os.Lstat(dir)
+	created := false
+	if os.IsNotExist(err) {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			return observability.WrapSafe(observability.CodePrepareFailed, "create known_hosts state directory", err)
+		}
+		created = true
+		info, err = os.Lstat(dir)
+	}
+	if err != nil {
+		return observability.WrapSafe(observability.CodePrepareFailed, "inspect known_hosts state directory", err)
+	}
+	if !info.IsDir() {
+		return observability.WrapSafe(observability.CodePrepareFailed, "known_hosts state path is not a directory", nil)
+	}
+	if !created && ownedByTarget(info, p.cfg) && info.Mode().Perm() == 0o700 {
+		// The target-owned directory is intentionally not traversed here. The
+		// init container has only CHOWN and cannot read a 0700 directory owned
+		// by the workload UID; the run container validates the state file.
+		return nil
+	}
+	empty, err := safefs.IsEmptyDir(dir)
+	if err != nil {
+		return observability.WrapSafe(observability.CodePrepareFailed, "inspect known_hosts state directory", err)
+	}
+	if empty {
+		var data []byte
+		if p.cfg.Prepare.InputKnownHostsFile != "" {
+			data, err = readInputFile(p.cfg.Prepare.InputKnownHostsFile)
+			if err != nil {
+				return err
+			}
+		}
+		if err := writeOwnedFile(path, data, 0o600, p.cfg); err != nil {
+			return err
+		}
+		return handOverDir(dir, p.cfg)
+	} else {
+		if ownedByTarget(info, p.cfg) {
+			return observability.WrapSafe(observability.CodePrepareFailed,
+				"known_hosts state directory has unexpected mode", nil)
+		}
+		return observability.WrapSafe(observability.CodePrepareFailed,
+			"known_hosts state directory is not owned by the target uid; provision manually", nil)
+	}
 }
 
 // prepareVolumes gives fresh empty volume roots (workspace, backup, cache)
@@ -88,11 +159,41 @@ func (p *preparer) prepareVolumes() error {
 		roots = append(roots, p.cfg.Cache.Root)
 	}
 	for _, root := range roots {
+		if p.isLocalCacheSubdir(root) {
+			if err := p.prepareLocalCacheRoot(root); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := p.prepareVolumeRoot(root); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// isLocalCacheSubdir identifies the one cache path that is allowed to be
+// created below another managed volume. All other missing roots still fail so
+// an accidentally unmounted volume cannot become a host-directory write.
+func (p *preparer) isLocalCacheSubdir(root string) bool {
+	return p.cfg.Storage.Type == "local" &&
+		root == filepath.Join(p.cfg.Storage.Local.Root, "cache") &&
+		p.cfg.Cache.Root == root
+}
+
+// prepareLocalCacheRoot creates the sanctioned cache sibling on a fresh local
+// backup PVC, then applies the same ownership and mode checks as other roots.
+func (p *preparer) prepareLocalCacheRoot(root string) error {
+	if _, err := os.Lstat(root); os.IsNotExist(err) {
+		if err := os.Mkdir(root, 0o700); err != nil {
+			return observability.WrapSafe(observability.CodePrepareFailed,
+				"create local cache directory", err)
+		}
+	} else if err != nil {
+		return observability.WrapSafe(observability.CodePrepareFailed,
+			"inspect local cache directory", err)
+	}
+	return p.prepareVolumeRoot(root)
 }
 
 func (p *preparer) prepareVolumeRoot(root string) error {
@@ -105,6 +206,9 @@ func (p *preparer) prepareVolumeRoot(root string) error {
 	}
 	if !info.IsDir() {
 		return observability.WrapSafe(observability.CodePrepareFailed, "volume root is not a directory", nil)
+	}
+	if ownedByTarget(info, p.cfg) && info.Mode().Perm() == 0o700 {
+		return nil
 	}
 	empty, err := safefs.IsEmptyDir(root)
 	if err != nil {
@@ -152,12 +256,15 @@ func writeOwnedFile(path string, data []byte, mode os.FileMode, cfg *config.Conf
 }
 
 func handOverDir(dir string, cfg *config.Config) error {
+	// The init container intentionally keeps only CAP_CHOWN. Set the final
+	// mode while root still owns the directory, then transfer ownership; after
+	// chown a CHOWN-only process cannot chmod the target-owned directory.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return observability.WrapSafe(observability.CodePrepareFailed, "chmod volume root", err)
+	}
 	if err := os.Chown(dir, cfg.Prepare.TargetUID, cfg.Prepare.TargetGID); err != nil {
 		return observability.WrapSafe(observability.CodePrepareFailed,
 			"chown volume root (root-squash storage needs an admin-created root)", err)
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return observability.WrapSafe(observability.CodePrepareFailed, "chmod volume root", err)
 	}
 	return nil
 }

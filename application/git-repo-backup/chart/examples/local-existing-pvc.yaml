@@ -4,13 +4,30 @@
 image:
   tag: 0.1.0
 
+repositories: []
 repositoriesConfigMap:
   existingConfigMap: git-repo-backup-repositories
   key: repositories.yaml
 
+extraDeploy:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: git-repo-backup-repositories
+    data:
+      repositories.yaml: |
+        repositories:
+          - name: k8s-at-home
+            url: git@github.com:ben-wangz/k8s-at-home.git
+          # Add additional repositories with the same structure when needed.
+          # - name: another-repository
+          #   url: git@github.com:owner/repository.git
+
 ssh:
+  enabled: true
   existingSecret: git-repo-backup-ssh
   knownHosts:
+    existingConfigMap: ""
     existingSecret: git-repo-backup-known-hosts
     key: known_hosts
 

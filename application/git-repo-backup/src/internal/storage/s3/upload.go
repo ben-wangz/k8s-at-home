@@ -114,11 +114,13 @@ func (s *Store) uploadMultipart(ctx context.Context, key string, f *os.File, a s
 // oneMultipartAttempt returns done=true when the error must not be retried.
 func (s *Store) oneMultipartAttempt(ctx context.Context, key string, f *os.File, a storage.Artifact, partSize int64) (bool, error) {
 	reqCtx, cancel := withTimeout(ctx)
-	create, err := s.client.CreateMultipartUpload(reqCtx, &s3.CreateMultipartUploadInput{
+	input := &s3.CreateMultipartUploadInput{
 		Bucket:   &s.bucket,
 		Key:      &key,
 		Metadata: map[string]string{"sha256": a.SHA256},
-	})
+	}
+	s.applySSECreate(input)
+	create, err := s.client.CreateMultipartUpload(reqCtx, input)
 	cancel()
 	if err != nil {
 		return true, observability.WrapSafe(observability.CodeStorageFailed, "create multipart upload", err)

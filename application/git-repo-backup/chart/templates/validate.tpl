@@ -5,6 +5,34 @@ workload-identity wiring. Render-time checks are deliberately conservative;
 the binary re-validates everything at runtime.
 */}}
 {{- define "git-repo-backup.validateValues" -}}
+  {{- if .Values.ssh.enabled -}}
+    {{- $policy := .Values.ssh.hostKeyPolicy | default "accept-new" -}}
+    {{- if and (ne $policy "pinned") (ne $policy "accept-new") (ne $policy "none") -}}
+      {{- fail "ssh.hostKeyPolicy must be pinned, accept-new, or none" -}}
+    {{- end -}}
+    {{- $hasConfigMap := gt (len (.Values.ssh.knownHosts.existingConfigMap | default "")) 0 -}}
+    {{- $hasSecret := gt (len (.Values.ssh.knownHosts.existingSecret | default "")) 0 -}}
+    {{- if and $hasConfigMap $hasSecret -}}
+      {{- fail "ssh.knownHosts: choose at most one of existingConfigMap or existingSecret" -}}
+    {{- end -}}
+    {{- if eq $policy "pinned" -}}
+      {{- if not (or $hasConfigMap $hasSecret) -}}
+        {{- fail "ssh.hostKeyPolicy=pinned requires ssh.knownHosts.existingConfigMap or existingSecret" -}}
+      {{- end -}}
+      {{- if .Values.ssh.knownHosts.existingClaim -}}
+        {{- fail "ssh.hostKeyPolicy=pinned does not use ssh.knownHosts.existingClaim" -}}
+      {{- end -}}
+    {{- else if eq $policy "accept-new" -}}
+      {{- if and (not .Values.ssh.knownHosts.existingClaim) (not .Values.ssh.knownHosts.persistence.enabled) -}}
+        {{- fail "ssh.hostKeyPolicy=accept-new requires knownHosts.existingClaim or knownHosts.persistence.enabled" -}}
+      {{- end -}}
+    {{- else if eq $policy "none" -}}
+      {{- if or $hasConfigMap $hasSecret .Values.ssh.knownHosts.existingClaim -}}
+        {{- fail "ssh.hostKeyPolicy=none must not configure known-hosts input or state" -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+
   {{- $repos := .Values.repositories -}}
   {{- if $repos -}}
     {{- $names := dict -}}

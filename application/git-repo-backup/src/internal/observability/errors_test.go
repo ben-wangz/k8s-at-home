@@ -8,12 +8,18 @@ import (
 
 func TestClassifyGitStderr(t *testing.T) {
 	cases := map[string]string{
-		"Host key verification failed.":                                  CodeHostKeyFailed,
-		"git@host: Permission denied (publickey).":                       CodeAuthFailed,
-		"fatal: Could not read from remote repository.":                  CodeRepoUnavailable,
-		"fatal: repository not found":                                    CodeRepoUnavailable,
-		"ssh: connect to host example.com port 22: Connection timed out": CodeRepoUnavailable,
-		"error: object file is corrupt":                                  CodeGitFailed,
+		"Host key verification failed.":                                                      CodeHostKeyFailed,
+		"git@host: Permission denied (publickey).":                                           CodeAuthFailed,
+		"fatal: could not read Username for 'https://github.com': terminal prompts disabled": CodeAuthFailed,
+		"remote: HTTP Basic: Access denied":                                                  CodeAuthFailed,
+		"remote: invalid username or password":                                               CodeAuthFailed,
+		"fatal: unauthorized":                                                                CodeAuthFailed,
+		"fatal: unable to access: The requested URL returned error: 401":                     CodeAuthFailed,
+		"fatal: unable to access: The requested URL returned error: 403":                     CodeAuthFailed,
+		"fatal: Could not read from remote repository.":                                      CodeRepoUnavailable,
+		"fatal: repository not found":                                                        CodeRepoUnavailable,
+		"ssh: connect to host example.com port 22: Connection timed out":                     CodeRepoUnavailable,
+		"error: object file is corrupt":                                                      CodeGitFailed,
 	}
 	for stderr, want := range cases {
 		if got := ClassifyGitStderr(stderr, false); got != want {

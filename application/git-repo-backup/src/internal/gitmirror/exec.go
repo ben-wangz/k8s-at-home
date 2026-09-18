@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,15 +17,54 @@ import (
 	"git-repo-backup/internal/safefs"
 )
 
-// SSHCommand is the fixed GIT_SSH_COMMAND value. Paths are pinned by design;
-// configuration must not alter them.
-const SSHCommand = "/usr/bin/ssh -F /dev/null -i /etc/git-repo-backup/ssh/id " +
-	"-o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes " +
-	"-o UserKnownHostsFile=/etc/git-repo-backup/ssh/known_hosts " +
-	"-o GlobalKnownHostsFile=/dev/null -o UpdateHostKeys=no " +
-	"-o PasswordAuthentication=no -o KbdInteractiveAuthentication=no " +
-	"-o ForwardAgent=no -o ClearAllForwardings=yes -o PermitLocalCommand=no " +
-	"-o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=3"
+// SSHOptions controls the non-interactive OpenSSH policy. Paths are quoted
+// before being placed in GIT_SSH_COMMAND, which Git executes through a shell.
+type SSHOptions struct {
+	PrivateKeyFile string
+	KnownHostsFile string
+	HostKeyPolicy  string
+}
+
+// BuildSSHCommand returns the hermetic OpenSSH command used by Git. The
+// accept-new default implements TOFU: new keys are persisted, changed keys
+// are rejected on later connections.
+func BuildSSHCommand(options SSHOptions) (string, error) {
+	policy := options.HostKeyPolicy
+	if policy == "" {
+		policy = "accept-new"
+	}
+	privateKey := options.PrivateKeyFile
+	if privateKey == "" {
+		privateKey = "/etc/git-repo-backup/ssh/id"
+	}
+	knownHosts := options.KnownHostsFile
+	if knownHosts == "" {
+		knownHosts = "/etc/git-repo-backup/ssh-state/state/known_hosts"
+	}
+	strict := policy
+	switch policy {
+	case "pinned":
+		strict = "yes"
+	case "accept-new":
+		strict = "accept-new"
+	case "none":
+		strict = "no"
+		knownHosts = "/dev/null"
+	default:
+		return "", fmt.Errorf("unsupported SSH host key policy %q", policy)
+	}
+	return "/usr/bin/ssh -F /dev/null -i " + shellQuote(privateKey) +
+		" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=" + strict +
+		" -o UserKnownHostsFile=" + shellQuote(knownHosts) +
+		" -o GlobalKnownHostsFile=/dev/null -o UpdateHostKeys=no" +
+		" -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no" +
+		" -o ForwardAgent=no -o ClearAllForwardings=yes -o PermitLocalCommand=no" +
+		" -o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=3", nil
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
 
 // Output bounds keep remote-controlled output out of memory and logs.
 const (
@@ -40,26 +80,38 @@ type Runner struct {
 	Timeout   time.Duration
 	// hardening disables transports and hooks. Production runs keep the
 	// default; in-package tests exercising local-path clones drop the
-	// protocol part (production only ever talks SSH).
+	// protocol part (production only ever talks SSH or HTTPS).
 	hardening []string
 }
 
-// protocolFlags reduce the allowed transports to SSH only.
-var protocolFlags = []string{"-c", "protocol.allow=never", "-c", "protocol.ssh.allow=always"}
+// protocolFlags reduce the allowed transports to SSH and HTTPS.
+var protocolFlags = []string{
+	"-c", "protocol.allow=never",
+	"-c", "protocol.ssh.allow=always",
+	"-c", "protocol.https.allow=always",
+}
 
 // hooksFlags disable repository hooks.
 var hooksFlags = []string{"-c", "core.hooksPath=/dev/null"}
 
 // NewRunner prepares the Git environment: pinned binary paths, empty HOME
 // with an empty global config, terminal prompts disabled, protocol allowlist,
-// and the fixed SSH command. The process umask must already be restrictive.
-func NewRunner(gitBinary string, homeDir string, timeout time.Duration) (*Runner, error) {
+// and the selected SSH command. The process umask must already be restrictive.
+func NewRunner(gitBinary string, homeDir string, timeout time.Duration, sshOptions ...SSHOptions) (*Runner, error) {
 	if err := safefs.EnsureDir(homeDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create git home: %w", err)
 	}
 	globalConfig := homeDir + "/.gitconfig"
 	if err := os.WriteFile(globalConfig, nil, 0o600); err != nil {
 		return nil, fmt.Errorf("create empty global git config: %w", err)
+	}
+	options := SSHOptions{}
+	if len(sshOptions) > 0 {
+		options = sshOptions[0]
+	}
+	sshCommand, err := BuildSSHCommand(options)
+	if err != nil {
+		return nil, err
 	}
 	env := []string{
 		"HOME=" + homeDir,
@@ -68,7 +120,7 @@ func NewRunner(gitBinary string, homeDir string, timeout time.Duration) (*Runner
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CONFIG_GLOBAL=" + globalConfig,
-		"GIT_SSH_COMMAND=" + SSHCommand,
+		"GIT_SSH_COMMAND=" + sshCommand,
 	}
 	hardening := append(append([]string{}, protocolFlags...), hooksFlags...)
 	return &Runner{gitBinary: gitBinary, env: env, Timeout: timeout, hardening: hardening}, nil

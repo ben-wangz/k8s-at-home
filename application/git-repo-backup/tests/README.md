@@ -6,10 +6,16 @@ namespace, creates a one-shot Job from the installed CronJob, and verifies
 the published backup. It does not build a test image and does not run the
 application directly from a source or test container.
 
-The source repository and its SSH credentials are supplied by the caller.
-This keeps the test aligned with the same SSH Secret and known-hosts
-projection used by the production chart. The repository must be disposable;
-the script never changes the source repository.
+The source repository and, for SSH URLs, its SSH private-key Secret are
+supplied by the caller. The default SSH policy is `accept-new`: a known-hosts
+ConfigMap/Secret may be supplied as an optional seed, but it is not required.
+An `https://` URL automatically selects the SSH-disabled chart mode, so
+public HTTPS repositories can be tested without an SSH Secret or known-hosts
+resource. For SSH runs, the script also mounts the chart-created state PVC
+after the backup Job and requires `state/known_hosts` to be non-empty, proving
+that the first-connection key was persisted. It does not rotate the fixture
+host key, so changed-key rejection remains a separate negative test. The
+repository must be disposable; the script never changes the source repository.
 
 The production image must be a fixed digest that the cluster can pull. The
 local checker also needs a fixed digest image containing sh, find, and the
@@ -49,6 +55,17 @@ Resources created by the script are removed on exit. --keep preserves the
 release and generated resources for diagnosis. External SSH, S3, and CA
 Secrets are never deleted.
 
+Example public HTTPS acceptance (no SSH options are needed):
+
+    application/git-repo-backup/tests/run-helm-acceptance.sh \
+      --mode local \
+      --image registry.example/git-repo-backup@sha256:<production-digest> \
+      --repository-url https://github.com/ben-wangz/k8s-at-home.git \
+      --inspector-image registry.example/busybox@sha256:<busybox-digest>
+
 The Go tests under src/integration remain opt-in developer tests. They are
 not the Helm acceptance path and no longer have a container runner under
-container/test.
+container/test. The acceptance script is intentionally only the workflow
+orchestrator: `manifests/` contains the local, S3, known-hosts, and values
+templates; `render-template.py` substitutes checked runtime values; and
+`check-cronjob.py` owns the rendered security-context assertions.

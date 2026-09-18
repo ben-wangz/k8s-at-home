@@ -7,6 +7,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$APP_DIR/../.." && pwd)"
 CHART_DIR="$APP_DIR/chart"
+TEMPLATE_DIR="$SCRIPT_DIR/manifests"
+
+render_template() {
+    local template="$1"
+    local output="$2"
+    shift 2
+    python3 "$SCRIPT_DIR/render-template.py" "$template" "$output" "$@"
+}
 
 env_or() {
     local value
@@ -19,6 +27,7 @@ env_or() {
 }
 
 MODE=""
+SSH_ENABLED=1
 NAMESPACE="$(env_or GIT_REPO_BACKUP_TEST_NAMESPACE develop)"
 RELEASE=""
 IMAGE_REF="$(env_or GIT_REPO_BACKUP_TEST_IMAGE "")"
@@ -41,13 +50,13 @@ EVIDENCE=""
 CRONJOB=""
 JOB=""
 PVC=""
+SSH_STATE_PVC=""
 INSTALLED=0
 
 usage() {
     cat <<'USAGE'
 usage: run-helm-acceptance.sh --mode local|s3 --image IMAGE@sha256:DIGEST \
-  --repository-url SSH_URL --ssh-secret NAME \
-  (--known-hosts-configmap NAME | --known-hosts-secret NAME) [options]
+  --repository-url SSH_OR_HTTPS_URL [SSH options] [options]
 
 The script installs the chart in an existing namespace, creates one Job from
 the rendered CronJob, checks the production security context, and verifies
@@ -57,6 +66,9 @@ Options:
   --namespace NAME             Kubernetes namespace (default: develop)
   --release NAME               Helm release name (default: generated)
   --repository-name NAME       Repository entry name (default: example)
+  --ssh-secret NAME             SSH private-key Secret (required for SSH URLs)
+  --known-hosts-configmap NAME known_hosts ConfigMap seed (optional)
+  --known-hosts-secret NAME    known_hosts Secret seed (optional)
   --s3-endpoint URL            S3 endpoint for mode s3
   --s3-bucket NAME             S3 bucket for mode s3
   --s3-prefix PREFIX           S3 prefix (default: helm-acceptance)
@@ -142,11 +154,13 @@ parse_args() {
     [ "$MODE" = local ] || [ "$MODE" = s3 ] || usage_die "--mode must be local or s3"
     [ -n "$IMAGE_REF" ] || usage_die "--image is required"
     [ -n "$REPOSITORY_URL" ] || usage_die "--repository-url is required"
-    [ -n "$SSH_SECRET" ] || usage_die "--ssh-secret is required"
-    [ -n "$KNOWN_HOSTS_CONFIGMAP" ] || [ -n "$KNOWN_HOSTS_SECRET" ] \
-        || usage_die "one known-hosts source is required"
-    [ -z "$KNOWN_HOSTS_CONFIGMAP" ] || [ -z "$KNOWN_HOSTS_SECRET" ] \
-        || usage_die "known-hosts ConfigMap and Secret are mutually exclusive"
+    if [[ "${REPOSITORY_URL,,}" == https://* ]]; then
+        SSH_ENABLED=0
+    else
+        [ -n "$SSH_SECRET" ] || usage_die "--ssh-secret is required for an SSH URL"
+        [ -z "$KNOWN_HOSTS_CONFIGMAP" ] || [ -z "$KNOWN_HOSTS_SECRET" ] \
+            || usage_die "known-hosts ConfigMap and Secret are mutually exclusive"
+    fi
     if [ "$MODE" = s3 ]; then
         [ -n "$S3_ENDPOINT" ] || usage_die "--s3-endpoint is required for s3"
         [ -n "$S3_BUCKET" ] || usage_die "--s3-bucket is required for s3"
@@ -177,14 +191,16 @@ preflight() {
     if helm status "$RELEASE" --namespace "$NAMESPACE" >/dev/null 2>&1; then
         die "Helm release already exists: $RELEASE"
     fi
-    kubectl -n "$NAMESPACE" get secret "$SSH_SECRET" >/dev/null \
-        || die "SSH Secret does not exist: $SSH_SECRET"
-    if [ -n "$KNOWN_HOSTS_CONFIGMAP" ]; then
-        kubectl -n "$NAMESPACE" get configmap "$KNOWN_HOSTS_CONFIGMAP" >/dev/null \
-            || die "known-hosts ConfigMap does not exist: $KNOWN_HOSTS_CONFIGMAP"
-    else
-        kubectl -n "$NAMESPACE" get secret "$KNOWN_HOSTS_SECRET" >/dev/null \
-            || die "known-hosts Secret does not exist: $KNOWN_HOSTS_SECRET"
+    if [ "$SSH_ENABLED" -eq 1 ]; then
+        kubectl -n "$NAMESPACE" get secret "$SSH_SECRET" >/dev/null \
+            || die "SSH Secret does not exist: $SSH_SECRET"
+        if [ -n "$KNOWN_HOSTS_CONFIGMAP" ]; then
+            kubectl -n "$NAMESPACE" get configmap "$KNOWN_HOSTS_CONFIGMAP" >/dev/null \
+                || die "known-hosts ConfigMap does not exist: $KNOWN_HOSTS_CONFIGMAP"
+        elif [ -n "$KNOWN_HOSTS_SECRET" ]; then
+            kubectl -n "$NAMESPACE" get secret "$KNOWN_HOSTS_SECRET" >/dev/null \
+                || die "known-hosts Secret does not exist: $KNOWN_HOSTS_SECRET"
+        fi
     fi
     if [ "$MODE" = s3 ]; then
         kubectl -n "$NAMESPACE" get secret "$S3_SECRET" >/dev/null \
@@ -196,11 +212,20 @@ preflight() {
 
 record_run_info() {
     mkdir -p "$EVIDENCE"
+    local repository_scheme=ssh
+    if [[ "${REPOSITORY_URL,,}" == https://* ]]; then
+        repository_scheme=https
+    fi
     {
         printf 'run_id=%s\nnamespace=%s\nrelease=%s\nmode=%s\n' \
             "$RUN_ID" "$NAMESPACE" "$RELEASE" "$MODE"
-        printf 'image=%s\nrepository_name=%s\nrepository_url=%s\n' \
-            "$IMAGE_REF" "$REPOSITORY_NAME" "$REPOSITORY_URL"
+        printf 'image=%s\nrepository_name=%s\nrepository_scheme=%s\nssh_enabled=%s\n' \
+            "$IMAGE_REF" "$REPOSITORY_NAME" "$repository_scheme" "$SSH_ENABLED"
+        if [ "$SSH_ENABLED" -eq 1 ]; then
+            printf 'host_key_policy=accept-new\n'
+        else
+            printf 'host_key_policy=disabled\n'
+        fi
         printf 'started_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null | sed 's/^/revision=/' \
             || printf 'revision=unavailable\n'
@@ -210,37 +235,44 @@ record_run_info() {
 }
 
 write_values() {
-    local known_hosts_block
-    if [ -n "$KNOWN_HOSTS_CONFIGMAP" ]; then
-        known_hosts_block="    existingConfigMap: $(yaml_quote "$KNOWN_HOSTS_CONFIGMAP")"
-    else
-        known_hosts_block="    existingSecret: $(yaml_quote "$KNOWN_HOSTS_SECRET")"
+    local image_registry_line=""
+    local ssh_config
+    local s3_endpoint_yaml='""' s3_bucket_yaml='""' s3_prefix_yaml='""'
+    local s3_secret_yaml='""' ca_secret_yaml='""'
+
+    if [ -n "$IMAGE_REGISTRY" ]; then
+        image_registry_line="  registry: $(yaml_quote "$IMAGE_REGISTRY")"
     fi
-    {
-        printf 'schedule: %s\nsuspend: true\nbackoffLimit: 0\n' "$(yaml_quote '0 0 1 1 *')"
-        printf 'activeDeadlineSeconds: 1800\nsuccessfulJobsHistoryLimit: 0\nfailedJobsHistoryLimit: 0\n'
-        printf 'image:\n'
-        if [ -n "$IMAGE_REGISTRY" ]; then
-            printf '  registry: %s\n' "$(yaml_quote "$IMAGE_REGISTRY")"
+    if [ "$SSH_ENABLED" -eq 1 ]; then
+        ssh_config="$(printf 'ssh:\n  enabled: true\n  hostKeyPolicy: accept-new\n  existingSecret: %s\n  privateKeyKey: ssh-privatekey' "$(yaml_quote "$SSH_SECRET")")"
+        if [ -n "$KNOWN_HOSTS_CONFIGMAP" ]; then
+            ssh_config="${ssh_config}"$'\n'"$(printf '  knownHosts:\n    existingConfigMap: %s\n    key: known_hosts' "$(yaml_quote "$KNOWN_HOSTS_CONFIGMAP")")"
+        elif [ -n "$KNOWN_HOSTS_SECRET" ]; then
+            ssh_config="${ssh_config}"$'\n'"$(printf '  knownHosts:\n    existingSecret: %s\n    key: known_hosts' "$(yaml_quote "$KNOWN_HOSTS_SECRET")")"
         fi
-        printf '  repository: %s\n  tag: %s\n  digest: %s\n  pullPolicy: Always\n' \
-            "$(yaml_quote "$IMAGE_REPOSITORY")" "$(yaml_quote '0.0.0')" \
-            "$(yaml_quote "$IMAGE_DIGEST")"
-        printf 'repositories:\n  - name: %s\n    url: %s\n' \
-            "$(yaml_quote "$REPOSITORY_NAME")" "$(yaml_quote "$REPOSITORY_URL")"
-        printf 'ssh:\n  existingSecret: %s\n  privateKeyKey: ssh-privatekey\n  knownHosts:\n' \
-            "$(yaml_quote "$SSH_SECRET")"
-        printf '%s\n    key: known_hosts\n' "$known_hosts_block"
-        printf 'retention:\n  enabled: false\n'
-        if [ "$MODE" = local ]; then
-            printf 'storage:\n  type: local\n  local:\n    mountPath: /backup\n    existingClaim: %s\n    persistence:\n      enabled: true\n      size: 1Gi\n' "$(yaml_quote '')"
-        else
-            printf 'storage:\n  type: s3\n  s3:\n    endpoint: %s\n    region: us-east-1\n    bucket: %s\n    prefix: %s\n    forcePathStyle: true\n    credentialsMode: secret\n    existingSecret: %s\n    accessKeyIdKey: AWS_ACCESS_KEY_ID\n    secretAccessKeyKey: AWS_SECRET_ACCESS_KEY\n' \
-                "$(yaml_quote "$S3_ENDPOINT")" "$(yaml_quote "$S3_BUCKET")" \
-                "$(yaml_quote "$S3_PREFIX")" "$(yaml_quote "$S3_SECRET")"
-            printf 'customCA:\n  existingSecret: %s\n  key: ca.crt\n' "$(yaml_quote "$CA_SECRET")"
-        fi
-    } >"$EVIDENCE/values.yaml"
+    else
+        ssh_config=$'ssh:\n  enabled: false'
+    fi
+    if [ "$MODE" = s3 ]; then
+        s3_endpoint_yaml="$(yaml_quote "$S3_ENDPOINT")"
+        s3_bucket_yaml="$(yaml_quote "$S3_BUCKET")"
+        s3_prefix_yaml="$(yaml_quote "$S3_PREFIX")"
+        s3_secret_yaml="$(yaml_quote "$S3_SECRET")"
+        ca_secret_yaml="$(yaml_quote "$CA_SECRET")"
+    fi
+
+    render_template "$TEMPLATE_DIR/values-$MODE.yaml.tpl" "$EVIDENCE/values.yaml" \
+        IMAGE_REGISTRY_LINE "$image_registry_line" \
+        IMAGE_REPOSITORY "$(yaml_quote "$IMAGE_REPOSITORY")" \
+        IMAGE_DIGEST "$(yaml_quote "$IMAGE_DIGEST")" \
+        REPOSITORY_NAME "$(yaml_quote "$REPOSITORY_NAME")" \
+        REPOSITORY_URL "$(yaml_quote "$REPOSITORY_URL")" \
+        SSH_CONFIG "$ssh_config" \
+        S3_ENDPOINT "$s3_endpoint_yaml" \
+        S3_BUCKET "$s3_bucket_yaml" \
+        S3_PREFIX "$s3_prefix_yaml" \
+        S3_SECRET "$s3_secret_yaml" \
+        CA_SECRET "$ca_secret_yaml"
 }
 
 render_and_install() {
@@ -257,30 +289,7 @@ render_and_install() {
         -l "app.kubernetes.io/instance=$RELEASE" -o jsonpath='{.items[0].metadata.name}')"
     [ -n "$CRONJOB" ] || die "installed release has no CronJob"
     kubectl -n "$NAMESPACE" get cronjob "$CRONJOB" -o json >"$EVIDENCE/cronjob.json"
-    python3 - "$EVIDENCE/cronjob.json" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as fh:
-    cron = json.load(fh)
-pod = cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]
-security = pod.get("securityContext", {})
-if security.get("runAsNonRoot") is not True:
-    raise SystemExit("pod runAsNonRoot must be true")
-if security.get("runAsUser") != 10001 or security.get("runAsGroup") != 10001:
-    raise SystemExit("pod must run as uid/gid 10001")
-init = next(c for c in pod["initContainers"] if c["name"] == "prepare")
-main = next(c for c in pod["containers"] if c["name"] == "git-repo-backup")
-if init.get("securityContext", {}).get("runAsUser") != 0:
-    raise SystemExit("prepare initContainer must run as uid 0")
-main_sec = main.get("securityContext", {})
-if main_sec.get("readOnlyRootFilesystem") is not True:
-    raise SystemExit("main container must use a read-only root filesystem")
-if main_sec.get("allowPrivilegeEscalation") is not False:
-    raise SystemExit("main container must forbid privilege escalation")
-if "ALL" not in main_sec.get("capabilities", {}).get("drop", []):
-    raise SystemExit("main container must drop ALL capabilities")
-PY
+    python3 "$SCRIPT_DIR/check-cronjob.py" "$EVIDENCE/cronjob.json" "$SSH_ENABLED"
 }
 
 run_chart_job() {
@@ -289,8 +298,7 @@ run_chart_job() {
         >"$EVIDENCE/create-job.log"
     kubectl -n "$NAMESPACE" label job "$JOB" \
         "git-repo-backup.validation/run=$RUN_ID" --overwrite >/dev/null
-    if ! kubectl -n "$NAMESPACE" wait --for=condition=complete \
-        --timeout=35m "job/$JOB" >"$EVIDENCE/job-wait.log" 2>&1; then
+    if ! wait_for_job; then
         kubectl -n "$NAMESPACE" describe job "$JOB" >"$EVIDENCE/job-describe.log" || true
         kubectl -n "$NAMESPACE" get job "$JOB" -o yaml >"$EVIDENCE/job.yaml" || true
         kubectl -n "$NAMESPACE" get pod -l "job-name=$JOB" -o yaml >"$EVIDENCE/pod.yaml" || true
@@ -301,65 +309,76 @@ run_chart_job() {
     kubectl -n "$NAMESPACE" get pod -l "job-name=$JOB" -o yaml >"$EVIDENCE/pod.yaml"
     kubectl -n "$NAMESPACE" get events --sort-by=.lastTimestamp >"$EVIDENCE/events.log" || true
     kubectl -n "$NAMESPACE" logs "job/$JOB" --all-containers >"$EVIDENCE/job.log" 2>&1 || true
-    python3 - "$EVIDENCE/job.yaml" <<'PY'
-import json
-import sys
+    [ "$(kubectl -n "$NAMESPACE" get job "$JOB" -o jsonpath='{.status.succeeded}')" = "1" ] \
+        || die "chart-created Job did not report one successful completion"
+}
 
-with open(sys.argv[1], encoding="utf-8") as fh:
-    job = json.load(fh)
-if job.get("status", {}).get("succeeded") != 1:
-    raise SystemExit("chart-created Job did not report one successful completion")
-PY
+wait_for_job() {
+    local deadline=$((SECONDS + 2100))
+    : >"$EVIDENCE/job-wait.log"
+    while (( SECONDS < deadline )); do
+        local conditions
+        if ! conditions="$(kubectl -n "$NAMESPACE" get job "$JOB" \
+            -o jsonpath='{range .status.conditions[*]}{.type}={.status}{"\n"}{end}' \
+            2>&1)"; then
+            printf '%s\n' "$conditions" >>"$EVIDENCE/job-wait.log"
+            return 1
+        fi
+        printf '%s\n' "$conditions" >>"$EVIDENCE/job-wait.log"
+        if grep -q '^Complete=True$' <<<"$conditions"; then
+            return 0
+        fi
+        if grep -q '^Failed=True$' <<<"$conditions"; then
+            return 1
+        fi
+        sleep 5
+    done
+    printf 'timed out waiting for Job completion\n' >>"$EVIDENCE/job-wait.log"
+    return 1
+}
+
+check_known_hosts_state() {
+    [ "$SSH_ENABLED" -eq 1 ] || return 0
+    SSH_STATE_PVC="$(kubectl -n "$NAMESPACE" get pvc \
+        -l "app.kubernetes.io/instance=$RELEASE" \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' \
+        | awk '/-ssh-known-hosts$/ {print; exit}')"
+    [ -n "$SSH_STATE_PVC" ] || die "chart did not create an accept-new known-hosts PVC"
+
+    local checker image
+    checker="$RELEASE-known-hosts"
+    if [ "$MODE" = local ]; then
+        image="$INSPECTOR_IMAGE"
+    else
+        image="$MC_IMAGE"
+    fi
+    render_template "$TEMPLATE_DIR/known-hosts-checker.yaml" \
+        "$EVIDENCE/known-hosts-checker.yaml" \
+        CHECKER_NAME "$(yaml_quote "$checker")" \
+        NAMESPACE "$(yaml_quote "$NAMESPACE")" \
+        RUN_ID "$(yaml_quote "$RUN_ID")" \
+        CHECKER_IMAGE "$(yaml_quote "$image")" \
+        SSH_STATE_PVC "$(yaml_quote "$SSH_STATE_PVC")"
+    kubectl apply -f "$EVIDENCE/known-hosts-checker.yaml" >/dev/null
+    kubectl -n "$NAMESPACE" wait --for=condition=complete --timeout=5m "job/$checker" \
+        >"$EVIDENCE/known-hosts-checker-wait.log"
+    kubectl -n "$NAMESPACE" logs "job/$checker" >"$EVIDENCE/known-hosts-checker.log" 2>&1 || true
+    kubectl -n "$NAMESPACE" delete job "$checker" --ignore-not-found >/dev/null
 }
 
 create_local_checker() {
     PVC="$(kubectl -n "$NAMESPACE" get pvc -l "app.kubernetes.io/instance=$RELEASE" \
-        -o jsonpath='{.items[0].metadata.name}')"
+        -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | awk '/-backup$/ {print; exit}')"
     [ -n "$PVC" ] || die "chart did not create a local backup PVC"
     local checker
     checker="$RELEASE-inspect"
-    cat >"$EVIDENCE/local-checker.yaml" <<EOF
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: $checker
-  namespace: $NAMESPACE
-  labels:
-    git-repo-backup.validation/run: $RUN_ID
-spec:
-  backoffLimit: 0
-  template:
-    metadata:
-      labels:
-        git-repo-backup.validation/run: $RUN_ID
-    spec:
-      restartPolicy: Never
-      automountServiceAccountToken: false
-      containers:
-        - name: inspect
-          image: $INSPECTOR_IMAGE
-          command: ["sh", "-ec"]
-          args:
-            - |
-              count=0
-              for run in /backup/backups/*; do
-                [ -d "\$run" ] || continue
-                [ -f "\$run/_SUCCESS" ] || continue
-                [ -f "\$run/manifest.json" ] || exit 1
-                [ -f "\$run/checksums.sha256" ] || exit 1
-                find "\$run/repositories" -type f -name '*.tar.gz' -print -quit | grep -q .
-                count=\$((count + 1))
-              done
-              [ "\$count" -eq 1 ]
-          volumeMounts:
-            - name: backup
-              mountPath: /backup
-              readOnly: true
-      volumes:
-        - name: backup
-          persistentVolumeClaim:
-            claimName: $PVC
-EOF
+    render_template "$TEMPLATE_DIR/local-checker.yaml" \
+        "$EVIDENCE/local-checker.yaml" \
+        CHECKER_NAME "$(yaml_quote "$checker")" \
+        NAMESPACE "$(yaml_quote "$NAMESPACE")" \
+        RUN_ID "$(yaml_quote "$RUN_ID")" \
+        INSPECTOR_IMAGE "$(yaml_quote "$INSPECTOR_IMAGE")" \
+        PVC "$(yaml_quote "$PVC")"
     kubectl apply -f "$EVIDENCE/local-checker.yaml" >/dev/null
     kubectl -n "$NAMESPACE" wait --for=condition=complete --timeout=5m "job/$checker" \
         >"$EVIDENCE/local-checker-wait.log"
@@ -370,59 +389,17 @@ EOF
 create_s3_checker() {
     local checker
     checker="$RELEASE-inspect"
-    cat >"$EVIDENCE/s3-checker.yaml" <<EOF
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: $checker
-  namespace: $NAMESPACE
-  labels:
-    git-repo-backup.validation/run: $RUN_ID
-spec:
-  backoffLimit: 0
-  template:
-    metadata:
-      labels:
-        git-repo-backup.validation/run: $RUN_ID
-    spec:
-      restartPolicy: Never
-      automountServiceAccountToken: false
-      containers:
-        - name: inspect
-          image: $MC_IMAGE
-          env:
-            - name: AWS_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: $S3_SECRET
-                  key: AWS_ACCESS_KEY_ID
-            - name: AWS_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: $S3_SECRET
-                  key: AWS_SECRET_ACCESS_KEY
-            - name: SSL_CERT_FILE
-              value: /fixture-ca/ca.crt
-          command: ["/bin/sh", "-ec"]
-          args:
-            - |
-              export MC_CONFIG_DIR=/tmp/mc
-              mkdir -p /tmp/mc/certs/CAs
-              cp /fixture-ca/ca.crt /tmp/mc/certs/CAs/ca.crt
-              mc alias set backup "$S3_ENDPOINT" "\$AWS_ACCESS_KEY_ID" "\$AWS_SECRET_ACCESS_KEY" --api S3v4 --path auto
-              mc ls --recursive "backup/$S3_BUCKET/$S3_PREFIX/" | grep -E '[[:space:]]_SUCCESS$'
-          volumeMounts:
-            - name: ca
-              mountPath: /fixture-ca
-              readOnly: true
-      volumes:
-        - name: ca
-          secret:
-            secretName: $CA_SECRET
-            items:
-              - key: ca.crt
-                path: ca.crt
-EOF
+    render_template "$TEMPLATE_DIR/s3-checker.yaml" \
+        "$EVIDENCE/s3-checker.yaml" \
+        CHECKER_NAME "$(yaml_quote "$checker")" \
+        NAMESPACE "$(yaml_quote "$NAMESPACE")" \
+        RUN_ID "$(yaml_quote "$RUN_ID")" \
+        MC_IMAGE "$(yaml_quote "$MC_IMAGE")" \
+        S3_SECRET "$(yaml_quote "$S3_SECRET")" \
+        CA_SECRET "$(yaml_quote "$CA_SECRET")" \
+        S3_ENDPOINT "$(yaml_quote "$S3_ENDPOINT")" \
+        S3_BUCKET "$(yaml_quote "$S3_BUCKET")" \
+        S3_PREFIX "$(yaml_quote "$S3_PREFIX")"
     kubectl apply -f "$EVIDENCE/s3-checker.yaml" >/dev/null
     kubectl -n "$NAMESPACE" wait --for=condition=complete --timeout=5m "job/$checker" \
         >"$EVIDENCE/s3-checker-wait.log"
@@ -461,6 +438,7 @@ main() {
     trap cleanup EXIT
     render_and_install
     run_chart_job
+    check_known_hosts_state
     if [ "$MODE" = local ]; then
         create_local_checker
     else

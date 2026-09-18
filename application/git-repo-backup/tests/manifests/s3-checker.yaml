@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${CHECKER_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    git-repo-backup.validation/run: ${RUN_ID}
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        git-repo-backup.validation/run: ${RUN_ID}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: inspect
+          image: ${MC_IMAGE}
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ${S3_SECRET}
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ${S3_SECRET}
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: S3_ENDPOINT
+              value: ${S3_ENDPOINT}
+            - name: S3_BUCKET
+              value: ${S3_BUCKET}
+            - name: S3_PREFIX
+              value: ${S3_PREFIX}
+            - name: SSL_CERT_FILE
+              value: /fixture-ca/ca.crt
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              export MC_CONFIG_DIR=/tmp/mc
+              mkdir -p /tmp/mc/certs/CAs
+              cp /fixture-ca/ca.crt /tmp/mc/certs/CAs/ca.crt
+              mc alias set backup "$S3_ENDPOINT" "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" --api S3v4 --path auto
+              mc ls --recursive "backup/$S3_BUCKET/$S3_PREFIX/" | grep -E '[[:space:]]_SUCCESS$'
+          volumeMounts:
+            - name: ca
+              mountPath: /fixture-ca
+              readOnly: true
+      volumes:
+        - name: ca
+          secret:
+            secretName: ${CA_SECRET}
+            items:
+              - key: ca.crt
+                path: ca.crt

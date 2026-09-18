@@ -16,5 +16,8 @@ func loadRepositories(cfg *config.Config) ([]config.Repository, error) {
 	if err != nil {
 		return nil, observability.WrapSafe(observability.CodeInputInvalid, err.Error(), nil)
 	}
+	if err := config.ValidateSSHRequirement(repos, cfg.SSH.IsEnabled()); err != nil {
+		return nil, observability.WrapSafe(observability.CodeInputInvalid, err.Error(), nil)
+	}
 	return repos, nil
 }

@@ -50,6 +50,9 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	owner := NewOwnerUUID()
 	logger := opts.Logger.With("backupId", backupID, "backend", cfg.Storage.Type)
 	result := Result{BackupID: backupID}
+	if err := config.ValidateSSHRequirement(opts.Repos, cfg.SSH.IsEnabled()); err != nil {
+		return result, observability.WrapSafe(observability.CodeInputInvalid, err.Error(), nil)
+	}
 
 	runCtx, cancel := context.WithTimeout(ctx, cfg.MaxRunDuration)
 	defer cancel()
@@ -78,7 +81,12 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		cache.CleanupTemp(now, maxDuration(cfg.IncompleteMaxAge, grace))
 	}
 
-	gitRunner, err := gitmirror.NewRunner("/usr/bin/git", filepath.Join(ws.runDir, ".git-home"), cfg.GitTimeout)
+	gitRunner, err := gitmirror.NewRunner("/usr/bin/git", filepath.Join(ws.runDir, ".git-home"), cfg.GitTimeout,
+		gitmirror.SSHOptions{
+			PrivateKeyFile: cfg.SSH.PrivateKeyFile,
+			KnownHostsFile: cfg.SSH.KnownHostsFile,
+			HostKeyPolicy:  cfg.SSH.EffectiveHostKeyPolicy(),
+		})
 	if err != nil {
 		return result, err
 	}

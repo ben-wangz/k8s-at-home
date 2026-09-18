@@ -1,8 +1,8 @@
 # git-repo-backup chart values.
 #
-# The defaults intentionally contain no example repositories or secrets:
-# a bare `helm lint` fails on the missing required configuration, and the
-# examples under chart/examples/ provide complete, installable values.
+# The defaults are schema-valid and render a local backup for this project.
+# Provision the referenced SSH Secret before running the default workload, or
+# select a complete values example instead. The chart manages accept-new state.
 
 nameOverride: ""
 fullnameOverride: ""
@@ -22,24 +22,39 @@ image:
   registry: ghcr.io
   repository: ben-wangz/k8s-at-home-git-repo-backup-image
   # Managed by forgekit; do not edit manually.
-  tag: 0.2.1
+  tag: 0.4.0
   digest: ""
   pullPolicy: IfNotPresent
 imagePullSecrets: []
 
 # Exactly one repository source: an inline list or an existing ConfigMap.
-repositories: []
+repositories:
+  - name: k8s-at-home
+    url: git@github.com:ben-wangz/k8s-at-home.git
 repositoriesConfigMap:
   existingConfigMap: ""
   key: repositories.yaml
 
 ssh:
-  existingSecret: ""
+  enabled: true
+  # accept-new persists first-seen host keys and rejects changed keys.
+  # Use pinned for a pre-provisioned known_hosts file, or none to disable
+  # host-key verification explicitly.
+  hostKeyPolicy: accept-new
+  existingSecret: git-repo-backup-ssh
   privateKeyKey: ssh-privatekey
   knownHosts:
     existingConfigMap: ""
     existingSecret: ""
     key: known_hosts
+    existingClaim: ""
+    persistence:
+      enabled: true
+      storageClass: ""
+      accessModes:
+        - ReadWriteOnce
+      size: 1Mi
+      annotations: {}
 
 storage:
   type: local
@@ -149,3 +164,7 @@ cronJobAnnotations: {}
 networkPolicy:
   enabled: false
   egress: []
+
+# Additional Kubernetes manifests rendered with the release. Values are
+# processed as Helm templates, matching the convention used by sibling charts.
+extraDeploy: []

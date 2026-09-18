@@ -1,0 +1,34 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${CHECKER_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    git-repo-backup.validation/run: ${RUN_ID}
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        git-repo-backup.validation/run: ${RUN_ID}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: inspect
+          image: ${CHECKER_IMAGE}
+          command: ["sh", "-ec"]
+          args:
+            - test -s /known-hosts-state/state/known_hosts
+          volumeMounts:
+            - name: known-hosts-state
+              mountPath: /known-hosts-state
+              readOnly: true
+      volumes:
+        - name: known-hosts-state
+          persistentVolumeClaim:
+            claimName: ${SSH_STATE_PVC}

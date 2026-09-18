@@ -1,0 +1,32 @@
+{{- if and .Values.ssh.enabled (eq (default "accept-new" .Values.ssh.hostKeyPolicy) "accept-new") (not .Values.ssh.knownHosts.existingClaim) .Values.ssh.knownHosts.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "git-repo-backup.rawfullname" . }}-ssh-known-hosts
+  labels:
+    {{- include "git-repo-backup.labels" . | nindent 4 }}
+    {{- with .Values.commonLabels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    # Host keys are trust state and must survive release recreation.
+    helm.sh/resource-policy: keep
+    {{- with .Values.commonAnnotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.ssh.knownHosts.persistence.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.ssh.knownHosts.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.ssh.knownHosts.persistence.size | quote }}
+  {{- $sc := .Values.ssh.knownHosts.persistence.storageClass | default "" }}
+  {{- if eq $sc "-" }}
+  storageClassName: ""
+  {{- else if $sc }}
+  storageClassName: {{ $sc | quote }}
+  {{- end }}
+{{- end }}

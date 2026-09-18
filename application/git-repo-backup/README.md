@@ -1,14 +1,14 @@
 # git-repo-backup
 
 Periodic, provider-independent backups of Git repositories over the
-standard Git SSH protocol. Each run produces one backup directory (local
+standard Git SSH or HTTPS protocol. Each run produces one backup directory (local
 PVC) or one object prefix (S3-compatible storage) containing one `tar.gz`
 mirror archive per repository, a manifest, a checksum file, and a
 `_SUCCESS` commit marker written last.
 
-Works with any SSH Git server: Gitea, GitLab, GitHub, Forgejo, or a plain
-`ssh` + `git-shell` host. The repository list is explicit configuration;
-there is no provider API integration.
+Works with Git services such as Gitea, GitLab, GitHub, and Forgejo through
+SSH or HTTPS. The repository list is explicit configuration; there is no
+provider API integration.
 
 ## What is and is not backed up
 
@@ -52,7 +52,9 @@ git clone --mirror / git remote update  →  git fsck --full  →  tar.gz + SHA-
 
 ### SSH key Secret
 
-The chart never generates or stores private keys in Helm state. Create a
+SSH material is required only when the repository list contains SSH URLs and
+`ssh.enabled` is true (the default). The chart never generates or stores
+private keys in Helm state. Create a
 read-only identity (a Deploy Key per repository, or a dedicated backup
 account for services that do not allow Deploy Key reuse) and create the
 Secret from local files:
@@ -65,13 +67,15 @@ kubectl create secret generic git-repo-backup-ssh \
 Encrypted (passphrase-protected) keys are not supported: the job must
 never block on a prompt.
 
-### Pinned known_hosts
+### SSH host-key policy
 
-The backup always runs with `StrictHostKeyChecking=yes` against a pinned
-key file; `ssh-keyscan` is never run automatically, because that would
-trust whichever server answers at backup time. Verify the host key through
-a trusted channel (provider docs, `ssh-keyscan` from a machine you trust
-while you compare the fingerprint out-of-band), then create the ConfigMap:
+The default `ssh.hostKeyPolicy: accept-new` uses OpenSSH TOFU behavior:
+the first key seen for a host is written to a small dedicated PVC, and
+later connections verify it. A changed key fails the run. The chart creates
+this PVC by default and keeps it when the release is uninstalled. Set
+`ssh.knownHosts.existingClaim` to use an existing PVC instead.
+
+An optional ConfigMap or Secret can seed the state before the first run:
 
 ```bash
 ssh-keyscan -p 22 git.example.com   # compare against the fingerprint you obtained
@@ -79,12 +83,28 @@ kubectl create configmap git-repo-backup-known-hosts \
   --from-file=known_hosts=./known_hosts
 ```
 
-A Secret works equally well (`ssh.knownHosts.existingSecret`).
+A Secret works equally well (`ssh.knownHosts.existingSecret`). For
+pre-pinned verification, set `ssh.hostKeyPolicy: pinned`; this requires
+one of those two sources and never writes new keys. To disable host-key
+verification explicitly, set `ssh.hostKeyPolicy: none`; this uses
+`UserKnownHostsFile=/dev/null` and provides no protection against a
+man-in-the-middle attack.
+
+For public HTTPS repositories, set `ssh.enabled: false`; no SSH Secret or
+known-hosts ConfigMap is mounted. HTTPS credentials are deliberately not
+configured by this application. A private HTTPS repository therefore fails
+without prompting or exposing credentials; recognizable HTTP authentication
+responses are reported as `authentication_failed`.
 
 ### Supported URL syntax (v1 narrowing)
 
 - `ssh://[user@]host[:port]/path`
 - SCP style `[user@]host:path` (no port; bracket IPv6 like `git@[2001:db8::1]:path`)
+- `https://host[:port]/path` for public or anonymously readable repositories
+
+HTTPS URLs must not contain userinfo, query strings, or fragments. Only
+HTTPS is accepted; HTTP and other Git transports remain blocked. TLS
+verification stays enabled, and the image's CA bundle is used.
 
 Repository paths accept ASCII letters, digits, `/ . _ - ~`, and Unicode
 letters/digits. Shell metacharacters, spaces, backslashes, passwords,
@@ -93,8 +113,15 @@ the `ssh://` form.
 
 ## Installation
 
-See `chart/examples/` for complete values. Bare `helm lint` fails by
-design — the defaults contain no example repositories or credentials.
+The default values are schema-valid and render a local backup for this
+project. They reference `git-repo-backup-ssh`; the chart creates the
+`accept-new` host-key state PVC. Provision the SSH Secret before running
+the default workload, or use one of the complete values examples under
+`chart/examples/`.
+
+For an anonymously readable HTTPS repository, use
+`chart/examples/https-public.yaml` or set `ssh.enabled: false` alongside an
+HTTPS-only `repositories` list.
 
 ### 1. Local storage, chart-managed PVC
 
@@ -106,6 +133,12 @@ helm upgrade --install git-repo-backup ./application/git-repo-backup/chart \
 
 The created PVC carries `helm.sh/resource-policy: keep`; uninstalling the
 release does not delete backup data.
+
+To keep a persistent Git mirror cache on that same PVC, use
+`chart/examples/local-cache.yaml` or set `cache.enabled: true` with an empty
+`cache.existingClaim`. The prepare initContainer creates and hands over the
+`<mountPath>/cache` sibling on a fresh chart-managed PVC. Use
+`cache.existingClaim` when the cache should live on a separate PVC.
 
 ### 2. Local storage, existing PVC
 
@@ -137,14 +170,24 @@ serviceAccount subject.
 
 ### External repository list
 
-For large or externally managed lists, create a ConfigMap with exactly
-this structure (`examples/repositories.yaml`):
+For large or externally managed lists, set
+`repositoriesConfigMap.existingConfigMap` and create a ConfigMap with exactly
+this structure:
 
 ```yaml
 repositories:
-  - name: example-main
-    url: git@git.example.com:team/main.git
+  - name: k8s-at-home
+    url: git@github.com:ben-wangz/k8s-at-home.git
 ```
+
+The `chart/examples/local-existing-pvc.yaml` values file demonstrates keeping
+that ConfigMap in the same Helm release with `extraDeploy`. For a separately
+managed ConfigMap, create it out of band with `kubectl create configmap` and
+use the same `repositoriesConfigMap` settings.
+
+`extraDeploy` accepts a list of Kubernetes manifests. Each manifest is
+serialized and passed through Helm's `tpl` renderer, so release values can be
+reused inside the additional resources.
 
 `repositories` (inline) and `repositoriesConfigMap.existingConfigMap` are
 mutually exclusive. Changing the list affects future runs only; published
@@ -229,8 +272,8 @@ Notes:
 | --- | --- |
 | `prepare` initContainer fails with "volume root is not empty and not owned by the target uid" | The PVC root has wrong ownership. On root-squash storage, pre-create the root directory with UID/GID from `podSecurityContext` (default 10001/10001). |
 | Cluster forbids root initContainers | The default design needs one root initContainer with only `CAP_CHOWN` to install the `0400` key for the non-root main container. Clusters forbidding it must pre-provision readable key material and are outside v1's default install; the main container never runs as root. |
-| `host_key_verification_failed` | known_hosts does not pin the current server key. Fix the ConfigMap/Secret; never disable host key checking. |
-| `authentication_failed` | Key rejected: check Deploy Key / account read access and that the key is unencrypted. |
+| `host_key_verification_failed` | The remote key is unknown or changed under `pinned`/`accept-new`. Review the fingerprint and update the state or ConfigMap/Secret deliberately. |
+| `authentication_failed` | SSH: check Deploy Key/account read access and that the key is unencrypted. HTTPS: the repository requires credentials, which this application does not provide. |
 | `publish_conflict: backup id already exists` | Same-second collision or a concurrent writer; the existing backup was not touched. Re-run. |
 | `filesystem_capability_missing` | Volume lacks atomic no-replace rename (e.g. some NFS configurations). Use a filesystem that supports it. |
 | Job failed but `published=true` | The backup is complete; retention failed afterwards. The storage-growth problem is surfaced without invalidating the backup. |

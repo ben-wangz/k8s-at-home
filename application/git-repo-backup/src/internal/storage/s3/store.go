@@ -67,8 +67,8 @@ type claimBody struct {
 
 // Begin reserves the backup ID: the final prefix must be empty, the claim
 // must be created conditionally, and the final prefix must still be empty
-// afterwards. A claim whose response was lost counts only when its content
-// belongs to this process.
+// afterwards. An uncertain claim response fails closed because ownership
+// cannot be safely established for subsequent writes.
 func (s *Store) Begin(ctx context.Context, id storage.RunIdentity) error {
 	final := runPrefix(s.prefix, id.BackupID)
 	empty, err := s.prefixIsEmpty(ctx, final)
@@ -85,8 +85,13 @@ func (s *Store) Begin(ctx context.Context, id storage.RunIdentity) error {
 	}
 	ck := claimKey(s.prefix, id.BackupID)
 	if err := s.putIfAbsent(ctx, ck, body, "application/json"); err != nil {
-		if errors.Is(err, errExists) || isResponseUncertain(err) {
-			return s.reconcileClaim(ctx, ck, body)
+		if errors.Is(err, errExists) {
+			return observability.WrapSafe(observability.CodePublishConflict,
+				"backup id claim already exists", err)
+		}
+		if isResponseUncertain(err) {
+			return observability.WrapSafe(observability.CodePublishUnknown,
+				"claim creation outcome is unknown; refusing to continue", err)
 		}
 		return err
 	}
@@ -99,21 +104,6 @@ func (s *Store) Begin(ctx context.Context, id storage.RunIdentity) error {
 			"data appeared in final prefix during begin; leaving it untouched", nil)
 	}
 	s.identity = id
-	return nil
-}
-
-// reconcileClaim decides ownership of an existing or uncertain claim: only a
-// byte-identical match with this process resumes; anything else fails.
-func (s *Store) reconcileClaim(ctx context.Context, key string, want []byte) error {
-	got, err := s.getSmallObject(ctx, key)
-	if err != nil {
-		return observability.WrapSafe(observability.CodePublishConflict,
-			"cannot determine claim ownership; refusing to continue", err)
-	}
-	if string(got) != string(want) {
-		return observability.WrapSafe(observability.CodePublishConflict,
-			"backup id claimed by another owner", nil)
-	}
 	return nil
 }
 

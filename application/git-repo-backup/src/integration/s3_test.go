@@ -43,6 +43,7 @@ func writeS3Config(t *testing.T, rc s3RunConfig) string {
 	body := fmt.Sprintf(`schemaVersion: 1
 repositoriesFile: %s
 ssh:
+  hostKeyPolicy: pinned
   privateKeyFile: /etc/git-repo-backup/ssh/id
   knownHostsFile: /etc/git-repo-backup/ssh/known_hosts
 storage:

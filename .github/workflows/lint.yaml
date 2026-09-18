@@ -142,23 +142,60 @@ jobs:
           go-version: ${{ needs.discover_go.outputs.gofmt_version }}
           cache: false
 
-      - name: validate-codespace-chart
+      - name: validate-charts
+        shell: bash
         run: |
-          helm dependency build "$GITHUB_WORKSPACE/application/codespace/chart"
-          helm lint "$GITHUB_WORKSPACE/application/codespace/chart" --strict
-          helm template codespace "$GITHUB_WORKSPACE/application/codespace/chart" \
-            --namespace codespace-ci \
-            --set podmanNetwork.subnet=10.77.0.0/16 \
-            --set podmanNetwork.gateway=10.77.0.1 \
-            > /dev/null
+          set -Eeuo pipefail
 
-      - name: validate-frp-chart
-        run: |
-          helm dependency build "$GITHUB_WORKSPACE/application/frp/chart"
-          helm lint "$GITHUB_WORKSPACE/application/frp/chart" --strict
-          helm template frp "$GITHUB_WORKSPACE/application/frp/chart" \
-            --namespace frp-ci \
-            > /dev/null
+          charts=()
+          while IFS= read -r -d '' chart_file; do
+            charts+=("$(dirname "$chart_file")")
+          done < <(
+            find "$GITHUB_WORKSPACE/application" \
+              -type f -path '*/chart/Chart.yaml' -print0 | sort -z
+          )
+
+          if ((${#charts[@]} == 0)); then
+            echo "No Helm charts found" >&2
+            exit 1
+          fi
+
+          for chart_dir in "${charts[@]}"; do
+            chart_name="$(basename "$(dirname "$chart_dir")")"
+            echo "Validating chart: ${chart_name}"
+            helm dependency build "$chart_dir"
+            helm lint "$chart_dir" --strict
+            helm template "$chart_name" "$chart_dir" \
+              --namespace "${chart_name}-ci" \
+              > /dev/null
+
+            if [[ ! -d "$chart_dir/examples" ]]; then
+              continue
+            fi
+
+            examples=()
+            while IFS= read -r -d '' values_file; do
+              examples+=("$values_file")
+            done < <(
+              find "$chart_dir/examples" -maxdepth 1 -type f -name '*.yaml' \
+                -print0 | sort -z
+            )
+
+            if ((${#examples[@]} == 0)); then
+              echo "${chart_dir}/examples exists but contains no YAML values" >&2
+              exit 1
+            fi
+
+            for values_file in "${examples[@]}"; do
+              example_name="$(basename "$values_file" .yaml)"
+              echo "Validating ${chart_name} values: ${example_name}"
+              helm lint "$chart_dir" --strict -f "$values_file"
+              helm template "${chart_name}-${example_name}" "$chart_dir" \
+                --namespace "${chart_name}-ci" \
+                -f "$values_file" \
+                > /dev/null
+            done
+          done
 
       - name: run-forgekit-lint
         env:

@@ -32,10 +32,29 @@ type Config struct {
 	retentionPresent bool
 }
 
-// SSHConfig points at the prepared private key and pinned known_hosts files.
+// SSHConfig controls the optional SSH material used by SSH repository URLs.
 type SSHConfig struct {
+	// Enabled is a pointer so standalone configurations that predate this
+	// field retain the SSH default while chart values can explicitly disable it.
+	Enabled        *bool  `yaml:"enabled"`
+	HostKeyPolicy  string `yaml:"hostKeyPolicy"`
 	PrivateKeyFile string `yaml:"privateKeyFile"`
 	KnownHostsFile string `yaml:"knownHostsFile"`
+}
+
+// IsEnabled reports whether SSH material is required for this configuration.
+// An omitted field preserves the original SSH-enabled behavior.
+func (c SSHConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
+}
+
+// EffectiveHostKeyPolicy returns the policy used by standalone configs that
+// omit the field. New deployments use OpenSSH's TOFU behavior by default.
+func (c SSHConfig) EffectiveHostKeyPolicy() string {
+	if c.HostKeyPolicy == "" {
+		return DefaultSSHHostKeyPolicy
+	}
+	return c.HostKeyPolicy
 }
 
 // StorageConfig selects the local or S3 backend.
@@ -83,6 +102,7 @@ type PrepareConfig struct {
 	TargetGID           int    `yaml:"targetGID"`
 	InputPrivateKeyFile string `yaml:"inputPrivateKeyFile"`
 	InputKnownHostsFile string `yaml:"inputKnownHostsFile"`
+	KnownHostsStateFile string `yaml:"knownHostsStateFile"`
 	SSHDir              string `yaml:"sshDir"`
 	TempDir             string `yaml:"tempDir"`
 }

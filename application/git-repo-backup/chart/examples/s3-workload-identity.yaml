@@ -9,6 +9,7 @@ repositories:
     url: git@github.com:team/main.git
 
 ssh:
+  enabled: true
   existingSecret: git-repo-backup-ssh
   knownHosts:
     existingConfigMap: git-repo-backup-known-hosts

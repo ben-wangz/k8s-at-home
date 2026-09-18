@@ -30,6 +30,7 @@ func testConfig(t *testing.T) (*config.Config, string) {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{
+		SSH:       config.SSHConfig{HostKeyPolicy: "pinned"},
 		Storage:   config.StorageConfig{Type: "local", Local: config.LocalStorage{Root: backup}},
 		Workspace: config.WorkspaceConfig{Root: workspace},
 		Prepare: config.PrepareConfig{
@@ -82,6 +83,56 @@ func TestPrepareSSHVolume(t *testing.T) {
 	}
 }
 
+func TestPrepareAcceptNewKnownHostsState(t *testing.T) {
+	cfg, dir := testConfig(t)
+	cfg.SSH.HostKeyPolicy = "accept-new"
+	stateVolume := filepath.Join(dir, "known-hosts-state")
+	if err := os.Mkdir(stateVolume, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Prepare.InputKnownHostsFile = ""
+	cfg.Prepare.KnownHostsStateFile = filepath.Join(stateVolume, "state", "known_hosts")
+
+	if err := Run(cfg); err != nil {
+		t.Fatal(err)
+	}
+	stateInfo, err := os.Lstat(cfg.Prepare.KnownHostsStateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stateInfo.Mode().IsRegular() || stateInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("accept-new state file mode wrong: %v", stateInfo.Mode())
+	}
+	if stateInfo.Size() != 0 {
+		t.Fatal("accept-new state should start empty without a seed")
+	}
+	uid, gid, mode := dirOwnerMode(t, filepath.Dir(cfg.Prepare.KnownHostsStateFile))
+	if uid != cfg.Prepare.TargetUID || gid != cfg.Prepare.TargetGID || mode != 0o700 {
+		t.Fatalf("accept-new state directory ownership wrong: uid=%d gid=%d mode=%v", uid, gid, mode)
+	}
+	if err := Run(cfg); err != nil {
+		t.Fatalf("second accept-new prepare must be a no-op: %v", err)
+	}
+}
+
+func TestPrepareSkipsSSHWhenDisabled(t *testing.T) {
+	cfg, _ := testConfig(t)
+	enabled := false
+	cfg.SSH.Enabled = &enabled
+	if err := os.RemoveAll(cfg.Prepare.SSHDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Dir(cfg.Prepare.InputPrivateKeyFile)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Dir(cfg.Prepare.InputKnownHostsFile)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run(cfg); err != nil {
+		t.Fatalf("HTTPS-only preparation must not require SSH inputs: %v", err)
+	}
+}
+
 func TestPrepareVolumeRoots(t *testing.T) {
 	cfg, _ := testConfig(t)
 	if err := Run(cfg); err != nil {
@@ -92,6 +143,22 @@ func TestPrepareVolumeRoots(t *testing.T) {
 		if uid != cfg.Prepare.TargetUID || gid != cfg.Prepare.TargetGID || mode != 0o700 {
 			t.Fatalf("volume root %s not handed over: uid=%d gid=%d mode=%v", root, uid, gid, mode)
 		}
+	}
+}
+
+func TestPrepareCreatesLocalCacheSubdirectory(t *testing.T) {
+	cfg, _ := testConfig(t)
+	cfg.Cache = config.CacheConfig{
+		Enabled: true,
+		Root:    filepath.Join(cfg.Storage.Local.Root, "cache"),
+	}
+
+	if err := Run(cfg); err != nil {
+		t.Fatalf("fresh local cache directory must be prepared: %v", err)
+	}
+	uid, gid, mode := dirOwnerMode(t, cfg.Cache.Root)
+	if uid != cfg.Prepare.TargetUID || gid != cfg.Prepare.TargetGID || mode != 0o700 {
+		t.Fatalf("cache directory ownership wrong: uid=%d gid=%d mode=%v", uid, gid, mode)
 	}
 }
 

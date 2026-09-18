@@ -22,6 +22,9 @@ const sshKeyGenBinary = "/usr/bin/ssh-keygen"
 // parseable without a passphrase; encrypted keys are rejected because the
 // job must never block on a prompt.
 func preflight(cfg *config.Config) error {
+	if !cfg.SSH.IsEnabled() {
+		return nil
+	}
 	info, err := os.Lstat(cfg.SSH.PrivateKeyFile)
 	if err != nil {
 		return observability.WrapSafe(observability.CodeInputInvalid, "ssh private key file missing", err)
@@ -37,13 +40,20 @@ func preflight(cfg *config.Config) error {
 		return observability.WrapSafe(observability.CodeInputInvalid,
 			"ssh private key must be owned by the current uid", nil)
 	}
-	known, err := os.Lstat(cfg.SSH.KnownHostsFile)
-	if err != nil {
-		return observability.WrapSafe(observability.CodeInputInvalid, "known_hosts file missing", err)
-	}
-	if !known.Mode().IsRegular() || known.Size() == 0 {
-		return observability.WrapSafe(observability.CodeInputInvalid,
-			"known_hosts must be a non-empty regular file", nil)
+	if cfg.SSH.EffectiveHostKeyPolicy() != "none" {
+		known, err := os.Lstat(cfg.SSH.KnownHostsFile)
+		if err != nil {
+			return observability.WrapSafe(observability.CodeInputInvalid, "known_hosts file missing", err)
+		}
+		if !known.Mode().IsRegular() || (cfg.SSH.EffectiveHostKeyPolicy() == "pinned" && known.Size() == 0) {
+			return observability.WrapSafe(observability.CodeInputInvalid,
+				"known_hosts must be a regular file", nil)
+		}
+		if cfg.SSH.EffectiveHostKeyPolicy() == "accept-new" &&
+			(!ownedByCurrentUser(known) || known.Mode().Perm() != 0o600) {
+			return observability.WrapSafe(observability.CodeInputInvalid,
+				"known_hosts must be owned by the current uid with mode 0600", nil)
+		}
 	}
 	if err := checkKeyParses(cfg.SSH.PrivateKeyFile); err != nil {
 		return err

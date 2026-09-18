@@ -97,14 +97,22 @@ spec:
                 - name: config
                   mountPath: /etc/git-repo-backup/config
                   readOnly: true
+                {{- if .Values.ssh.enabled }}
                 - name: input-ssh
                   mountPath: /input/ssh
                   readOnly: true
+                {{- if or .Values.ssh.knownHosts.existingConfigMap .Values.ssh.knownHosts.existingSecret }}
                 - name: input-known-hosts
                   mountPath: /input/known-hosts
                   readOnly: true
+                {{- end }}
                 - name: prepared-ssh
                   mountPath: /prepared-ssh
+                {{- if eq (default "accept-new" .Values.ssh.hostKeyPolicy) "accept-new" }}
+                - name: known-hosts-state
+                  mountPath: /known-hosts-state
+                {{- end }}
+                {{- end }}
                 - name: tmp
                   mountPath: /tmp
                 {{- if eq .Values.storage.type "local" }}
@@ -146,9 +154,15 @@ spec:
                 - name: repositories
                   mountPath: /etc/git-repo-backup/repositories
                   readOnly: true
+                {{- if .Values.ssh.enabled }}
                 - name: prepared-ssh
                   mountPath: /etc/git-repo-backup/ssh
                   readOnly: true
+                {{- if eq (default "accept-new" .Values.ssh.hostKeyPolicy) "accept-new" }}
+                - name: known-hosts-state
+                  mountPath: /etc/git-repo-backup/ssh-state
+                {{- end }}
+                {{- end }}
                 - name: tmp
                   mountPath: /tmp
                 {{- if eq .Values.storage.type "local" }}
@@ -186,6 +200,7 @@ spec:
                 items:
                   - key: {{ include "git-repo-backup.repositoryListKey" . }}
                     path: repositories.yaml
+            {{- if .Values.ssh.enabled }}
             - name: prepared-ssh
               emptyDir:
                 medium: Memory
@@ -196,6 +211,7 @@ spec:
                 items:
                   - key: {{ .Values.ssh.privateKeyKey }}
                     path: id
+            {{- if or .Values.ssh.knownHosts.existingConfigMap .Values.ssh.knownHosts.existingSecret }}
             {{- if .Values.ssh.knownHosts.existingConfigMap }}
             - name: input-known-hosts
               configMap:
@@ -212,6 +228,13 @@ spec:
                 items:
                   - key: {{ .Values.ssh.knownHosts.key }}
                     path: known_hosts
+            {{- end }}
+            {{- end }}
+            {{- if eq (default "accept-new" .Values.ssh.hostKeyPolicy) "accept-new" }}
+            - name: known-hosts-state
+              persistentVolumeClaim:
+                claimName: {{ if .Values.ssh.knownHosts.existingClaim }}{{ .Values.ssh.knownHosts.existingClaim }}{{ else }}{{ include "git-repo-backup.rawfullname" . }}-ssh-known-hosts{{ end }}
+            {{- end }}
             {{- end }}
             - name: tmp
               emptyDir: {}

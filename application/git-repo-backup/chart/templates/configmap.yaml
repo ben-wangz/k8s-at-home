@@ -17,8 +17,12 @@ data:
     schemaVersion: 1
     repositoriesFile: /etc/git-repo-backup/repositories/repositories.yaml
     ssh:
+      enabled: {{ .Values.ssh.enabled }}
+      {{- if .Values.ssh.enabled }}
+      hostKeyPolicy: {{ .Values.ssh.hostKeyPolicy }}
       privateKeyFile: /etc/git-repo-backup/ssh/id
-      knownHostsFile: /etc/git-repo-backup/ssh/known_hosts
+      knownHostsFile: {{ include "git-repo-backup.knownHostsFile" . }}
+      {{- end }}
     storage:
       type: {{ .Values.storage.type }}
       {{- if eq .Values.storage.type "local" }}
@@ -52,7 +56,8 @@ data:
       targetUID: {{ .Values.podSecurityContext.runAsUser }}
       targetGID: {{ .Values.podSecurityContext.runAsGroup }}
       inputPrivateKeyFile: /input/ssh/id
-      inputKnownHostsFile: /input/known-hosts/known_hosts
+      inputKnownHostsFile: {{ include "git-repo-backup.inputKnownHostsFile" . }}
+      knownHostsStateFile: {{ include "git-repo-backup.prepareKnownHostsStateFile" . }}
       sshDir: /prepared-ssh
       tempDir: /tmp
     backup:

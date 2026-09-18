@@ -1,6 +1,6 @@
 # Local storage with a chart-managed PVC and an inline repository list.
-# Prerequisites: ssh.existingSecret with the private key, and a known-hosts
-# ConfigMap or Secret — see the README for creation commands.
+# Prerequisite: ssh.existingSecret with the private key. The known-hosts
+# ConfigMap below is an optional seed for the default accept-new policy.
 image:
   tag: 0.1.0
 
@@ -11,6 +11,7 @@ repositories:
     url: git@git.example.com:team/tools.git
 
 ssh:
+  enabled: true
   existingSecret: git-repo-backup-ssh
   privateKeyKey: ssh-privatekey
   knownHosts:

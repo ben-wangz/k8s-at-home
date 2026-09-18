@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -12,7 +13,8 @@ import (
 // newRunner builds a Runner with the system git binary; tests use local
 // repository paths which the runner itself accepts (URL narrowing happens
 // at configuration validation, not in the runner). The protocol allowlist
-// is relaxed to permit local-path transports; production only talks SSH.
+// is relaxed to permit local-path transports; production only talks SSH or
+// HTTPS.
 func newRunner(t *testing.T) *Runner {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -25,6 +27,44 @@ func newRunner(t *testing.T) *Runner {
 	}
 	r.hardening = append([]string{}, hooksFlags...)
 	return r
+}
+
+func TestBuildSSHCommandPolicies(t *testing.T) {
+	tests := []struct {
+		name       string
+		policy     string
+		knownHosts string
+		strict     string
+		known      string
+	}{
+		{name: "default accept new", policy: "", knownHosts: "/state/known_hosts", strict: "accept-new", known: "/state/known_hosts"},
+		{name: "pinned", policy: "pinned", knownHosts: "/pinned/known_hosts", strict: "yes", known: "/pinned/known_hosts"},
+		{name: "none", policy: "none", knownHosts: "/ignored/known_hosts", strict: "no", known: "/dev/null"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			command, err := BuildSSHCommand(SSHOptions{
+				PrivateKeyFile: "/key with space/id",
+				KnownHostsFile: tc.knownHosts,
+				HostKeyPolicy:  tc.policy,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(command, "StrictHostKeyChecking="+tc.strict) {
+				t.Fatalf("missing strict policy: %s", command)
+			}
+			if !strings.Contains(command, "UserKnownHostsFile='"+tc.known+"'") {
+				t.Fatalf("wrong known_hosts path: %s", command)
+			}
+			if !strings.Contains(command, "-i '/key with space/id'") {
+				t.Fatalf("private key path was not shell quoted: %s", command)
+			}
+		})
+	}
+	if _, err := BuildSSHCommand(SSHOptions{HostKeyPolicy: "invalid"}); err == nil {
+		t.Fatal("unknown host key policy must be rejected")
+	}
 }
 
 // seedBareRepo creates a bare repo with one commit on main plus a tag.

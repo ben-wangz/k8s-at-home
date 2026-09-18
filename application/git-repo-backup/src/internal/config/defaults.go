@@ -2,26 +2,36 @@ package config
 
 // Fixed filesystem layout shared by the chart, container, and binary.
 const (
-	DefaultRepositoriesFile  = "/etc/git-repo-backup/repositories/repositories.yaml"
-	DefaultSSHPrivateKeyFile = "/etc/git-repo-backup/ssh/id"
-	DefaultSSHKnownHostsFile = "/etc/git-repo-backup/ssh/known_hosts"
-	DefaultS3CredentialsDir  = "/etc/git-repo-backup/s3"
-	DefaultCABundleFile      = "/etc/git-repo-backup/ca/ca.crt"
-	DefaultWebIdentityDir    = "/etc/git-repo-backup/web-identity"
-	DefaultLocalRoot         = "/backup"
-	DefaultCacheRoot         = "/backup/cache"
-	DefaultWorkspaceRoot     = "/workspace"
-	DefaultPrepareSSHDir     = "/prepared-ssh"
-	DefaultPrepareTempDir    = "/tmp"
-	DefaultPrepareInputKey   = "/input/ssh/id"
-	DefaultPrepareInputKnown = "/input/known-hosts/known_hosts"
-	DefaultTargetUID         = 10001
-	DefaultTargetGID         = 10001
+	DefaultRepositoriesFile   = "/etc/git-repo-backup/repositories/repositories.yaml"
+	DefaultSSHHostKeyPolicy   = "accept-new"
+	DefaultSSHPrivateKeyFile  = "/etc/git-repo-backup/ssh/id"
+	DefaultSSHKnownHostsFile  = "/etc/git-repo-backup/ssh/known_hosts"
+	DefaultSSHStateKnownHosts = "/etc/git-repo-backup/ssh-state/state/known_hosts"
+	DefaultS3CredentialsDir   = "/etc/git-repo-backup/s3"
+	DefaultCABundleFile       = "/etc/git-repo-backup/ca/ca.crt"
+	DefaultWebIdentityDir     = "/etc/git-repo-backup/web-identity"
+	DefaultLocalRoot          = "/backup"
+	DefaultCacheRoot          = "/backup/cache"
+	DefaultWorkspaceRoot      = "/workspace"
+	DefaultPrepareSSHDir      = "/prepared-ssh"
+	DefaultPrepareTempDir     = "/tmp"
+	DefaultPrepareInputKey    = "/input/ssh/id"
+	DefaultPrepareInputKnown  = "/input/known-hosts/known_hosts"
+	DefaultPrepareKnownState  = "/known-hosts-state/state/known_hosts"
+	DefaultTargetUID          = 10001
+	DefaultTargetGID          = 10001
 )
 
 // applyDefaults fills unset fields with the documented defaults. The chart
 // renders every field explicitly; standalone configs may rely on these.
 func (c *Config) applyDefaults() {
+	if c.SSH.Enabled == nil {
+		enabled := true
+		c.SSH.Enabled = &enabled
+	}
+	if c.SSH.HostKeyPolicy == "" {
+		c.SSH.HostKeyPolicy = DefaultSSHHostKeyPolicy
+	}
 	if c.RepositoriesFile == "" {
 		c.RepositoriesFile = DefaultRepositoriesFile
 	}
@@ -29,7 +39,14 @@ func (c *Config) applyDefaults() {
 		c.SSH.PrivateKeyFile = DefaultSSHPrivateKeyFile
 	}
 	if c.SSH.KnownHostsFile == "" {
-		c.SSH.KnownHostsFile = DefaultSSHKnownHostsFile
+		switch c.SSH.EffectiveHostKeyPolicy() {
+		case "none":
+			c.SSH.KnownHostsFile = "/dev/null"
+		case "accept-new":
+			c.SSH.KnownHostsFile = DefaultSSHStateKnownHosts
+		default:
+			c.SSH.KnownHostsFile = DefaultSSHKnownHostsFile
+		}
 	}
 	if c.Storage.Local.Root == "" {
 		c.Storage.Local.Root = DefaultLocalRoot
@@ -55,8 +72,11 @@ func (c *Config) applyDefaults() {
 	if c.Prepare.InputPrivateKeyFile == "" {
 		c.Prepare.InputPrivateKeyFile = DefaultPrepareInputKey
 	}
-	if c.Prepare.InputKnownHostsFile == "" {
+	if c.SSH.EffectiveHostKeyPolicy() == "pinned" && c.Prepare.InputKnownHostsFile == "" {
 		c.Prepare.InputKnownHostsFile = DefaultPrepareInputKnown
+	}
+	if c.SSH.EffectiveHostKeyPolicy() == "accept-new" && c.Prepare.KnownHostsStateFile == "" {
+		c.Prepare.KnownHostsStateFile = DefaultPrepareKnownState
 	}
 	if c.Prepare.SSHDir == "" {
 		c.Prepare.SSHDir = DefaultPrepareSSHDir

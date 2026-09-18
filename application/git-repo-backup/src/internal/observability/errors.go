@@ -87,12 +87,20 @@ func ClassifyGitStderr(stderr string, timedOut bool) string {
 	case strings.Contains(s, "permission denied"),
 		strings.Contains(s, "authentication failed"),
 		strings.Contains(s, "no more authentication methods"),
-		strings.Contains(s, "identification of the remote side failed"):
+		strings.Contains(s, "identification of the remote side failed"),
+		strings.Contains(s, "could not read username"),
+		strings.Contains(s, "terminal prompts disabled"),
+		strings.Contains(s, "authentication required"),
+		strings.Contains(s, "unauthorized"),
+		strings.Contains(s, "invalid credentials"),
+		strings.Contains(s, "invalid username or password"),
+		strings.Contains(s, "http basic: access denied"),
+		strings.Contains(s, "returned error: 401"),
+		strings.Contains(s, "returned error: 403"):
 		return CodeAuthFailed
 	case strings.Contains(s, "could not read from remote repository"),
 		strings.Contains(s, "repository not found"),
 		strings.Contains(s, "does not appear to be a git repository"),
-		strings.Contains(s, "access denied"),
 		strings.Contains(s, "connection refused"),
 		strings.Contains(s, "connection timed out"),
 		strings.Contains(s, "timed out"),

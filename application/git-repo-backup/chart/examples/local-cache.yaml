@@ -1,0 +1,5 @@
+# Local storage with a chart-managed backup PVC and its cache sibling at
+# <mountPath>/cache. The cache is working state, not published backup data.
+cache:
+  enabled: true
+  existingClaim: ""

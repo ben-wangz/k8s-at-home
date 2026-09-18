@@ -2,42 +2,46 @@ package config
 
 import "testing"
 
-func TestParseSSHURLValid(t *testing.T) {
+func TestParseGitURLValid(t *testing.T) {
 	cases := []struct {
-		name string
-		url  string
-		user string
-		host string
-		port string
-		path string
+		name   string
+		url    string
+		scheme string
+		user   string
+		host   string
+		port   string
+		path   string
 	}{
-		{"scp basic", "git@git.example.com:team/main.git", "git", "git.example.com", "", "team/main.git"},
-		{"scp no user", "git.example.com:team/main.git", "", "git.example.com", "", "team/main.git"},
-		{"scp root repo", "host:repo.git", "", "host", "", "repo.git"},
-		{"scp ipv6 bracket", "git@[2001:db8::1]:team/main.git", "git", "2001:db8::1", "", "team/main.git"},
-		{"ssh full", "ssh://git@git.example.com:2222/team/main.git", "git", "git.example.com", "2222", "team/main.git"},
-		{"ssh default port", "ssh://git@example.com/repo.git", "git", "example.com", "", "repo.git"},
-		{"ssh no user", "ssh://example.com/repo.git", "", "example.com", "", "repo.git"},
-		{"ssh ipv6", "ssh://git@[2001:db8::1]:22/repo.git", "git", "2001:db8::1", "22", "repo.git"},
-		{"ssh tilde path", "ssh://git@example.com/~user/repo.git", "git", "example.com", "", "~user/repo.git"},
-		{"ssh percent once", "ssh://git@example.com/a%2Db.git", "git", "example.com", "", "a-b.git"},
-		{"ssh unicode path", "ssh://git@example.com/team/répo.git", "git", "example.com", "", "team/répo.git"},
-		{"host underscore", "git@my_host:repo.git", "git", "my_host", "", "repo.git"},
+		{"scp basic", "git@git.example.com:team/main.git", "ssh", "git", "git.example.com", "", "team/main.git"},
+		{"scp no user", "git.example.com:team/main.git", "ssh", "", "git.example.com", "", "team/main.git"},
+		{"scp root repo", "host:repo.git", "ssh", "", "host", "", "repo.git"},
+		{"scp ipv6 bracket", "git@[2001:db8::1]:team/main.git", "ssh", "git", "2001:db8::1", "", "team/main.git"},
+		{"ssh full", "ssh://git@git.example.com:2222/team/main.git", "ssh", "git", "git.example.com", "2222", "team/main.git"},
+		{"ssh default port", "ssh://git@example.com/repo.git", "ssh", "git", "example.com", "", "repo.git"},
+		{"ssh no user", "ssh://example.com/repo.git", "ssh", "", "example.com", "", "repo.git"},
+		{"ssh ipv6", "ssh://git@[2001:db8::1]:22/repo.git", "ssh", "git", "2001:db8::1", "22", "repo.git"},
+		{"ssh tilde path", "ssh://git@example.com/~user/repo.git", "ssh", "git", "example.com", "", "~user/repo.git"},
+		{"ssh percent once", "ssh://git@example.com/a%2Db.git", "ssh", "git", "example.com", "", "a-b.git"},
+		{"ssh unicode path", "ssh://git@example.com/team/répo.git", "ssh", "git", "example.com", "", "team/répo.git"},
+		{"host underscore", "git@my_host:repo.git", "ssh", "git", "my_host", "", "repo.git"},
+		{"https public", "https://github.com/ben-wangz/k8s-at-home.git", "https", "", "github.com", "", "ben-wangz/k8s-at-home.git"},
+		{"https port", "https://git.example.com:8443/team/main.git", "https", "", "git.example.com", "8443", "team/main.git"},
+		{"https uppercase scheme", "HTTPS://example.com/repo.git", "https", "", "example.com", "", "repo.git"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := ParseSSHURL(tc.url)
+			got, err := ParseGitURL(tc.url)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if got.User != tc.user || got.Host != tc.host || got.Port != tc.port || got.Path != tc.path {
-				t.Fatalf("got %+v want user=%q host=%q port=%q path=%q", got, tc.user, tc.host, tc.port, tc.path)
+			if got.Scheme != tc.scheme || got.User != tc.user || got.Host != tc.host || got.Port != tc.port || got.Path != tc.path {
+				t.Fatalf("got %+v want scheme=%q user=%q host=%q port=%q path=%q", got, tc.scheme, tc.user, tc.host, tc.port, tc.path)
 			}
 		})
 	}
 }
 
-func TestParseSSHURLInvalid(t *testing.T) {
+func TestParseGitURLInvalid(t *testing.T) {
 	cases := []string{
 		"",
 		" ",
@@ -45,9 +49,20 @@ func TestParseSSHURLInvalid(t *testing.T) {
 		"git@example.com:repo .git",
 		"/local/path.git",
 		"../relative.git",
-		"https://example.com/repo.git",
 		"http://example.com/repo.git",
 		"git+ssh://example.com/repo.git",
+		"https://example.com",
+		"https:///repo.git",
+		"https://example.com/",
+		"https://user@example.com/repo.git",
+		"https://user:pass@example.com/repo.git",
+		"https://example.com/repo.git?token=1",
+		"https://example.com/repo.git#frag",
+		"https://example.com/repo.git?",
+		"https://example.com/repo%20.git",
+		"https://example.com/a/../b.git",
+		"https://example.com:0/repo.git",
+		"https://example.com:99999/repo.git",
 		"ssh://user:pass@example.com/repo.git",
 		"ssh://example.com/repo.git?token=1",
 		"ssh://example.com/repo.git#frag",
@@ -79,7 +94,7 @@ func TestParseSSHURLInvalid(t *testing.T) {
 	}
 	for _, url := range cases {
 		t.Run(url, func(t *testing.T) {
-			if _, err := ParseSSHURL(url); err == nil {
+			if _, err := ParseGitURL(url); err == nil {
 				t.Fatalf("expected rejection for %q", url)
 			}
 		})

@@ -13,6 +13,9 @@ func (c *Config) Validate() error {
 	if c.SchemaVersion != SchemaVersion {
 		return fmt.Errorf("unsupported schemaVersion %d", c.SchemaVersion)
 	}
+	if err := c.validateSSHPolicy(); err != nil {
+		return err
+	}
 	if err := c.validatePaths(); err != nil {
 		return err
 	}
@@ -45,16 +48,46 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+func (c *Config) validateSSHPolicy() error {
+	switch c.SSH.EffectiveHostKeyPolicy() {
+	case "pinned", "accept-new", "none":
+	default:
+		return fmt.Errorf("ssh.hostKeyPolicy must be pinned, accept-new, or none")
+	}
+	if !c.SSH.IsEnabled() {
+		return nil
+	}
+	switch c.SSH.EffectiveHostKeyPolicy() {
+	case "pinned":
+		if c.Prepare.InputKnownHostsFile == "" {
+			return fmt.Errorf("prepare.inputKnownHostsFile is required for pinned host keys")
+		}
+	case "accept-new":
+		if c.Prepare.KnownHostsStateFile == "" {
+			return fmt.Errorf("prepare.knownHostsStateFile is required for accept-new host keys")
+		}
+	}
+	return nil
+}
+
 func (c *Config) validatePaths() error {
 	checks := []struct{ name, path string }{
 		{"repositoriesFile", c.RepositoriesFile},
-		{"ssh.privateKeyFile", c.SSH.PrivateKeyFile},
-		{"ssh.knownHostsFile", c.SSH.KnownHostsFile},
 		{"workspace.root", c.Workspace.Root},
-		{"prepare.inputPrivateKeyFile", c.Prepare.InputPrivateKeyFile},
-		{"prepare.inputKnownHostsFile", c.Prepare.InputKnownHostsFile},
-		{"prepare.sshDir", c.Prepare.SSHDir},
 		{"prepare.tempDir", c.Prepare.TempDir},
+	}
+	if c.SSH.IsEnabled() {
+		checks = append(checks,
+			struct{ name, path string }{"ssh.privateKeyFile", c.SSH.PrivateKeyFile},
+			struct{ name, path string }{"ssh.knownHostsFile", c.SSH.KnownHostsFile},
+			struct{ name, path string }{"prepare.inputPrivateKeyFile", c.Prepare.InputPrivateKeyFile},
+			struct{ name, path string }{"prepare.sshDir", c.Prepare.SSHDir})
+		if c.SSH.EffectiveHostKeyPolicy() == "pinned" || c.Prepare.InputKnownHostsFile != "" {
+			checks = append(checks, struct{ name, path string }{"prepare.inputKnownHostsFile", c.Prepare.InputKnownHostsFile})
+		}
+		if c.SSH.EffectiveHostKeyPolicy() == "accept-new" {
+			checks = append(checks, struct{ name, path string }{"prepare.knownHostsStateFile", c.Prepare.KnownHostsStateFile})
+		}
 	}
 	if c.Storage.Type == "local" {
 		checks = append(checks, struct{ name, path string }{"storage.local.root", c.Storage.Local.Root})

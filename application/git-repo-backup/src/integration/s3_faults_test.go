@@ -65,8 +65,8 @@ func TestS3MarkerResponseLost(t *testing.T) {
 }
 
 // TestS3ClaimRace drives two stores with different owners against the same
-// backup ID: exactly one claim wins, the other owner fails, and a process
-// re-presenting the winning identity is allowed to resume.
+// backup ID: exactly one claim wins, and every later process fails closed
+// because it cannot safely establish ownership of the existing claim.
 func TestS3ClaimRace(t *testing.T) {
 	canRunRooted(t)
 	f := s3Fixture(t)
@@ -101,9 +101,11 @@ func TestS3ClaimRace(t *testing.T) {
 	} else if observability.CodeOf(err) != observability.CodePublishConflict {
 		t.Fatalf("expected publish conflict, got %v", err)
 	}
-	// The same identity re-presenting its claim (response-lost resume).
-	if err := newStore().Begin(ctx, id); err != nil {
-		t.Fatalf("identical claim owner must be able to resume: %v", err)
+	// A later process must not infer ownership from matching claim bytes.
+	if err := newStore().Begin(ctx, id); err == nil {
+		t.Fatal("existing claim must fail closed")
+	} else if observability.CodeOf(err) != observability.CodePublishConflict {
+		t.Fatalf("expected publish conflict for existing claim, got %v", err)
 	}
 }
 

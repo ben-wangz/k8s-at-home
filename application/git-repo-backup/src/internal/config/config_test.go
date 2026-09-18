@@ -67,6 +67,18 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if cfg.SSH.PrivateKeyFile != DefaultSSHPrivateKeyFile {
 		t.Errorf("ssh key default not applied")
 	}
+	if cfg.SSH.EffectiveHostKeyPolicy() != DefaultSSHHostKeyPolicy {
+		t.Errorf("ssh host key policy default not applied")
+	}
+	if cfg.SSH.KnownHostsFile != DefaultSSHStateKnownHosts {
+		t.Errorf("accept-new known_hosts path default not applied")
+	}
+	if cfg.Prepare.KnownHostsStateFile != DefaultPrepareKnownState {
+		t.Errorf("known_hosts state path default not applied")
+	}
+	if !cfg.SSH.IsEnabled() {
+		t.Errorf("ssh enabled default not applied")
+	}
 	if cfg.Workspace.Root != DefaultWorkspaceRoot {
 		t.Errorf("workspace default not applied")
 	}
@@ -84,12 +96,36 @@ func TestLoadRejectsUnknownSchema(t *testing.T) {
 	}
 }
 
+func TestLoadAllowsSSHDisabledWithoutSSHPaths(t *testing.T) {
+	configPath := writeTemp(t, "config.yaml", `schemaVersion: 1
+ssh:
+  enabled: false
+  privateKeyFile: relative/key
+  knownHostsFile: relative/known_hosts
+prepare:
+  inputPrivateKeyFile: relative/input-key
+  inputKnownHostsFile: relative/input-known-hosts
+  sshDir: relative/prepared-ssh
+storage:
+  type: local
+  local:
+    root: /backup
+`)
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SSH.IsEnabled() {
+		t.Fatal("ssh.enabled=false must remain disabled")
+	}
+}
+
 func TestValidateRules(t *testing.T) {
 	base := func(mutate func(c *Config)) *Config {
 		cfg := &Config{
 			SchemaVersion:    1,
 			RepositoriesFile: "/etc/git-repo-backup/repositories/repositories.yaml",
-			SSH:              SSHConfig{PrivateKeyFile: "/etc/x/id", KnownHostsFile: "/etc/x/kh"},
+			SSH:              SSHConfig{HostKeyPolicy: "pinned", PrivateKeyFile: "/etc/x/id", KnownHostsFile: "/etc/x/kh"},
 			Workspace:        WorkspaceConfig{Root: "/workspace"},
 			Prepare: PrepareConfig{TargetUID: 10001, TargetGID: 10001,
 				InputPrivateKeyFile: "/input/ssh/id", InputKnownHostsFile: "/input/known-hosts/known_hosts",
@@ -139,4 +175,52 @@ func TestValidateRules(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateSSHHostKeyPolicies(t *testing.T) {
+	base := func(policy string) *Config {
+		enabled := true
+		return &Config{
+			SchemaVersion:    1,
+			RepositoriesFile: "/etc/git-repo-backup/repositories/repositories.yaml",
+			SSH:              SSHConfig{Enabled: &enabled, HostKeyPolicy: policy, PrivateKeyFile: "/etc/x/id", KnownHostsFile: "/etc/x/kh"},
+			Workspace:        WorkspaceConfig{Root: "/workspace"},
+			Prepare: PrepareConfig{TargetUID: 10001, TargetGID: 10001,
+				InputPrivateKeyFile: "/input/ssh/id", InputKnownHostsFile: "/input/known-hosts/known_hosts",
+				KnownHostsStateFile: "/known-hosts-state/state/known_hosts", SSHDir: "/prepared-ssh", TempDir: "/tmp"},
+			Backup:           BackupConfig{CompressionLevel: 6, MaxRunDuration: "1h", GitTimeout: "30m", MinFreeBytes: 1},
+			Retention:        RetentionConfig{Enabled: true, MaxBackups: 5, IncompleteMaxAge: "2h"},
+			Log:              LogConfig{Level: "info"},
+			Storage:          StorageConfig{Type: "local", Local: LocalStorage{Root: "/backup"}},
+			retentionPresent: true,
+		}
+	}
+
+	t.Run("accept-new", func(t *testing.T) {
+		cfg := base("accept-new")
+		cfg.Prepare.InputKnownHostsFile = ""
+		if err := cfg.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("pinned requires seed", func(t *testing.T) {
+		cfg := base("pinned")
+		cfg.Prepare.InputKnownHostsFile = ""
+		if err := cfg.Validate(); err == nil {
+			t.Fatal("pinned policy must require a known_hosts seed")
+		}
+	})
+	t.Run("none does not require state", func(t *testing.T) {
+		cfg := base("none")
+		cfg.Prepare.InputKnownHostsFile = ""
+		cfg.Prepare.KnownHostsStateFile = ""
+		if err := cfg.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("unknown policy", func(t *testing.T) {
+		if err := base("unsafe").Validate(); err == nil {
+			t.Fatal("unknown host key policy must be rejected")
+		}
+	})
 }

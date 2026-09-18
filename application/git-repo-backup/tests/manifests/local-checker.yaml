@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${CHECKER_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    git-repo-backup.validation/run: ${RUN_ID}
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        git-repo-backup.validation/run: ${RUN_ID}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: inspect
+          image: ${INSPECTOR_IMAGE}
+          command: ["sh", "-ec"]
+          args:
+            - |
+              count=0
+              for run in /backup/backups/*; do
+                [ -d "$run" ] || continue
+                [ -f "$run/_SUCCESS" ] || continue
+                [ -f "$run/manifest.json" ] || exit 1
+                [ -f "$run/checksums.sha256" ] || exit 1
+                find "$run/repositories" -type f -name '*.tar.gz' -print -quit | grep -q .
+                count=$((count + 1))
+              done
+              [ "$count" -eq 1 ]
+          volumeMounts:
+            - name: backup
+              mountPath: /backup
+              readOnly: true
+      volumes:
+        - name: backup
+          persistentVolumeClaim:
+            claimName: ${PVC}

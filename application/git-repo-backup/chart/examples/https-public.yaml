@@ -1,0 +1,7 @@
+# Public HTTPS repositories do not need SSH credentials.
+repositories:
+  - name: k8s-at-home
+    url: https://github.com/ben-wangz/k8s-at-home.git
+
+ssh:
+  enabled: false
