@@ -31,6 +31,9 @@ data:
       {{- else }}
       s3:
         endpoint: {{ .Values.storage.s3.endpoint | quote }}
+        {{- if .Values.storage.s3.allowInsecureHttp }}
+        allowInsecureHttp: true
+        {{- end }}
         region: {{ .Values.storage.s3.region | quote }}
         bucket: {{ .Values.storage.s3.bucket | quote }}
         prefix: {{ .Values.storage.s3.prefix | quote }}

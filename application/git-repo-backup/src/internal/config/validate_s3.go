@@ -21,7 +21,7 @@ func (c *Config) validateS3() error {
 	if err := validatePrefix(s3.Prefix); err != nil {
 		return err
 	}
-	if err := validateEndpoint(s3.Endpoint); err != nil {
+	if err := validateEndpoint(s3.Endpoint, s3.AllowInsecureHTTP); err != nil {
 		return err
 	}
 	switch s3.CredentialsMode {
@@ -76,8 +76,9 @@ func validatePrefix(prefix string) error {
 }
 
 // validateEndpoint accepts the empty string (regional AWS endpoints) or a
-// bare https://host[:port] URL without userinfo, path, query, or fragment.
-func validateEndpoint(endpoint string) error {
+// bare HTTPS URL without userinfo, path, query, or fragment. HTTP is accepted
+// only when explicitly enabled for an isolated S3-compatible endpoint.
+func validateEndpoint(endpoint string, allowInsecureHTTP bool) error {
 	if endpoint == "" {
 		return nil
 	}
@@ -85,8 +86,14 @@ func validateEndpoint(endpoint string) error {
 	if err != nil {
 		return err
 	}
-	if u.Scheme != "https" {
-		return fmt.Errorf("storage.s3.endpoint must use https")
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+	case "http":
+		if !allowInsecureHTTP {
+			return fmt.Errorf("storage.s3.endpoint must use https unless storage.s3.allowInsecureHttp is true")
+		}
+	default:
+		return fmt.Errorf("storage.s3.endpoint must use https or explicitly allow http")
 	}
 	if u.User != nil {
 		return fmt.Errorf("storage.s3.endpoint must not contain userinfo")

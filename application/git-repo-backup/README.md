@@ -160,6 +160,12 @@ kubectl create secret generic git-repo-backup-s3 \
 Static credentials are only accepted from a Secret; plaintext values in
 Helm are rejected by the schema.
 
+For an S3-compatible service that is intentionally exposed over an isolated
+HTTP-only network, set `storage.s3.endpoint` to `http://...` and explicitly
+set `storage.s3.allowInsecureHttp: true`. The default is `false`, so HTTPS is
+required unless this opt-in is present. HTTP sends credentials and backup data
+without transport encryption; custom CA settings do not apply to it.
+
 ### 4. AWS S3 with workload identity (IRSA)
 
 Use `examples/s3-workload-identity.yaml`. The chart creates a dedicated
@@ -226,6 +232,10 @@ fail while the other holds it.
   backup data: they are never deleted, do not count toward `maxBackups`,
   and accumulate one small object per run (about 365/year for a daily
   schedule). Other upload tools must not write into the configured prefix.
+- **S3 endpoint security**: HTTPS is required by default. HTTP endpoints are
+  supported only with the explicit `storage.s3.allowInsecureHttp: true` opt-in
+  for an isolated network; credentials and backup data are then transmitted
+  without transport encryption.
 - **Server-side encryption**: none, `AES256`, or `aws:kms` (which requires
   `kmsKeyId`). TLS verification is always on; an optional custom CA
   (`customCA.*`) is appended to the system trust pool, never a replacement.

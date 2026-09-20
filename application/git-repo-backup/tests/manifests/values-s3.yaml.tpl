@@ -25,6 +25,7 @@ storage:
   type: s3
   s3:
     endpoint: ${S3_ENDPOINT}
+    allowInsecureHttp: ${S3_ALLOW_INSECURE_HTTP}
     region: "us-east-1"
     bucket: ${S3_BUCKET}
     prefix: ${S3_PREFIX}

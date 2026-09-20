@@ -36,9 +36,9 @@ const (
 	tokenFile        = "token"
 )
 
-// httpClient builds the shared HTTPS transport: the system CA pool plus the
+// httpClient builds the shared transport: the system CA pool plus the
 // optional custom CA bundle appended, never replaced. TLS verification is
-// never disabled.
+// never disabled for HTTPS endpoints.
 func httpClient(caBundleFile string) (*awshttp.BuildableClient, error) {
 	client := awshttp.NewBuildableClient()
 	if caBundleFile == "" {

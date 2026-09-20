@@ -55,6 +55,10 @@ Resources created by the script are removed on exit. --keep preserves the
 release and generated resources for diagnosis. External SSH, S3, and CA
 Secrets are never deleted.
 
+For an isolated HTTP-only S3 fixture, pass `--allow-insecure-http` together
+with an `http://` endpoint. The flag is disabled by default and is rejected
+for HTTPS endpoints.
+
 Example public HTTPS acceptance (no SSH options are needed):
 
     application/git-repo-backup/tests/run-helm-acceptance.sh \

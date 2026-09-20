@@ -70,6 +70,7 @@ storage:
       annotations: {}
   s3:
     endpoint: ""
+    allowInsecureHttp: false
     region: us-east-1
     bucket: ""
     prefix: repositories

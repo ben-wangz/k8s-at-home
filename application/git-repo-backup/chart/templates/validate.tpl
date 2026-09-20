@@ -80,6 +80,10 @@ the binary re-validates everything at runtime.
     {{- end -}}
   {{- end -}}
 
+  {{- if and (eq .Values.storage.type "s3") .Values.storage.s3.endpoint (mustRegexMatch "(?i)^http://" .Values.storage.s3.endpoint) (not .Values.storage.s3.allowInsecureHttp) -}}
+    {{- fail "storage.s3.endpoint uses http; set storage.s3.allowInsecureHttp=true only for an isolated S3-compatible endpoint" -}}
+  {{- end -}}
+
   {{- if and .Values.customCA.existingConfigMap .Values.customCA.existingSecret -}}
     {{- fail "customCA: choose exactly one of existingConfigMap or existingSecret" -}}
   {{- end -}}

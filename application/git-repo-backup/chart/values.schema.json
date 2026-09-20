@@ -152,6 +152,7 @@
           "additionalProperties": false,
           "properties": {
             "endpoint": {"type": "string"},
+            "allowInsecureHttp": {"type": "boolean"},
             "region": {"type": "string"},
             "bucket": {"type": "string"},
             "prefix": {"type": "string"},
@@ -242,6 +243,26 @@
                         "roleArn": {"minLength": 1}
                       },
                       "required": ["roleArn"]
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "s3": {
+                      "required": ["endpoint"],
+                      "properties": {
+                        "endpoint": {"pattern": "^[hH][tT][tT][pP]://"}
+                      }
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "s3": {
+                      "required": ["allowInsecureHttp"],
+                      "properties": {"allowInsecureHttp": {"const": true}}
                     }
                   }
                 }

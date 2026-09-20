@@ -72,6 +72,7 @@ type LocalStorage struct {
 // S3Storage configures the S3-compatible destination.
 type S3Storage struct {
 	Endpoint            string `yaml:"endpoint"`
+	AllowInsecureHTTP   bool   `yaml:"allowInsecureHttp"`
 	Region              string `yaml:"region"`
 	Bucket              string `yaml:"bucket"`
 	Prefix              string `yaml:"prefix"`

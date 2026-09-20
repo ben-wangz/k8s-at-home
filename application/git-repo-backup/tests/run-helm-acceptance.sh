@@ -41,6 +41,7 @@ S3_BUCKET="$(env_or GIT_REPO_BACKUP_TEST_S3_BUCKET "")"
 S3_PREFIX="$(env_or GIT_REPO_BACKUP_TEST_S3_PREFIX helm-acceptance)"
 S3_SECRET="$(env_or GIT_REPO_BACKUP_TEST_S3_SECRET "")"
 CA_SECRET="$(env_or GIT_REPO_BACKUP_TEST_CA_SECRET "")"
+ALLOW_INSECURE_HTTP="$(env_or GIT_REPO_BACKUP_TEST_ALLOW_INSECURE_HTTP 0)"
 INSPECTOR_IMAGE="$(env_or GIT_REPO_BACKUP_TEST_INSPECTOR_IMAGE "")"
 MC_IMAGE="$(env_or GIT_REPO_BACKUP_TEST_MC_IMAGE "")"
 OUTPUT_DIR=""
@@ -74,6 +75,7 @@ Options:
   --s3-prefix PREFIX           S3 prefix (default: helm-acceptance)
   --s3-secret NAME             Secret with AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY
   --ca-secret NAME              Secret containing ca.crt for S3 TLS
+  --allow-insecure-http         Allow an HTTP S3 endpoint explicitly
   --inspector-image IMAGE       Fixed digest image used to inspect a local PVC
   --mc-image IMAGE              Fixed digest minio/mc image for S3 verification
   --output-dir ABS_PATH         Evidence directory
@@ -147,6 +149,7 @@ parse_args() {
                 esac
                 shift 2
                 ;;
+            --allow-insecure-http) ALLOW_INSECURE_HTTP=1; shift ;;
             --keep) KEEP_RESOURCES=1; shift ;;
             *) usage_die "unknown option: $1" ;;
         esac
@@ -167,7 +170,15 @@ parse_args() {
         [ -n "$S3_SECRET" ] || usage_die "--s3-secret is required for s3"
         [ -n "$CA_SECRET" ] || usage_die "--ca-secret is required for s3"
         valid_digest_image "$MC_IMAGE" || usage_die "--mc-image must be a fixed digest reference"
+        case "$ALLOW_INSECURE_HTTP" in
+            0|1) ;;
+            *) usage_die "--allow-insecure-http must be enabled with the flag or value 1" ;;
+        esac
+        if [ "$ALLOW_INSECURE_HTTP" -eq 1 ] && [[ "${S3_ENDPOINT,,}" != http://* ]]; then
+            usage_die "--allow-insecure-http requires an http:// S3 endpoint"
+        fi
     else
+        [ "$ALLOW_INSECURE_HTTP" -eq 0 ] || usage_die "--allow-insecure-http is only valid for s3 mode"
         valid_digest_image "$INSPECTOR_IMAGE" || usage_die "--inspector-image must be a fixed digest reference"
     fi
     [ -n "$RELEASE" ] || RELEASE="$RUN_ID"
@@ -219,8 +230,8 @@ record_run_info() {
     {
         printf 'run_id=%s\nnamespace=%s\nrelease=%s\nmode=%s\n' \
             "$RUN_ID" "$NAMESPACE" "$RELEASE" "$MODE"
-        printf 'image=%s\nrepository_name=%s\nrepository_scheme=%s\nssh_enabled=%s\n' \
-            "$IMAGE_REF" "$REPOSITORY_NAME" "$repository_scheme" "$SSH_ENABLED"
+        printf 'image=%s\nrepository_name=%s\nrepository_scheme=%s\nssh_enabled=%s\nallow_insecure_http=%s\n' \
+            "$IMAGE_REF" "$REPOSITORY_NAME" "$repository_scheme" "$SSH_ENABLED" "$ALLOW_INSECURE_HTTP"
         if [ "$SSH_ENABLED" -eq 1 ]; then
             printf 'host_key_policy=accept-new\n'
         else
@@ -239,6 +250,7 @@ write_values() {
     local ssh_config
     local s3_endpoint_yaml='""' s3_bucket_yaml='""' s3_prefix_yaml='""'
     local s3_secret_yaml='""' ca_secret_yaml='""'
+    local s3_allow_insecure_http=false
 
     if [ -n "$IMAGE_REGISTRY" ]; then
         image_registry_line="  registry: $(yaml_quote "$IMAGE_REGISTRY")"
@@ -259,6 +271,9 @@ write_values() {
         s3_prefix_yaml="$(yaml_quote "$S3_PREFIX")"
         s3_secret_yaml="$(yaml_quote "$S3_SECRET")"
         ca_secret_yaml="$(yaml_quote "$CA_SECRET")"
+        if [ "$ALLOW_INSECURE_HTTP" -eq 1 ]; then
+            s3_allow_insecure_http=true
+        fi
     fi
 
     render_template "$TEMPLATE_DIR/values-$MODE.yaml.tpl" "$EVIDENCE/values.yaml" \
@@ -272,7 +287,8 @@ write_values() {
         S3_BUCKET "$s3_bucket_yaml" \
         S3_PREFIX "$s3_prefix_yaml" \
         S3_SECRET "$s3_secret_yaml" \
-        CA_SECRET "$ca_secret_yaml"
+        CA_SECRET "$ca_secret_yaml" \
+        S3_ALLOW_INSECURE_HTTP "$s3_allow_insecure_http"
 }
 
 render_and_install() {
