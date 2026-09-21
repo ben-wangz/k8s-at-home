@@ -6,7 +6,6 @@ description: |
   needs to create PRs, review issues, trigger workflows, query the GitHub API,
   or do any GitHub operation from the command line.
 license: MIT
-compatibility: opencode
 metadata:
   audience: developers
   tool: gh

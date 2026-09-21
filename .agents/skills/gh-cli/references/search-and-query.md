@@ -170,7 +170,7 @@ lists, branch protection rules), **do not use `-F`**. Use `--input` with a JSON 
 # Write the payload
 cat > /tmp/payload.json << 'EOF'
 {
-  "names": ["opencode", "odoo", "ai-coding"]
+  "names": ["kubernetes", "odoo", "ai-coding"]
 }
 EOF
 
