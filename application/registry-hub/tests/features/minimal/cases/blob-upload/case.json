@@ -1,0 +1,11 @@
+{
+  "id": "blob-upload",
+  "description": "Verify the blob upload scenario.",
+  "dependsOn": ["registry-protocol"],
+  "timeoutSeconds": 420,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"blob-upload.session","description":"Verify blob upload session."},{"id":"blob-upload.chunks","description":"Verify blob upload chunks."},{"id":"blob-upload.offset","description":"Verify blob upload offset."},{"id":"blob-upload.cancel","description":"Verify blob upload cancel."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/usage.md"]
+}

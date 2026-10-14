@@ -1,0 +1,11 @@
+{
+  "id": "tags-pagination",
+  "description": "Verify the tags pagination scenario.",
+  "dependsOn": ["tag-publication"],
+  "timeoutSeconds": 300,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"tags-pagination.empty","description":"Verify tags pagination empty."},{"id":"tags-pagination.pages","description":"Verify tags pagination pages."},{"id":"tags-pagination.bounds","description":"Verify tags pagination bounds."},{"id":"tags-pagination.sanitized","description":"Verify tags pagination sanitized."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/usage.md"]
+}

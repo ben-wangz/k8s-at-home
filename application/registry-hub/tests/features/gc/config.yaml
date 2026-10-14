@@ -1,0 +1,3 @@
+gc:
+  enabled: true
+  uniqueWriterConfirmed: true

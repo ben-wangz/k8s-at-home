@@ -1,0 +1,5 @@
+registry:
+  image:
+    repository: container-registry-mirror.internal.home.geekcity.tech:32443/docker.io/library/registry
+    tag: "2.8.3"
+    digest: sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373

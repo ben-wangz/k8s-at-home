@@ -1,0 +1,11 @@
+{
+  "id": "feature-referrers-fallback",
+  "description": "Verify the feature referrers fallback scenario.",
+  "dependsOn": ["installation"],
+  "timeoutSeconds": 600,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"feature-referrers-fallback.image","description":"Verify feature referrers fallback image."},{"id":"feature-referrers-fallback.native-404","description":"Verify feature referrers fallback native 404."},{"id":"feature-referrers-fallback.index","description":"Verify feature referrers fallback index."},{"id":"feature-referrers-fallback.protection","description":"Verify feature referrers fallback protection."},{"id":"feature-referrers-fallback.delete","description":"Verify feature referrers fallback delete."},{"id":"feature-referrers-fallback.api-trace","description":"Verify feature referrers fallback api trace."},{"id":"feature-referrers-fallback.metrics","description":"Verify feature referrers fallback metrics."},{"id":"feature-referrers-fallback.no-upstream","description":"Verify feature referrers fallback no upstream."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/usage.md","docs/operations.md"]
+}

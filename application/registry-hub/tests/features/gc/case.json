@@ -1,0 +1,11 @@
+{
+  "id": "feature-gc",
+  "description": "Verify the feature gc scenario.",
+  "dependsOn": ["installation"],
+  "timeoutSeconds": 900,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"feature-gc.failed-job","description":"Verify feature gc failed job."},{"id":"feature-gc.failed-gate","description":"Verify feature gc failed gate."},{"id":"feature-gc.unknown-gate","description":"Verify feature gc unknown gate."},{"id":"feature-gc.unknown-recovery-refused","description":"Verify feature gc unknown recovery refused."},{"id":"feature-gc.trigger","description":"Verify feature gc trigger."},{"id":"feature-gc.retry","description":"Verify feature gc retry."},{"id":"feature-gc.recovery","description":"Verify feature gc recovery."},{"id":"feature-gc.recovery-job-identity","description":"Verify feature gc recovery job identity."},{"id":"feature-gc.recovery-cleanup","description":"Verify feature gc recovery cleanup."},{"id":"feature-gc.write-admission","description":"Verify feature gc write admission."},{"id":"feature-gc.active-writer","description":"Verify feature gc active writer."},{"id":"feature-gc.descriptor-cache","description":"Verify feature gc descriptor cache."},{"id":"feature-gc.job-identity","description":"Verify feature gc job identity."},{"id":"feature-gc.storage-writer-isolation","description":"Verify feature gc storage writer isolation."},{"id":"feature-gc.registry-ingress-isolation","description":"Verify feature gc registry ingress isolation."},{"id":"feature-gc.content","description":"Verify feature gc content."},{"id":"feature-gc.gate","description":"Verify feature gc gate."},{"id":"feature-gc.metrics","description":"Verify feature gc metrics."},{"id":"feature-gc.failed-job-cleanup","description":"Verify feature gc failed job cleanup."},{"id":"feature-gc.cleanup","description":"Verify feature gc cleanup."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/operations.md"]
+}

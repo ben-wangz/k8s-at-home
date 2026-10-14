@@ -1,0 +1,11 @@
+{
+  "id": "artifact-persistence",
+  "description": "Verify the artifact persistence scenario.",
+  "dependsOn": ["artifact-roundtrip","referrers-read","tag-publication","admin-api"],
+  "timeoutSeconds": 1500,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"artifact-persistence.content","description":"Verify artifact persistence content."},{"id":"artifact-persistence.objects","description":"Verify artifact persistence objects."},{"id":"artifact-persistence.task","description":"Verify artifact persistence task."},{"id":"artifact-persistence.services","description":"Verify artifact persistence services."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/architecture.md","docs/operations.md"]
+}

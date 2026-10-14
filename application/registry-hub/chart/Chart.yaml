@@ -1,0 +1,18 @@
+apiVersion: v2
+name: registry-hub
+version: 0.1.0
+appVersion: "0.1.0"
+description: A local-first OCI Registry proxy with persistent artifact solidification
+type: application
+keywords:
+  - registry
+  - oci
+  - mirror
+annotations:
+  registry-hub/images: |
+    - name: registry-hub-backend
+      path: application/registry-hub/container
+      valuesKey: backend.image.tag
+home: https://github.com/ben-wangz/k8s-at-home
+sources:
+  - https://github.com/ben-wangz/k8s-at-home/tree/main/application/registry-hub

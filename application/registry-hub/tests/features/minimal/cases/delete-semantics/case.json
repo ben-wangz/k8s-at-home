@@ -1,0 +1,11 @@
+{
+  "id": "delete-semantics",
+  "description": "Verify the delete semantics scenario.",
+  "dependsOn": ["artifact-roundtrip"],
+  "timeoutSeconds": 420,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"delete-semantics.tags","description":"Verify delete semantics tags."},{"id":"delete-semantics.manifest","description":"Verify delete semantics manifest."},{"id":"delete-semantics.blob","description":"Verify delete semantics blob."},{"id":"delete-semantics.missing","description":"Verify delete semantics missing."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/usage.md","docs/operations.md"]
+}

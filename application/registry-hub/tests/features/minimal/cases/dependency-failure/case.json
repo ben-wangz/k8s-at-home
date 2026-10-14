@@ -1,0 +1,11 @@
+{
+  "id": "dependency-failure",
+  "description": "Verify the dependency failure scenario.",
+  "dependsOn": ["artifact-persistence"],
+  "timeoutSeconds": 900,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"dependency-failure.endpoints","description":"Verify dependency failure endpoints."},{"id":"dependency-failure.errors","description":"Verify dependency failure errors."},{"id":"dependency-failure.recovery","description":"Verify dependency failure recovery."},{"id":"dependency-failure.diagnostic","description":"Verify dependency failure diagnostic."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/observability.md","docs/operations.md"]
+}

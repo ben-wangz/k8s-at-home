@@ -1,0 +1,11 @@
+{
+  "id": "referrers-read",
+  "description": "Verify the referrers read scenario.",
+  "dependsOn": ["artifact-roundtrip"],
+  "timeoutSeconds": 420,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"referrers-read.native","description":"Verify referrers read native."},{"id":"referrers-read.filter","description":"Verify referrers read filter."},{"id":"referrers-read.cursor","description":"Verify referrers read cursor."},{"id":"referrers-read.descriptors","description":"Verify referrers read descriptors."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/usage.md"]
+}

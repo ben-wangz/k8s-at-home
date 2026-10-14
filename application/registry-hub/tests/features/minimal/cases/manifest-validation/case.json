@@ -1,0 +1,11 @@
+{
+  "id": "manifest-validation",
+  "description": "Verify the manifest validation scenario.",
+  "dependsOn": ["blob-upload","admin-auth"],
+  "timeoutSeconds": 420,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"manifest-validation.valid","description":"Verify manifest validation valid."},{"id":"manifest-validation.invalid","description":"Verify manifest validation invalid."},{"id":"manifest-validation.inline","description":"Verify manifest validation inline."},{"id":"manifest-validation.digest","description":"Verify manifest validation digest."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/architecture.md","docs/usage.md"]
+}

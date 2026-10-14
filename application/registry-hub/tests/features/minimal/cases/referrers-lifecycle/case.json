@@ -1,0 +1,11 @@
+{
+  "id": "referrers-lifecycle",
+  "description": "Verify the referrers lifecycle scenario.",
+  "dependsOn": ["referrers-read"],
+  "timeoutSeconds": 360,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"referrers-lifecycle.delete","description":"Verify referrers lifecycle delete."},{"id":"referrers-lifecycle.subject","description":"Verify referrers lifecycle subject."},{"id":"referrers-lifecycle.native","description":"Verify referrers lifecycle native."},{"id":"referrers-lifecycle.remaining","description":"Verify referrers lifecycle remaining."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/usage.md","docs/operations.md"]
+}

@@ -1,0 +1,153 @@
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+backend:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/ben-wangz/k8s-at-home-registry-hub-backend
+    tag: 0.1.0
+    digest: ""
+    pullPolicy: IfNotPresent
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+  clientAuth:
+    existingSecret: ""
+    key: config.json
+  adminAuth:
+    existingSecret: ""
+    key: config.json
+  catalog:
+    enabled: false
+  distributionAuth:
+    existingSecret: ""
+    key: config.json
+  limits:
+    referrerPages: 100
+  extraEnvFrom: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  persistence:
+    enabled: true
+    existingClaim: ""
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 20Gi
+
+registry:
+  image:
+    repository: registry
+    tag: 3.1.2
+    digest: ""
+    pullPolicy: IfNotPresent
+  tls:
+    enabled: true
+    existingSecret: ""
+    certificateKey: tls.crt
+    privateKeyKey: tls.key
+    caKey: ca.crt
+  auth:
+    htpasswdSecret: ""
+    htpasswdKey: htpasswd
+  httpSecret:
+    existingSecret: ""
+    key: http-secret
+  redirect:
+    enabled: false
+    allowedEndpoints: []
+  storage:
+    type: filesystem
+    filesystem:
+      existingClaim: ""
+      storageClassName: ""
+      accessModes:
+        - ReadWriteOnce
+      size: 100Gi
+    s3:
+      region: us-east-1
+      bucket: ""
+      rootDirectory: registry-hub
+      endpoint: ""
+      secure: true
+      forcePathStyle: false
+      chunkSize: 10485760
+      credentialsSecret: ""
+      caSecret: ""
+      caKey: ca.crt
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+storage:
+  backend: filesystem
+  filesystemRoot: /var/lib/registry-hub
+  s3:
+    endpoint: ""
+    region: us-east-1
+    bucket: ""
+    prefix: registry-hub
+    forcePathStyle: false
+    allowHTTP: false
+    caSecret: ""
+    caKey: ca.crt
+    credentialsSecret: ""
+    multipartThreshold: 67108864
+    partSize: 16777216
+    timeoutSeconds: 300
+    maxConnections: 20
+
+gc:
+  enabled: false
+  uniqueWriterConfirmed: false
+  serviceAccountName: ""
+
+networkPolicy:
+  enabled: true
+
+service:
+  client:
+    port: 5000
+    annotations: {}
+  admin:
+    port: 8081
+    annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: registry-hub.example.invalid
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: false
+    secretName: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+nodeSelector: {}
+tolerations: []
+affinity: {}

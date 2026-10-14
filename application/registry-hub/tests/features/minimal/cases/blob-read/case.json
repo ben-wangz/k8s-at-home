@@ -1,0 +1,11 @@
+{
+  "id": "blob-read",
+  "description": "Verify the blob read scenario.",
+  "dependsOn": ["blob-upload"],
+  "timeoutSeconds": 300,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"blob-read.full","description":"Verify blob read full."},{"id":"blob-read.head","description":"Verify blob read head."},{"id":"blob-read.ranges","description":"Verify blob read ranges."},{"id":"blob-read.unsatisfiable","description":"Verify blob read unsatisfiable."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/usage.md"]
+}

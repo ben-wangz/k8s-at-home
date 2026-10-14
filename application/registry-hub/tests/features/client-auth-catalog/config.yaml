@@ -1,0 +1,6 @@
+backend:
+  clientAuth:
+    existingSecret: __RUN_CLIENT_AUTH_SECRET__
+    key: config.json
+  catalog:
+    enabled: true

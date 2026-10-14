@@ -1,0 +1,148 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "registry-hub.fullname" . }}-registry
+  labels:
+    {{- include "registry-hub.registrySelector" . | nindent 4 }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "registry-hub.registrySelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "registry-hub.registrySelector" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if eq (include "registry-hub.needsInternalInitialization" .) "true" }}
+      initContainers:
+        {{- include "registry-hub.internalWaitContainer" . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: registry
+          image: {{ include "registry-hub.registryImage" . | quote }}
+          imagePullPolicy: {{ .Values.registry.image.pullPolicy }}
+          args: ["/etc/distribution/config.yml"]
+          ports:
+            - name: https-registry
+              containerPort: 5000
+              protocol: TCP
+          env:
+            - name: OTEL_TRACES_EXPORTER
+              value: none
+            - name: REGISTRY_HTTP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "registry-hub.distributionHTTPSecretName" . }}
+                  key: {{ .Values.registry.httpSecret.key }}
+            {{- if and (eq .Values.registry.storage.type "s3") .Values.registry.storage.s3.caSecret }}
+            - name: SSL_CERT_FILE
+              value: /etc/distribution/s3-ca/ca.crt
+            {{- end }}
+          {{- if and (eq .Values.registry.storage.type "s3") .Values.registry.storage.s3.credentialsSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.registry.storage.s3.credentialsSecret }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.registry.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: registry-config
+              mountPath: /etc/distribution/config.yml
+              subPath: config.yml
+              readOnly: true
+            - name: registry-tls
+              mountPath: /etc/distribution/tls
+              readOnly: true
+            - name: registry-auth
+              mountPath: /etc/distribution/auth
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- if and (eq .Values.registry.storage.type "s3") .Values.registry.storage.s3.caSecret }}
+            - name: registry-s3-ca
+              mountPath: /etc/distribution/s3-ca
+              readOnly: true
+            {{- end }}
+            {{- if eq .Values.registry.storage.type "filesystem" }}
+            - name: registry-data
+              mountPath: /var/lib/registry
+            {{- end }}
+          startupProbe:
+            tcpSocket:
+              port: https-registry
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: https-registry
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: https-registry
+            periodSeconds: 5
+      volumes:
+        - name: registry-config
+          configMap:
+            name: {{ include "registry-hub.fullname" . }}-registry-config
+        - name: registry-tls
+          secret:
+            secretName: {{ include "registry-hub.distributionTLSSecretName" . }}
+            items:
+              - key: {{ .Values.registry.tls.certificateKey }}
+                path: tls.crt
+              - key: {{ .Values.registry.tls.privateKeyKey }}
+                path: tls.key
+        - name: registry-auth
+          secret:
+            secretName: {{ include "registry-hub.distributionHTPasswdSecretName" . }}
+            items:
+              - key: {{ .Values.registry.auth.htpasswdKey }}
+                path: htpasswd
+        {{- if and (eq .Values.registry.storage.type "s3") .Values.registry.storage.s3.caSecret }}
+        - name: registry-s3-ca
+          secret:
+            secretName: {{ .Values.registry.storage.s3.caSecret }}
+            items:
+              - key: {{ .Values.registry.storage.s3.caKey }}
+                path: ca.crt
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+        {{- if eq (include "registry-hub.needsInternalInitialization" .) "true" }}
+        {{- include "registry-hub.internalWaitVolume" . | nindent 8 }}
+        {{- end }}
+        {{- if eq .Values.registry.storage.type "filesystem" }}
+        - name: registry-data
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-registry" (include "registry-hub.fullname" .)) .Values.registry.storage.filesystem.existingClaim }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

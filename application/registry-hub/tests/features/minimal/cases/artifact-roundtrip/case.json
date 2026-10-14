@@ -1,0 +1,11 @@
+{
+  "id": "artifact-roundtrip",
+  "description": "Verify the artifact roundtrip scenario.",
+  "dependsOn": ["manifest-validation"],
+  "timeoutSeconds": 600,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"artifact-roundtrip.formats","description":"Verify artifact roundtrip formats."},{"id":"artifact-roundtrip.index","description":"Verify artifact roundtrip index."},{"id":"artifact-roundtrip.subject","description":"Verify artifact roundtrip subject."},{"id":"artifact-roundtrip.bytes","description":"Verify artifact roundtrip bytes."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/usage.md"]
+}

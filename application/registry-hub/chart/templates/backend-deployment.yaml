@@ -1,0 +1,221 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "registry-hub.fullname" . }}
+  labels:
+    {{- include "registry-hub.backendSelector" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "registry-hub.backendSelector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "registry-hub.backendSelector" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ default (include "registry-hub.fullname" .) .Values.backend.serviceAccount.name }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if eq (include "registry-hub.needsInitialization" .) "true" }}
+      initContainers:
+        {{- include "registry-hub.backendInitWaitContainers" . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: backend
+          image: "{{ include "registry-hub.backendImage" . }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - name: registry
+              containerPort: 5000
+              protocol: TCP
+            - name: admin
+              containerPort: 8081
+              protocol: TCP
+          env:
+            - name: REGISTRY_HUB_CLIENT_ADDR
+              value: ":5000"
+            - name: REGISTRY_HUB_ADMIN_ADDR
+              value: ":8081"
+            - name: REGISTRY_HUB_DISTRIBUTION_ENDPOINT
+              value: "https://{{ include "registry-hub.fullname" . }}-registry:5000"
+            - name: REGISTRY_HUB_DISTRIBUTION_CA_FILE
+              value: /etc/registry-hub/distribution-ca/ca.crt
+            - name: REGISTRY_HUB_DISTRIBUTION_REDIRECT_ENDPOINTS
+              value: {{ toJson .Values.registry.redirect.allowedEndpoints | quote }}
+            - name: REGISTRY_HUB_DISTRIBUTION_AUTH_CONFIG
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "registry-hub.distributionAuthSecretName" . }}
+                  key: {{ .Values.backend.distributionAuth.key }}
+            - name: REGISTRY_HUB_ADMIN_AUTH_CONFIG
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "registry-hub.adminAuthSecretName" . }}
+                  key: {{ .Values.backend.adminAuth.key }}
+            - name: REGISTRY_HUB_STORAGE_BACKEND
+              value: {{ .Values.storage.backend | quote }}
+            - name: REGISTRY_HUB_FILESYSTEM_ROOT
+              value: {{ .Values.storage.filesystemRoot | quote }}
+            - name: REGISTRY_HUB_GC_MODE
+              value: {{ ternary "kubernetes" "disabled" .Values.gc.enabled | quote }}
+            - name: REGISTRY_HUB_GC_JOB_IMAGE
+              value: {{ include "registry-hub.registryImage" . | quote }}
+            - name: REGISTRY_HUB_GC_JOB_IMAGE_PULL_SECRETS
+              value: {{ toJson .Values.imagePullSecrets | quote }}
+            - name: REGISTRY_HUB_GC_JOB_CONFIGMAP
+              value: {{ include "registry-hub.fullname" . }}-registry-config
+            - name: REGISTRY_HUB_GC_JOB_CONFIG_KEY
+              value: config.yml
+            - name: REGISTRY_HUB_GC_JOB_CONFIG_DIGEST
+              value: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum | quote }}
+            - name: REGISTRY_HUB_GC_JOB_SERVICE_ACCOUNT
+              value: {{ default (default (include "registry-hub.fullname" .) .Values.backend.serviceAccount.name) .Values.gc.serviceAccountName }}
+            - name: REGISTRY_HUB_GC_UNIQUE_WRITER_CONFIRMED
+              value: {{ .Values.gc.uniqueWriterConfirmed | quote }}
+            - name: REGISTRY_HUB_GC_UPLOAD_PURGING_DISABLED
+              value: "true"
+            - name: REGISTRY_HUB_CATALOG_ENABLED
+              value: {{ .Values.backend.catalog.enabled | quote }}
+            - name: REGISTRY_HUB_LIMIT_REFERRER_PAGES
+              value: {{ .Values.backend.limits.referrerPages | quote }}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- if .Values.backend.clientAuth.existingSecret }}
+            - name: REGISTRY_HUB_CLIENT_AUTH_CONFIG
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.clientAuth.existingSecret }}
+                  key: {{ .Values.backend.clientAuth.key }}
+            - name: REGISTRY_HUB_CLIENT_AUTH_CONFIG_REQUIRED
+              value: "true"
+            {{- end }}
+            {{- if eq .Values.registry.storage.type "filesystem" }}
+            - name: REGISTRY_HUB_GC_JOB_STORAGE_PVC
+              value: {{ default (printf "%s-registry" (include "registry-hub.fullname" .)) .Values.registry.storage.filesystem.existingClaim }}
+            {{- end }}
+            {{- if and (eq .Values.registry.storage.type "s3") .Values.registry.storage.s3.credentialsSecret }}
+            - name: REGISTRY_HUB_GC_JOB_ENV_SECRET
+              value: {{ .Values.registry.storage.s3.credentialsSecret | quote }}
+            {{- end }}
+            {{- if eq .Values.storage.backend "s3" }}
+            - name: REGISTRY_HUB_S3_ENDPOINT
+              value: {{ .Values.storage.s3.endpoint | quote }}
+            - name: REGISTRY_HUB_S3_REGION
+              value: {{ .Values.storage.s3.region | quote }}
+            - name: REGISTRY_HUB_S3_BUCKET
+              value: {{ required "storage.s3.bucket is required for S3 backend storage" .Values.storage.s3.bucket | quote }}
+            - name: REGISTRY_HUB_S3_PREFIX
+              value: {{ .Values.storage.s3.prefix | quote }}
+            - name: REGISTRY_HUB_S3_FORCE_PATH_STYLE
+              value: {{ .Values.storage.s3.forcePathStyle | quote }}
+            - name: REGISTRY_HUB_S3_ALLOW_HTTP
+              value: {{ .Values.storage.s3.allowHTTP | quote }}
+            - name: REGISTRY_HUB_S3_MULTIPART_THRESHOLD
+              value: {{ .Values.storage.s3.multipartThreshold | int64 | quote }}
+            - name: REGISTRY_HUB_S3_PART_SIZE
+              value: {{ .Values.storage.s3.partSize | int64 | quote }}
+            - name: REGISTRY_HUB_S3_TIMEOUT_SECONDS
+              value: {{ .Values.storage.s3.timeoutSeconds | quote }}
+            - name: REGISTRY_HUB_S3_MAX_CONNECTIONS
+              value: {{ .Values.storage.s3.maxConnections | quote }}
+            {{- if .Values.storage.s3.caSecret }}
+            - name: REGISTRY_HUB_S3_CA_FILE
+              value: /etc/registry-hub/s3-ca/{{ .Values.storage.s3.caKey }}
+            {{- end }}
+            {{- end }}
+          {{- if or .Values.backend.extraEnvFrom (and (eq .Values.storage.backend "s3") .Values.storage.s3.credentialsSecret) }}
+          envFrom:
+            {{- if and (eq .Values.storage.backend "s3") .Values.storage.s3.credentialsSecret }}
+            - secretRef:
+                name: {{ .Values.storage.s3.credentialsSecret }}
+            {{- end }}
+            {{- with .Values.backend.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: admin
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: admin
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: admin
+            periodSeconds: 5
+          volumeMounts:
+            - name: distribution-ca
+              mountPath: /etc/registry-hub/distribution-ca
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- if and (eq .Values.storage.backend "filesystem") (or .Values.backend.persistence.enabled .Values.backend.persistence.existingClaim) }}
+            - name: backend-data
+              mountPath: {{ .Values.storage.filesystemRoot }}
+            {{- end }}
+            {{- if and (eq .Values.storage.backend "s3") .Values.storage.s3.caSecret }}
+            - name: s3-ca
+              mountPath: /etc/registry-hub/s3-ca
+              readOnly: true
+            {{- end }}
+            {{- with .Values.backend.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: distribution-ca
+          secret:
+            secretName: {{ include "registry-hub.distributionTLSSecretName" . }}
+            items:
+              - key: {{ .Values.registry.tls.caKey }}
+                path: ca.crt
+        - name: tmp
+          emptyDir: {}
+        {{- if eq (include "registry-hub.needsInitialization" .) "true" }}
+        {{- include "registry-hub.backendInitWaitVolumes" . | nindent 8 }}
+        {{- end }}
+        {{- if and (eq .Values.storage.backend "filesystem") (or .Values.backend.persistence.enabled .Values.backend.persistence.existingClaim) }}
+        - name: backend-data
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-backend" (include "registry-hub.fullname" .)) .Values.backend.persistence.existingClaim }}
+        {{- end }}
+        {{- if and (eq .Values.storage.backend "s3") .Values.storage.s3.caSecret }}
+        - name: s3-ca
+          secret:
+            secretName: {{ .Values.storage.s3.caSecret }}
+        {{- end }}
+        {{- with .Values.backend.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

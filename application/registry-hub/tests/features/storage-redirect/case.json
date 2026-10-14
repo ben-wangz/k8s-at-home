@@ -1,0 +1,11 @@
+{
+  "id": "feature-storage-redirect",
+  "description": "Verify the feature storage redirect scenario.",
+  "dependsOn": ["installation"],
+  "timeoutSeconds": 600,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"feature-storage-redirect.configuration","description":"Verify feature storage redirect configuration."},{"id":"feature-storage-redirect.private-target","description":"Verify feature storage redirect private target."},{"id":"feature-storage-redirect.no-leak","description":"Verify feature storage redirect no leak."},{"id":"feature-storage-redirect.no-fallback","description":"Verify feature storage redirect no fallback."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/usage.md","docs/configuration.md"]
+}

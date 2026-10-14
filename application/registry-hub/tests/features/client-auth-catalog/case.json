@@ -1,0 +1,11 @@
+{
+  "id": "feature-client-auth-catalog",
+  "description": "Verify the feature client auth catalog scenario.",
+  "dependsOn": [],
+  "timeoutSeconds": 600,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"feature-client-auth-catalog.authentication","description":"Verify feature client auth catalog authentication."},{"id":"feature-client-auth-catalog.permissions","description":"Verify feature client auth catalog permissions."},{"id":"feature-client-auth-catalog.catalog","description":"Verify feature client auth catalog catalog."},{"id":"feature-client-auth-catalog.catalog-pagination","description":"Verify feature client auth catalog catalog pagination."},{"id":"feature-client-auth-catalog.catalog-no-upstream","description":"Verify feature client auth catalog catalog no upstream."},{"id":"feature-client-auth-catalog.isolation","description":"Verify feature client auth catalog isolation."},{"id":"feature-client-auth-catalog.secrets","description":"Verify feature client auth catalog secrets."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/security.md","docs/usage.md"]
+}

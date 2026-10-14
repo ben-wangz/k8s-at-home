@@ -1,0 +1,11 @@
+{
+  "id": "blob-mount",
+  "description": "Verify the blob mount scenario.",
+  "dependsOn": ["blob-upload"],
+  "timeoutSeconds": 300,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"blob-mount.source","description":"Verify blob mount source."},{"id":"blob-mount.mount","description":"Verify blob mount mount."},{"id":"blob-mount.fallback","description":"Verify blob mount fallback."},{"id":"blob-mount.bytes","description":"Verify blob mount bytes."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/usage.md"]
+}

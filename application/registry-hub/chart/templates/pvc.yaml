@@ -1,0 +1,35 @@
+{{- if and (eq .Values.storage.backend "filesystem") .Values.backend.persistence.enabled (not .Values.backend.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "registry-hub.fullname" . }}-backend
+  labels:
+    {{- include "registry-hub.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.backend.persistence.accessModes | nindent 4 }}
+  {{- if .Values.backend.persistence.storageClassName }}
+  storageClassName: {{ .Values.backend.persistence.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.backend.persistence.size }}
+{{- end }}
+{{- if and (eq .Values.registry.storage.type "filesystem") (not .Values.registry.storage.filesystem.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "registry-hub.fullname" . }}-registry
+  labels:
+    {{- include "registry-hub.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.registry.storage.filesystem.accessModes | nindent 4 }}
+  {{- if .Values.registry.storage.filesystem.storageClassName }}
+  storageClassName: {{ .Values.registry.storage.filesystem.storageClassName | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.registry.storage.filesystem.size }}
+{{- end }}

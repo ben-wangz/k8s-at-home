@@ -1,0 +1,10 @@
+{
+  "id": "admin-auth",
+  "description": "Verify the admin auth scenario.",
+  "dependsOn": ["installation"],
+  "timeoutSeconds": 90,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/security.md"]
+}

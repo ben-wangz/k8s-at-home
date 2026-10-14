@@ -1,0 +1,11 @@
+{
+  "id": "referrers-migration",
+  "description": "Verify the referrers migration scenario.",
+  "dependsOn": ["installation"],
+  "timeoutSeconds": 600,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"referrers-migration.fixture","description":"Verify referrers migration fixture."},{"id":"referrers-migration.pending-authority","description":"Verify referrers migration pending authority."},{"id":"referrers-migration.complete","description":"Verify referrers migration complete."},{"id":"referrers-migration.native-authority","description":"Verify referrers migration native authority."},{"id":"referrers-migration.restore","description":"Verify referrers migration restore."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/usage.md","docs/operations.md"]
+}

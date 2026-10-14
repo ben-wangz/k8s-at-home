@@ -1,0 +1,16 @@
+registry:
+  redirect:
+    enabled: true
+    allowedEndpoints:
+      - __RUN_STORAGE_REDIRECT_ENDPOINT__
+  storage:
+    type: s3
+    s3:
+      region: us-east-1
+      bucket: __RUN_REGISTRY_S3_BUCKET__
+      rootDirectory: registry-hub-distribution
+      endpoint: __RUN_REGISTRY_S3_ENDPOINT__
+      secure: true
+      forcePathStyle: true
+      credentialsSecret: __RUN_REGISTRY_S3_SECRET__
+      caSecret: __RUN_REGISTRY_S3_CA_SECRET__

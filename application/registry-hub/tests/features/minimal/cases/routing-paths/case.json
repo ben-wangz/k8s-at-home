@@ -1,0 +1,11 @@
+{
+  "id": "routing-paths",
+  "description": "Verify the routing paths scenario.",
+  "dependsOn": ["registry-protocol"],
+  "timeoutSeconds": 420,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"routing-paths.mappings","description":"Verify routing paths mappings."},{"id":"routing-paths.invalid-paths","description":"Verify routing paths invalid paths."},{"id":"routing-paths.local-miss","description":"Verify routing paths local miss."},{"id":"routing-paths.collision","description":"Verify routing paths collision."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/architecture.md","docs/usage.md"]
+}

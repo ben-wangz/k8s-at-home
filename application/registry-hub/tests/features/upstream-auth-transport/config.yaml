@@ -1,0 +1,15 @@
+backend:
+  extraEnvFrom:
+    - secretRef:
+        name: __RUN_UPSTREAM_CONFIG_SECRET__
+  extraVolumeMounts:
+    - name: upstream-tls
+      mountPath: /etc/registry-hub/upstream-tls
+      readOnly: true
+  extraVolumes:
+    - name: upstream-tls
+      secret:
+        secretName: __RUN_UPSTREAM_CONFIG_SECRET__
+        items:
+          - key: UPSTREAM_TLS_CA_CERT
+            path: ca.crt

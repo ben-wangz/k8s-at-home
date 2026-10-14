@@ -1,0 +1,11 @@
+{
+  "id": "default-limits",
+  "description": "Verify the default limits scenario.",
+  "dependsOn": ["manifest-validation","tags-pagination"],
+  "timeoutSeconds": 420,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"default-limits.manifest","description":"Verify default limits manifest."},{"id":"default-limits.descriptors","description":"Verify default limits descriptors."},{"id":"default-limits.upload","description":"Verify default limits upload."},{"id":"default-limits.tags","description":"Verify default limits tags."},{"id":"default-limits.rate","description":"Verify default limits rate."},{"id":"default-limits.normal","description":"Verify default limits normal."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/security.md","docs/architecture.md"]
+}

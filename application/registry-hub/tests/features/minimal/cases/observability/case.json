@@ -1,0 +1,11 @@
+{
+  "id": "observability",
+  "description": "Verify the observability scenario.",
+  "dependsOn": ["dependency-failure","default-limits","referrers-lifecycle","delete-semantics"],
+  "timeoutSeconds": 360,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"observability.logs","description":"Verify observability logs."},{"id":"observability.metrics","description":"Verify observability metrics."},{"id":"observability.disabled-features","description":"Verify observability disabled features."},{"id":"observability.labels","description":"Verify observability labels."},{"id":"observability.secrets","description":"Verify observability secrets."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/observability.md","docs/security.md"]
+}

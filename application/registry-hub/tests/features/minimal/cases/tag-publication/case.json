@@ -1,0 +1,11 @@
+{
+  "id": "tag-publication",
+  "description": "Verify the tag publication scenario.",
+  "dependsOn": ["manifest-validation"],
+  "timeoutSeconds": 360,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"tag-publication.idempotent","description":"Verify tag publication idempotent."},{"id":"tag-publication.conflict","description":"Verify tag publication conflict."},{"id":"tag-publication.digest-tags","description":"Verify tag publication digest tags."},{"id":"tag-publication.race","description":"Verify tag publication race."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/usage.md"]
+}

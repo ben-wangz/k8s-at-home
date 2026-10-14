@@ -1,0 +1,145 @@
+{{- if ne (int .Values.backend.replicaCount) 1 -}}
+{{- fail "registry-hub supports a single backend replica" -}}
+{{- end -}}
+{{- if gt (len (include "registry-hub.fullname" .)) 47 -}}
+{{- fail "the rendered fullname must be 47 characters or fewer because chart resource names append fixed suffixes" -}}
+{{- end -}}
+{{- if and .Values.backend.image.digest (not (regexMatch "^sha256:[a-f0-9]{64}$" .Values.backend.image.digest)) -}}
+{{- fail "backend.image.digest must be a sha256 digest" -}}
+{{- end -}}
+{{- if and .Values.registry.image.digest (not (regexMatch "^sha256:[a-f0-9]{64}$" .Values.registry.image.digest)) -}}
+{{- fail "registry.image.digest must be a sha256 digest" -}}
+{{- end -}}
+{{- if not .Values.networkPolicy.enabled -}}
+{{- fail "registry-hub requires the Distribution-only NetworkPolicy" -}}
+{{- end -}}
+{{- if and .Values.gc.enabled (not .Values.gc.uniqueWriterConfirmed) -}}
+{{- fail "GC requires gc.uniqueWriterConfirmed=true after verifying there are no other Distribution or storage writers" -}}
+{{- end -}}
+{{- if not .Values.registry.tls.enabled -}}
+{{- fail "internal Distribution TLS is required" -}}
+{{- end -}}
+{{- if or (not .Values.backend.adminAuth.key) (gt (len .Values.backend.adminAuth.key) 253) (not (regexMatch "^[A-Za-z0-9._-]+$" .Values.backend.adminAuth.key)) -}}
+{{- fail "backend.adminAuth.key must be a valid Kubernetes Secret data key" -}}
+{{- end -}}
+{{- if and .Values.registry.redirect.enabled (not .Values.registry.redirect.allowedEndpoints) -}}
+{{- fail "registry.redirect.allowedEndpoints is required when storage redirects are enabled" -}}
+{{- end -}}
+{{- if and (eq .Values.registry.storage.type "s3") .Values.registry.storage.s3.caSecret (not .Values.registry.storage.s3.secure) -}}
+{{- fail "registry.storage.s3.caSecret requires registry.storage.s3.secure=true" -}}
+{{- end -}}
+{{- if and (eq .Values.registry.storage.type "s3") .Values.registry.storage.s3.caSecret (or (not .Values.registry.storage.s3.caKey) (gt (len .Values.registry.storage.s3.caKey) 253) (not (regexMatch "^[A-Za-z0-9._-]+$" .Values.registry.storage.s3.caKey))) -}}
+{{- fail "registry.storage.s3.caKey must be a valid Kubernetes Secret data key" -}}
+{{- end -}}
+{{- if ne (not .Values.backend.distributionAuth.existingSecret) (not .Values.registry.auth.htpasswdSecret) -}}
+{{- fail "backend.distributionAuth.existingSecret and registry.auth.htpasswdSecret must both be empty or both reference external Secrets" -}}
+{{- end -}}
+{{- $generatedSecret := include "registry-hub.internalSecretName" . -}}
+{{- if and (eq (include "registry-hub.needsInternalInitialization" .) "true") (or
+  (and .Values.backend.distributionAuth.existingSecret (eq .Values.backend.distributionAuth.existingSecret $generatedSecret))
+  (and .Values.registry.auth.htpasswdSecret (eq .Values.registry.auth.htpasswdSecret $generatedSecret))
+  (and .Values.registry.tls.existingSecret (eq .Values.registry.tls.existingSecret $generatedSecret))
+  (and .Values.registry.httpSecret.existingSecret (eq .Values.registry.httpSecret.existingSecret $generatedSecret))
+  (and .Values.backend.adminAuth.existingSecret (eq .Values.backend.adminAuth.existingSecret $generatedSecret))) -}}
+{{- fail "an external Secret reference must not reuse the generated internal Secret name while internal initialization is enabled" -}}
+{{- end -}}
+{{- $generatedAdminSecret := include "registry-hub.adminAuthGeneratedSecretName" . -}}
+{{- if and (not .Values.backend.adminAuth.existingSecret) (or
+  (and .Values.backend.distributionAuth.existingSecret (eq .Values.backend.distributionAuth.existingSecret $generatedAdminSecret))
+  (and .Values.registry.auth.htpasswdSecret (eq .Values.registry.auth.htpasswdSecret $generatedAdminSecret))
+  (and .Values.registry.tls.existingSecret (eq .Values.registry.tls.existingSecret $generatedAdminSecret))
+  (and .Values.registry.httpSecret.existingSecret (eq .Values.registry.httpSecret.existingSecret $generatedAdminSecret))) -}}
+{{- fail "an external internal-registry Secret must not reuse the generated admin-auth Secret name" -}}
+{{- end -}}
+{{- $generatedKeys := list -}}
+{{- if and (not .Values.backend.distributionAuth.existingSecret) (not .Values.registry.auth.htpasswdSecret) -}}
+{{- $generatedKeys = append $generatedKeys .Values.backend.distributionAuth.key -}}
+{{- $generatedKeys = append $generatedKeys .Values.registry.auth.htpasswdKey -}}
+{{- end -}}
+{{- if not .Values.registry.tls.existingSecret -}}
+{{- $generatedKeys = append $generatedKeys .Values.registry.tls.caKey -}}
+{{- $generatedKeys = append $generatedKeys .Values.registry.tls.certificateKey -}}
+{{- $generatedKeys = append $generatedKeys .Values.registry.tls.privateKeyKey -}}
+{{- end -}}
+{{- if not .Values.registry.httpSecret.existingSecret -}}
+{{- $generatedKeys = append $generatedKeys .Values.registry.httpSecret.key -}}
+{{- end -}}
+{{- if ne (len $generatedKeys) (len (uniq $generatedKeys)) -}}
+{{- fail "keys in the generated internal-registry Secret must be unique" -}}
+{{- end -}}
+{{- if not (has .Values.storage.backend (list "filesystem" "s3")) -}}
+{{- fail "storage.backend must be filesystem or s3" -}}
+{{- end -}}
+{{- if not (has .Values.registry.storage.type (list "filesystem" "s3")) -}}
+{{- fail "registry.storage.type must be filesystem or s3" -}}
+{{- end -}}
+{{- if and (eq .Values.storage.backend "filesystem") (not .Values.backend.persistence.existingClaim) (not .Values.backend.persistence.enabled) -}}
+{{- fail "filesystem task/cache storage requires persistent storage" -}}
+{{- end -}}
+{{- if and (eq .Values.registry.storage.type "filesystem") (not .Values.registry.storage.filesystem.existingClaim) (not .Values.registry.storage.filesystem.size) -}}
+{{- fail "filesystem Distribution storage requires a PVC size or existingClaim" -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "registry-hub.fullname" . }}-registry-config
+  labels:
+    {{- include "registry-hub.labels" . | nindent 4 }}
+data:
+  config.yml: |
+    version: 0.1
+    log:
+      level: info
+      fields:
+        service: registry-hub-distribution
+    storage:
+      {{- if eq .Values.registry.storage.type "s3" }}
+      s3:
+        region: {{ .Values.registry.storage.s3.region | quote }}
+        bucket: {{ required "registry.storage.s3.bucket is required for S3 storage" .Values.registry.storage.s3.bucket | quote }}
+        rootdirectory: {{ .Values.registry.storage.s3.rootDirectory | quote }}
+        secure: {{ .Values.registry.storage.s3.secure }}
+        forcepathstyle: {{ .Values.registry.storage.s3.forcePathStyle }}
+        chunksize: {{ .Values.registry.storage.s3.chunkSize | int64 }}
+        {{- if .Values.registry.storage.s3.endpoint }}
+        regionendpoint: {{ .Values.registry.storage.s3.endpoint | quote }}
+        {{- end }}
+      {{- else }}
+      filesystem:
+        rootdirectory: /var/lib/registry
+      {{- end }}
+      delete:
+        enabled: true
+      redirect:
+        disable: {{ not .Values.registry.redirect.enabled }}
+      {{- if not .Values.gc.enabled }}
+      cache:
+        blobdescriptor: inmemory
+      {{- end }}
+      maintenance:
+        uploadpurging:
+          enabled: false
+        readonly:
+          enabled: false
+    validation:
+      manifests:
+        urls:
+          allow:
+            - '^https?://'
+        indexes:
+          platforms: all
+    auth:
+      htpasswd:
+        realm: registry-hub-internal
+        path: /etc/distribution/auth/htpasswd
+    http:
+      addr: :5000
+      secret: ""
+      tls:
+        certificate: /etc/distribution/tls/tls.crt
+        key: /etc/distribution/tls/tls.key
+    health:
+      storagedriver:
+        enabled: true
+        interval: 10s
+        threshold: 3

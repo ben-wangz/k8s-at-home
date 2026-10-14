@@ -1,0 +1,11 @@
+{
+  "id": "admin-api",
+  "description": "Verify the admin api scenario.",
+  "dependsOn": ["security-defaults","referrers-read"],
+  "timeoutSeconds": 360,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"admin-api.auth","description":"Verify admin api auth."},{"id":"admin-api.tasks","description":"Verify admin api tasks."},{"id":"admin-api.reconcile","description":"Verify admin api reconcile."},{"id":"admin-api.gc","description":"Verify admin api gc."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/operations.md","docs/security.md"]
+}

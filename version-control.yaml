@@ -21,6 +21,12 @@ apps:
     type: binary
     path: application/frp/client
     versionFile: VERSION
+  - name: registry-hub
+    type: chart
+    path: application/registry-hub/chart
+  - name: registry-hub-backend
+    type: container
+    path: application/registry-hub/container
   - name: git-repo-backup
     type: chart
     path: application/git-repo-backup/chart

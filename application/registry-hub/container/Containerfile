@@ -1,0 +1,18 @@
+ARG GO_IMAGE=docker.io/library/golang:1.26-alpine
+ARG RUNTIME_IMAGE=gcr.io/distroless/static-debian12:nonroot
+
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
+ARG TARGETOS=linux
+ARG TARGETARCH
+ARG GOPROXY=https://proxy.golang.org,direct
+WORKDIR /src
+COPY application/registry-hub/src/go.mod application/registry-hub/src/go.sum ./
+RUN GOPROXY="${GOPROXY}" go mod download
+COPY application/registry-hub/src/ ./
+RUN GOPROXY=${GOPROXY} CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/registry-hub ./cmd/registry-hub
+
+FROM ${RUNTIME_IMAGE}
+COPY --from=build /out/registry-hub /registry-hub
+USER 65532:65532
+EXPOSE 5000 8081
+ENTRYPOINT ["/registry-hub"]

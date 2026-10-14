@@ -1,0 +1,10 @@
+{
+  "id": "startup-wait",
+  "description": "Verify the startup wait scenario.",
+  "dependsOn": ["installation"],
+  "timeoutSeconds": 600,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/operations.md","docs/security.md"]
+}

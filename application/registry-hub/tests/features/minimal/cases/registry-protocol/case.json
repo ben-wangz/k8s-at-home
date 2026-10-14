@@ -1,0 +1,11 @@
+{
+  "id": "registry-protocol",
+  "description": "Verify the registry protocol scenario.",
+  "dependsOn": ["external-combinations"],
+  "timeoutSeconds": 240,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"registry-protocol.version","description":"Verify registry protocol version."},{"id":"registry-protocol.errors","description":"Verify registry protocol errors."},{"id":"registry-protocol.head","description":"Verify registry protocol head."},{"id":"registry-protocol.listeners","description":"Verify registry protocol listeners."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/usage.md"]
+}

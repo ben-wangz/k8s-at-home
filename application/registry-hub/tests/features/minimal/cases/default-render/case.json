@@ -1,0 +1,11 @@
+{
+  "id": "default-render",
+  "description": "Verify the default render scenario.",
+  "dependsOn": [],
+  "timeoutSeconds": 90,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"default-render.closure-limits-defaulted","description":"Verify default render closure limits defaulted."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/security.md","docs/configuration.md"]
+}

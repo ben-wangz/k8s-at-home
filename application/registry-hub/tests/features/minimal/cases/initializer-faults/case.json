@@ -1,0 +1,10 @@
+{
+  "id": "initializer-faults",
+  "description": "Verify the initializer faults scenario.",
+  "dependsOn": ["installation"],
+  "timeoutSeconds": 1800,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/security.md","docs/operations.md"]
+}

@@ -1,0 +1,142 @@
+{{- if eq (include "registry-hub.needsInitialization" .) "true" }}
+{{- $name := include "registry-hub.fullname" . }}
+{{- $secretName := include "registry-hub.internalSecretName" . }}
+{{- $recordName := include "registry-hub.initializationRecordName" . }}
+{{- $adminSecretName := include "registry-hub.adminAuthGeneratedSecretName" . }}
+{{- $adminRecordName := include "registry-hub.adminInitializationRecordName" . }}
+{{- $internal := eq (include "registry-hub.needsInternalInitialization" .) "true" }}
+{{- $admin := eq (include "registry-hub.needsAdminInitialization" .) "true" }}
+{{- $secretNames := list }}
+{{- $recordNames := list }}
+{{- if $internal }}{{- $secretNames = append $secretNames $secretName }}{{- $recordNames = append $recordNames $recordName }}{{- end }}
+{{- if $admin }}{{- $secretNames = append $secretNames $adminSecretName }}{{- $recordNames = append $recordNames $adminRecordName }}{{- end }}
+{{- $auth := and (not .Values.backend.distributionAuth.existingSecret) (not .Values.registry.auth.htpasswdSecret) }}
+{{- $tls := not .Values.registry.tls.existingSecret }}
+{{- $http := not .Values.registry.httpSecret.existingSecret }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "registry-hub.initServiceAccountName" . }}
+  labels:
+    {{- include "registry-hub.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "%s-registry-init" $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "registry-hub.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: {{ toJson $secretNames }}
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: {{ toJson $recordNames }}
+    verbs: ["get", "update"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "%s-registry-init" $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "registry-hub.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "registry-hub.initServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ printf "%s-registry-init" $name | trunc 63 | trimSuffix "-" }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "registry-hub.internalInitJobName" . }}
+  labels:
+    {{- include "registry-hub.labels" . | nindent 4 }}
+    app.kubernetes.io/component: internal-initialization
+spec:
+  parallelism: 1
+  completions: 1
+  backoffLimit: 10
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        {{- include "registry-hub.labels" . | nindent 8 }}
+        app.kubernetes.io/component: internal-initialization
+    spec:
+      serviceAccountName: {{ include "registry-hub.initServiceAccountName" . }}
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: initialize
+          image: "{{ include "registry-hub.backendImage" . }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          command: ["/registry-hub"]
+          args: ["initialize"]
+          env:
+            - name: POD_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: REGISTRY_HUB_INIT_INSTANCE
+              value: {{ $name | quote }}
+            - name: REGISTRY_HUB_INIT_SECRET_NAME
+              value: {{ $secretName | quote }}
+            - name: REGISTRY_HUB_INIT_RECORD_NAME
+              value: {{ $recordName | quote }}
+            - name: REGISTRY_HUB_INIT_SCOPE
+              value: {{ include "registry-hub.internalInitScope" . | sha256sum | quote }}
+            - name: REGISTRY_HUB_INIT_SERVICE_NAME
+              value: {{ printf "%s-registry" $name | quote }}
+            - name: REGISTRY_HUB_INIT_AUTH
+              value: {{ $auth | quote }}
+            - name: REGISTRY_HUB_INIT_TLS
+              value: {{ $tls | quote }}
+            - name: REGISTRY_HUB_INIT_HTTP_SECRET
+              value: {{ $http | quote }}
+            - name: REGISTRY_HUB_INIT_AUTH_KEY
+              value: {{ ternary .Values.backend.distributionAuth.key "" $auth | quote }}
+            - name: REGISTRY_HUB_INIT_HTPASSWD_KEY
+              value: {{ ternary .Values.registry.auth.htpasswdKey "" $auth | quote }}
+            - name: REGISTRY_HUB_INIT_CA_KEY
+              value: {{ ternary .Values.registry.tls.caKey "" $tls | quote }}
+            - name: REGISTRY_HUB_INIT_CERTIFICATE_KEY
+              value: {{ ternary .Values.registry.tls.certificateKey "" $tls | quote }}
+            - name: REGISTRY_HUB_INIT_PRIVATE_KEY_KEY
+              value: {{ ternary .Values.registry.tls.privateKeyKey "" $tls | quote }}
+            - name: REGISTRY_HUB_INIT_HTTP_SECRET_KEY
+              value: {{ ternary .Values.registry.httpSecret.key "" $http | quote }}
+            - name: REGISTRY_HUB_INIT_ADMIN_AUTH
+              value: {{ $admin | quote }}
+            - name: REGISTRY_HUB_INIT_ADMIN_SECRET_NAME
+              value: {{ $adminSecretName | quote }}
+            - name: REGISTRY_HUB_INIT_ADMIN_RECORD_NAME
+              value: {{ $adminRecordName | quote }}
+            - name: REGISTRY_HUB_INIT_ADMIN_SCOPE
+              value: {{ include "registry-hub.adminInitScope" . | sha256sum | quote }}
+            - name: REGISTRY_HUB_INIT_ADMIN_KEY
+              value: {{ ternary .Values.backend.adminAuth.key "" $admin | quote }}
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+{{- end }}

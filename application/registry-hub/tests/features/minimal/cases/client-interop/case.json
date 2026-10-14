@@ -1,0 +1,11 @@
+{
+  "id": "client-interop",
+  "description": "Verify the client interop scenario.",
+  "dependsOn": ["installation"],
+  "timeoutSeconds": 900,
+  "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
+  "assertions": ["All case-specific behavior is verified by the declared checks."],
+  "checks": [{"id":"client-interop.podman","description":"Verify client interop podman."},{"id":"client-interop.manifest","description":"Verify client interop manifest."},{"id":"client-interop.helm","description":"Verify client interop helm."},{"id":"client-interop.oras-push-pull","description":"Verify client interop oras push pull."},{"id":"client-interop.oras-referrer","description":"Verify client interop oras referrer."},{"id":"client-interop.oras-delete","description":"Verify client interop oras delete."},{"id":"client-interop.isolation","description":"Verify client interop isolation."}],
+  "outputs": ["Case result and declared check evidence."],
+  "requirements": ["docs/usage.md"]
+}
