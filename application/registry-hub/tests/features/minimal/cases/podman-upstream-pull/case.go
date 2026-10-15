@@ -59,12 +59,12 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		{name: "platform-digest", reference: serviceImage + "@" + upstreamAMD64ManifestDigest},
 	}
 	results := make([]map[string]string, 0, len(pulls))
-	for _, pull := range pulls {
+	for index, pull := range pulls {
 		storageRoot, err := os.MkdirTemp(podmanRoot, pull.name+"-storage-")
 		if err != nil {
 			return err
 		}
-		runRoot := filepath.Join(storageRoot, "run")
+		runRoot := filepath.Join(podmanRoot, fmt.Sprintf("r%d", index))
 		storageRoot = filepath.Join(storageRoot, "store")
 		_, err = testkit.Command(ctx, "podman",
 			"--root", storageRoot,
