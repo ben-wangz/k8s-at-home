@@ -157,15 +157,40 @@ func (environment Environment) WriteValues(path string, image ImageBuild) error 
 	if !found || repository == "" || strings.ContainsAny(repository, "'\n\r") {
 		return fmt.Errorf("backend image reference is invalid")
 	}
+	backendRegistry, backendImageRepository, err := splitImageRepository(repository)
+	if err != nil {
+		return fmt.Errorf("backend image reference is invalid: %w", err)
+	}
 	registryRepository := environmentValue("REGISTRY_HUB_TEST_REGISTRY_IMAGE_REPOSITORY", "container-registry-mirror.internal.home.geekcity.tech:32443/docker.io/library/registry")
 	if strings.ContainsAny(registryRepository, "'\n\r") {
 		return fmt.Errorf("registry image repository contains invalid YAML characters")
 	}
-	content := fmt.Sprintf("backend:\n  image:\n    repository: '%s'\n    digest: '%s'\nregistry:\n  image:\n    repository: '%s'\n", repository, image.Digest, registryRepository)
+	registryImageRegistry, registryImageRepository, err := splitImageRepository(registryRepository)
+	if err != nil {
+		return fmt.Errorf("registry image repository is invalid: %w", err)
+	}
+	content := fmt.Sprintf("backend:\n  image:\n    registry: '%s'\n    repository: '%s'\n    digest: '%s'\nregistry:\n  image:\n    registry: '%s'\n    repository: '%s'\n", backendRegistry, backendImageRepository, image.Digest, registryImageRegistry, registryImageRepository)
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		return fmt.Errorf("write environment values: %w", err)
 	}
 	return nil
+}
+
+func splitImageRepository(reference string) (string, string, error) {
+	if reference == "" || strings.HasSuffix(reference, "/") {
+		return "", "", fmt.Errorf("image reference is empty or has an empty path component")
+	}
+	registry, repository, found := strings.Cut(reference, "/")
+	if !found {
+		return "", reference, nil
+	}
+	if registry == "localhost" || strings.ContainsAny(registry, ".:") {
+		if registry == "" || repository == "" {
+			return "", "", fmt.Errorf("image reference has an empty registry or repository")
+		}
+		return registry, repository, nil
+	}
+	return "", reference, nil
 }
 
 func environmentValue(name, fallback string) string {

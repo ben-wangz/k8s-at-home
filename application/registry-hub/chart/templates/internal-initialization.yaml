@@ -20,7 +20,7 @@ metadata:
   labels:
     {{- include "registry-hub.labels" . | nindent 4 }}
 ---
-apiVersion: rbac.authorization.k8s.io/v1
+apiVersion: {{ include "common.capabilities.rbac.apiVersion" . }}
 kind: Role
 metadata:
   name: {{ printf "%s-registry-init" $name | trunc 63 | trimSuffix "-" }}
@@ -42,7 +42,7 @@ rules:
     resources: ["configmaps"]
     verbs: ["create"]
 ---
-apiVersion: rbac.authorization.k8s.io/v1
+apiVersion: {{ include "common.capabilities.rbac.apiVersion" . }}
 kind: RoleBinding
 metadata:
   name: {{ printf "%s-registry-init" $name | trunc 63 | trimSuffix "-" }}
@@ -57,7 +57,7 @@ roleRef:
   kind: Role
   name: {{ printf "%s-registry-init" $name | trunc 63 | trimSuffix "-" }}
 ---
-apiVersion: batch/v1
+apiVersion: {{ include "common.capabilities.job.apiVersion" . }}
 kind: Job
 metadata:
   name: {{ include "registry-hub.internalInitJobName" . }}
@@ -82,7 +82,7 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
+        {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
       {{- end }}
       containers:
         - name: initialize

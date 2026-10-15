@@ -1,50 +1,26 @@
-{{- define "registry-hub.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
-{{- end -}}
-
 {{- define "registry-hub.fullname" -}}
-{{- if .Values.fullnameOverride -}}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
-{{- else -}}
-{{- printf "%s-%s" .Release.Name (include "registry-hub.name" .) | trunc 63 | trimSuffix "-" -}}
-{{- end -}}
+{{- include "common.names.fullname" . -}}
 {{- end -}}
 
 {{- define "registry-hub.backendImage" -}}
-{{- if .Values.backend.image.digest -}}
-{{- printf "%s@%s" .Values.backend.image.repository .Values.backend.image.digest -}}
-{{- else -}}
-{{- printf "%s:%s" .Values.backend.image.repository .Values.backend.image.tag -}}
-{{- end -}}
+{{- include "common.images.image" (dict "imageRoot" .Values.backend.image "global" .Values.global "chart" .Chart) -}}
 {{- end -}}
 
 {{- define "registry-hub.registryImage" -}}
-{{- if .Values.registry.image.digest -}}
-{{- printf "%s@%s" .Values.registry.image.repository .Values.registry.image.digest -}}
-{{- else -}}
-{{- printf "%s:%s" .Values.registry.image.repository .Values.registry.image.tag -}}
-{{- end -}}
+{{- include "common.images.image" (dict "imageRoot" .Values.registry.image "global" .Values.global "chart" .Chart) -}}
 {{- end -}}
 
 {{- define "registry-hub.labels" -}}
-app.kubernetes.io/name: {{ include "registry-hub.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
-helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
-{{- end -}}
-
-{{- define "registry-hub.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "registry-hub.name" . }}
-app.kubernetes.io/instance: {{ .Release.Name }}
+{{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" .) -}}
 {{- end -}}
 
 {{- define "registry-hub.backendSelector" -}}
-{{ include "registry-hub.selectorLabels" . }}
+{{ include "common.labels.matchLabels" (dict "customLabels" .Values.commonLabels "context" .) }}
 app.kubernetes.io/component: backend
 {{- end -}}
 
 {{- define "registry-hub.registrySelector" -}}
-{{ include "registry-hub.selectorLabels" . }}
+{{ include "common.labels.matchLabels" (dict "customLabels" .Values.commonLabels "context" .) }}
 app.kubernetes.io/component: registry
 {{- end -}}
 

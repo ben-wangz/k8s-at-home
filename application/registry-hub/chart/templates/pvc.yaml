@@ -8,12 +8,10 @@ metadata:
 spec:
   accessModes:
     {{- toYaml .Values.backend.persistence.accessModes | nindent 4 }}
-  {{- if .Values.backend.persistence.storageClassName }}
-  storageClassName: {{ .Values.backend.persistence.storageClassName | quote }}
-  {{- end }}
   resources:
     requests:
       storage: {{ .Values.backend.persistence.size }}
+  {{- include "common.storage.class" (dict "persistence" (dict "storageClass" .Values.backend.persistence.storageClassName) "global" .Values.global) | nindent 2 }}
 {{- end }}
 {{- if and (eq .Values.registry.storage.type "filesystem") (not .Values.registry.storage.filesystem.existingClaim) }}
 ---
@@ -26,10 +24,8 @@ metadata:
 spec:
   accessModes:
     {{- toYaml .Values.registry.storage.filesystem.accessModes | nindent 4 }}
-  {{- if .Values.registry.storage.filesystem.storageClassName }}
-  storageClassName: {{ .Values.registry.storage.filesystem.storageClassName | quote }}
-  {{- end }}
   resources:
     requests:
       storage: {{ .Values.registry.storage.filesystem.size }}
+  {{- include "common.storage.class" (dict "persistence" (dict "storageClass" .Values.registry.storage.filesystem.storageClassName) "global" .Values.global) | nindent 2 }}
 {{- end }}

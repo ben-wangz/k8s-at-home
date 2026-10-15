@@ -1,5 +1,5 @@
 {{- if .Values.ingress.enabled }}
-apiVersion: networking.k8s.io/v1
+apiVersion: {{ include "common.capabilities.ingress.apiVersion" . }}
 kind: Ingress
 metadata:
   name: {{ include "registry-hub.fullname" . }}
@@ -7,7 +7,7 @@ metadata:
     {{- include "registry-hub.labels" . | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
-    {{- toYaml . | nindent 4 }}
+    {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 4 }}
   {{- end }}
 spec:
   {{- if .Values.ingress.className }}
@@ -25,9 +25,5 @@ spec:
         paths:
           - path: {{ .Values.ingress.path }}
             pathType: {{ .Values.ingress.pathType }}
-            backend:
-              service:
-                name: {{ include "registry-hub.fullname" . }}
-                port:
-                  number: {{ .Values.service.client.port }}
+            backend: {{- include "common.ingress.backend" (dict "serviceName" (include "registry-hub.fullname" .) "servicePort" .Values.service.client.port "context" $) | nindent 14 }}
 {{- end }}

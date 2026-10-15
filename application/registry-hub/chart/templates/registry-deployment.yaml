@@ -1,4 +1,4 @@
-apiVersion: apps/v1
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
 kind: Deployment
 metadata:
   name: {{ include "registry-hub.fullname" . }}-registry
@@ -18,7 +18,7 @@ spec:
       automountServiceAccountToken: false
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
+        {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
       {{- end }}
       {{- if eq (include "registry-hub.needsInternalInitialization" .) "true" }}
       initContainers:
@@ -50,10 +50,19 @@ spec:
             - name: SSL_CERT_FILE
               value: /etc/distribution/s3-ca/ca.crt
             {{- end }}
-          {{- if and (eq .Values.registry.storage.type "s3") .Values.registry.storage.s3.credentialsSecret }}
+            {{- with .Values.registry.extraEnvVars }}
+            {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 12 }}
+            {{- end }}
+          {{- if or .Values.registry.extraEnvVarsSecret (and (eq .Values.registry.storage.type "s3") .Values.registry.storage.s3.credentialsSecret) }}
           envFrom:
+            {{- if and (eq .Values.registry.storage.type "s3") .Values.registry.storage.s3.credentialsSecret }}
             - secretRef:
                 name: {{ .Values.registry.storage.s3.credentialsSecret }}
+            {{- end }}
+            {{- if .Values.registry.extraEnvVarsSecret }}
+            - secretRef:
+                name: {{ include "common.tplvalues.render" (dict "value" .Values.registry.extraEnvVarsSecret "context" $) }}
+            {{- end }}
           {{- end }}
           resources:
             {{- toYaml .Values.registry.resources | nindent 12 }}
@@ -136,13 +145,13 @@ spec:
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
-        {{- toYaml . | nindent 8 }}
+        {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
       {{- end }}
       {{- with .Values.tolerations }}
       tolerations:
-        {{- toYaml . | nindent 8 }}
+        {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
       {{- end }}
       {{- with .Values.affinity }}
       affinity:
-        {{- toYaml . | nindent 8 }}
+        {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
       {{- end }}

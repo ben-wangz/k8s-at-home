@@ -1,11 +1,17 @@
 nameOverride: ""
 fullnameOverride: ""
+global:
+  imageRegistry: ""
+  storageClass: ""
+  defaultStorageClass: ""
+commonLabels: {}
 imagePullSecrets: []
 
 backend:
   replicaCount: 1
   image:
-    repository: ghcr.io/ben-wangz/k8s-at-home-registry-hub-backend
+    registry: ghcr.io
+    repository: ben-wangz/k8s-at-home-registry-hub-backend
     tag: 0.1.0
     digest: ""
     pullPolicy: IfNotPresent
@@ -26,6 +32,8 @@ backend:
     key: config.json
   limits:
     referrerPages: 100
+  extraEnvVars: []
+  extraEnvVarsSecret: ""
   extraEnvFrom: []
   extraVolumes: []
   extraVolumeMounts: []
@@ -46,7 +54,8 @@ backend:
 
 registry:
   image:
-    repository: registry
+    registry: docker.io
+    repository: library/registry
     tag: 3.1.2
     digest: ""
     pullPolicy: IfNotPresent
@@ -84,6 +93,8 @@ registry:
       credentialsSecret: ""
       caSecret: ""
       caKey: ca.crt
+  extraEnvVars: []
+  extraEnvVarsSecret: ""
   resources:
     requests:
       cpu: 100m
@@ -151,3 +162,4 @@ securityContext:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+extraDeploy: []

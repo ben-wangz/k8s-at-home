@@ -1,5 +1,5 @@
 {{- if .Values.gc.enabled }}
-apiVersion: rbac.authorization.k8s.io/v1
+apiVersion: {{ include "common.capabilities.rbac.apiVersion" . }}
 kind: Role
 metadata:
   name: {{ include "registry-hub.fullname" . }}-gc
@@ -10,7 +10,7 @@ rules:
     resources: ["jobs"]
     verbs: ["create", "get"]
 ---
-apiVersion: rbac.authorization.k8s.io/v1
+apiVersion: {{ include "common.capabilities.rbac.apiVersion" . }}
 kind: RoleBinding
 metadata:
   name: {{ include "registry-hub.fullname" . }}-gc

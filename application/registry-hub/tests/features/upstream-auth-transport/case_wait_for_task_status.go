@@ -216,13 +216,32 @@ func validateManifestResponse(body []byte, headers http.Header) error {
 }
 
 func createProxyFixture(ctx context.Context, environment testkit.CaseContext, secretName string) error {
-	fixtureSource, err := FixtureSource()
+	fixtureSources, err := FixtureSources()
 	if err != nil {
 		return err
 	}
-	return CreateProxyFixture(ctx, environment, secretName, fixtureSource, nil)
+	return CreateProxyFixture(ctx, environment, secretName, fixtureSources, nil)
 }
 
-func FixtureSource() ([]byte, error) {
-	return assets.ReadFile("fixture/main.go")
+func FixtureSources() (map[string]string, error) {
+	entries, err := assets.ReadDir("fixture")
+	if err != nil {
+		return nil, err
+	}
+	sources := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+		path := "fixture/" + entry.Name()
+		content, err := assets.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		sources[entry.Name()] = string(content)
+	}
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("upstream fixture has no Go sources")
+	}
+	return sources, nil
 }

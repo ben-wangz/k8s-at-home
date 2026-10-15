@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func CreateProxyFixture(ctx context.Context, environment testkit.CaseContext, secretName string, fixtureSource []byte, extraConfig map[string]string) error {
+func CreateProxyFixture(ctx context.Context, environment testkit.CaseContext, secretName string, fixtureSources, extraConfig map[string]string) error {
 	fixtureName := environment.Release + proxySuffix
 	labels := map[string]string{
 		"app.kubernetes.io/instance": environment.Release,
@@ -19,9 +19,15 @@ func CreateProxyFixture(ctx context.Context, environment testkit.CaseContext, se
 		"registry-hub.io/managed-by": "registry-hub-test-fixture",
 		"registry-hub.io/fixture":    fixtureName,
 	}
-	configData := map[string]string{"main.go": string(fixtureSource)}
+	configData := make(map[string]string, len(fixtureSources)+len(extraConfig))
+	for name, source := range fixtureSources {
+		if !strings.HasSuffix(name, ".go") || strings.Contains(name, "/") || name == "" {
+			return fmt.Errorf("upstream fixture source name %q is invalid", name)
+		}
+		configData[name] = source
+	}
 	for key, value := range extraConfig {
-		if key == "" || key == "main.go" {
+		if key == "" || strings.HasSuffix(key, ".go") || strings.Contains(key, "/") {
 			return fmt.Errorf("upstream fixture ConfigMap key %q is invalid", key)
 		}
 		configData[key] = value
@@ -54,7 +60,7 @@ func CreateProxyFixture(ctx context.Context, environment testkit.CaseContext, se
 				"containers": []map[string]any{{
 					"name": "proxy", "image": proxyImage, "imagePullPolicy": "IfNotPresent",
 					"command": []string{"/bin/sh", "-c"},
-					"args":    []string{"CGO_ENABLED=0 GOCACHE=/tmp/gocache GO111MODULE=off go run /fixture/main.go"},
+					"args":    []string{"CGO_ENABLED=0 GOCACHE=/tmp/gocache GO111MODULE=off go run /fixture/*.go"},
 					"envFrom": []map[string]any{{"secretRef": map[string]any{"name": secretName}}},
 					"ports":   []map[string]any{{"name": "http", "containerPort": 8080}},
 					"readinessProbe": map[string]any{

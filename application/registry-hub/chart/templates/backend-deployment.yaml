@@ -1,4 +1,4 @@
-apiVersion: apps/v1
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
 kind: Deployment
 metadata:
   name: {{ include "registry-hub.fullname" . }}
@@ -23,7 +23,7 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
+        {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
       {{- end }}
       {{- if eq (include "registry-hub.needsInitialization" .) "true" }}
       initContainers:
@@ -134,14 +134,21 @@ spec:
               value: /etc/registry-hub/s3-ca/{{ .Values.storage.s3.caKey }}
             {{- end }}
             {{- end }}
-          {{- if or .Values.backend.extraEnvFrom (and (eq .Values.storage.backend "s3") .Values.storage.s3.credentialsSecret) }}
+            {{- with .Values.backend.extraEnvVars }}
+            {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 12 }}
+            {{- end }}
+          {{- if or .Values.backend.extraEnvVarsSecret .Values.backend.extraEnvFrom (and (eq .Values.storage.backend "s3") .Values.storage.s3.credentialsSecret) }}
           envFrom:
             {{- if and (eq .Values.storage.backend "s3") .Values.storage.s3.credentialsSecret }}
             - secretRef:
                 name: {{ .Values.storage.s3.credentialsSecret }}
             {{- end }}
+            {{- if .Values.backend.extraEnvVarsSecret }}
+            - secretRef:
+                name: {{ include "common.tplvalues.render" (dict "value" .Values.backend.extraEnvVarsSecret "context" $) }}
+            {{- end }}
             {{- with .Values.backend.extraEnvFrom }}
-            {{- toYaml . | nindent 12 }}
+            {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 12 }}
             {{- end }}
           {{- end }}
           resources:
@@ -180,7 +187,7 @@ spec:
               readOnly: true
             {{- end }}
             {{- with .Values.backend.extraVolumeMounts }}
-            {{- toYaml . | nindent 12 }}
+            {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 12 }}
             {{- end }}
       volumes:
         - name: distribution-ca
@@ -205,17 +212,17 @@ spec:
             secretName: {{ .Values.storage.s3.caSecret }}
         {{- end }}
         {{- with .Values.backend.extraVolumes }}
-        {{- toYaml . | nindent 8 }}
+        {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
-        {{- toYaml . | nindent 8 }}
+        {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
       {{- end }}
       {{- with .Values.tolerations }}
       tolerations:
-        {{- toYaml . | nindent 8 }}
+        {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
       {{- end }}
       {{- with .Values.affinity }}
       affinity:
-        {{- toYaml . | nindent 8 }}
+        {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 8 }}
       {{- end }}

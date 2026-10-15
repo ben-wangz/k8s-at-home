@@ -6,7 +6,7 @@ metadata:
     {{- include "registry-hub.labels" . | nindent 4 }}
   {{- with .Values.service.client.annotations }}
   annotations:
-    {{- toYaml . | nindent 4 }}
+    {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 4 }}
   {{- end }}
 spec:
   type: ClusterIP
@@ -26,7 +26,7 @@ metadata:
     {{- include "registry-hub.labels" . | nindent 4 }}
   {{- with .Values.service.admin.annotations }}
   annotations:
-    {{- toYaml . | nindent 4 }}
+    {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 4 }}
   {{- end }}
 spec:
   type: ClusterIP

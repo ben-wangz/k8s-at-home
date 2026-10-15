@@ -78,11 +78,11 @@ func setupMirrorRun(ctx context.Context, environment testkit.CaseContext) (*mirr
 		return nil, fmt.Errorf("internal Registry CA is unavailable")
 	}
 	caBundle := append(append(append([]byte(nil), registryData["ca.crt"]...), '\n'), secretData["UPSTREAM_TLS_CA_CERT"]...)
-	fixtureSource, err := upstreamauthtransport.FixtureSource()
+	fixtureSources, err := upstreamauthtransport.FixtureSources()
 	if err != nil {
 		return nil, err
 	}
-	if err := upstreamauthtransport.CreateProxyFixture(ctx, environment, secret.Name, fixtureSource, map[string]string{"ca-bundle.crt": string(caBundle)}); err != nil {
+	if err := upstreamauthtransport.CreateProxyFixture(ctx, environment, secret.Name, fixtureSources, map[string]string{"ca-bundle.crt": string(caBundle)}); err != nil {
 		return nil, err
 	}
 	if err := upstreamauthtransport.WaitProxyReady(ctx, environment); err != nil {
