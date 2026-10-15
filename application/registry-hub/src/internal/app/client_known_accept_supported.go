@@ -43,6 +43,10 @@ func knownAcceptSupported(value string) bool {
 	return false
 }
 
+func combinedAccept(header http.Header) string {
+	return strings.Join(header.Values("Accept"), ", ")
+}
+
 func manifestAcceptFor(clientAccept string) string {
 	clientAccept = strings.TrimSpace(clientAccept)
 	if clientAccept == "" {

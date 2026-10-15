@@ -26,7 +26,7 @@ func scenarioRegistry() map[string]ScenarioDefinition {
 				"admin-api", "admin-auth", "artifact-persistence", "artifact-roundtrip", "blob-mount", "blob-read",
 				"blob-upload", "client-interop", "default-limits", "default-render", "delete-semantics",
 				"dependency-failure", "external-combinations", "initialization-secrets", "initializer-faults",
-				"installation", "manifest-validation", "observability", "rbac-boundary", "referrers-lifecycle",
+				"installation", "manifest-validation", "observability", "podman-upstream-pull", "rbac-boundary", "referrers-lifecycle",
 				"referrers-migration", "referrers-read", "registry-protocol", "registry-roundtrip", "restart-reuse",
 				"routing-paths", "security-defaults", "startup-wait", "tag-publication", "tags-pagination", "upstream-mirror",
 			},

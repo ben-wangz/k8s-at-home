@@ -58,12 +58,18 @@ func newDiscoveryTestService(t *testing.T, remote *scriptedUpstream) (*Service, 
 }
 
 func serveDiscoveryRequest(t *testing.T, service *Service, routed route.Route, accept string) *httptest.ResponseRecorder {
+	recorder, _ := serveDiscoveryRequestWithMeta(t, service, routed, accept)
+	return recorder
+}
+
+func serveDiscoveryRequestWithMeta(t *testing.T, service *Service, routed route.Route, accept string) (*httptest.ResponseRecorder, *requestMeta) {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, "/v2/ghcr.io/team/image/manifests/latest", nil)
 	request.Header.Set("Accept", accept)
 	recorder := httptest.NewRecorder()
-	service.serveUpstreamManifest(recorder, request, routed, &requestMeta{})
-	return recorder
+	meta := &requestMeta{}
+	service.serveUpstreamManifest(recorder, request, routed, meta)
+	return recorder, meta
 }
 
 func discoveryTask(t *testing.T, manager *tasks.Manager) tasks.Task {
@@ -127,6 +133,24 @@ func TestManifestDiscoveryAcceptsSupportedDockerAndOCIRepresentations(t *testing
 				}
 			}
 		})
+	}
+}
+
+func TestManifestDiscoveryCombinesAcceptHeaderFields(t *testing.T) {
+	remote := &scriptedUpstream{results: []upstreamResult{{
+		status: http.StatusOK, contentType: ociIndexMediaType, body: ociIndexBody,
+	}}}
+	service, _, routed := newDiscoveryTestService(t, remote)
+	request := httptest.NewRequest(http.MethodGet, routed.RawPath, nil)
+	request.Header.Add("Accept", ociManifestMediaType)
+	request.Header.Add("Accept", ociIndexMediaType)
+	recorder := httptest.NewRecorder()
+	service.serveUpstreamManifest(recorder, request, routed, &requestMeta{})
+	if recorder.Code != http.StatusOK || recorder.Body.String() != ociIndexBody {
+		t.Fatalf("response status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+	if len(remote.calls) != 1 || !strings.Contains(remote.calls[0].accept, ociIndexMediaType) {
+		t.Fatalf("upstream calls = %#v, want one request with both Accept lines combined", remote.calls)
 	}
 }
 

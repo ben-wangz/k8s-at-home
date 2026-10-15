@@ -16,8 +16,10 @@ import (
 )
 
 func (s *Service) serveUpstreamHead(writer http.ResponseWriter, request *http.Request, routed route.Route, query url.Values, meta *requestMeta) {
-	if routed.Endpoint == route.EndpointManifest && !knownAcceptSupported(request.Header.Get("Accept")) {
+	clientAccept := combinedAccept(request.Header)
+	if routed.Endpoint == route.EndpointManifest && !knownAcceptSupported(clientAccept) {
 		meta.cacheSource = "upstream"
+		meta.errorClass = "manifest_negotiation"
 		registryapi.WriteError(writer, http.StatusNotAcceptable, "MANIFEST_INVALID", "no supported manifest media type was requested")
 		return
 	}
@@ -49,7 +51,8 @@ func (s *Service) serveUpstreamHead(writer http.ResponseWriter, request *http.Re
 			registryapi.WriteError(writer, http.StatusBadGateway, "MANIFEST_INVALID", "upstream HEAD omitted a valid manifest Content-Type")
 			return
 		}
-		if !acceptsMedia(request.Header.Get("Accept"), mediaType) {
+		if !acceptsMedia(clientAccept, mediaType) {
+			meta.errorClass = "manifest_negotiation"
 			registryapi.WriteError(writer, http.StatusNotAcceptable, "MANIFEST_INVALID", "no compatible manifest representation is available")
 			return
 		}

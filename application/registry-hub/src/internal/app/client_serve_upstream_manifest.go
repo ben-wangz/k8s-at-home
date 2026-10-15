@@ -14,8 +14,10 @@ import (
 )
 
 func (s *Service) serveUpstreamManifest(writer http.ResponseWriter, request *http.Request, routed route.Route, meta *requestMeta) {
-	if !knownAcceptSupported(request.Header.Get("Accept")) {
+	clientAccept := combinedAccept(request.Header)
+	if !knownAcceptSupported(clientAccept) {
 		meta.cacheSource = "upstream"
+		meta.errorClass = "manifest_negotiation"
 		registryapi.WriteError(writer, http.StatusNotAcceptable, "MANIFEST_INVALID", "no supported manifest media type was requested")
 		return
 	}
@@ -37,7 +39,7 @@ func (s *Service) serveUpstreamManifest(writer http.ResponseWriter, request *htt
 	if task.RootDigest != "" {
 		if cached, cacheErr := s.cache.GetAny(request.Context(), routed.Upstream, routed.RemoteRepo, task.RootDigest); cacheErr == nil {
 			defer cached.Body.Close()
-			if acceptsMedia(request.Header.Get("Accept"), cached.MediaType) {
+			if acceptsMedia(clientAccept, cached.MediaType) {
 				meta.cacheSource = "cache"
 				s.serveCached(writer, request, routed, cached, false)
 				return
@@ -49,7 +51,7 @@ func (s *Service) serveUpstreamManifest(writer http.ResponseWriter, request *htt
 		}
 	}
 	headers := requestHeaders(request.Header)
-	headers.Set("Accept", manifestAcceptFor(request.Header.Get("Accept")))
+	headers.Set("Accept", manifestAcceptFor(clientAccept))
 	response, err := s.fetchUpstreamMethod(request.Context(), http.MethodGet, routed.Upstream, routed.RemoteRepo, upstreamPath(routed), nil, headers)
 	if err != nil {
 		meta.errorClass = upstreamFailureClass(err)
@@ -86,7 +88,7 @@ func (s *Service) serveUpstreamManifest(writer http.ResponseWriter, request *htt
 	}
 	data, mediaType, digest, err := readUpstreamManifest(response, routed.Reference, s.cfg.Limits.ManifestBytes)
 	if err != nil {
-		meta.errorClass = upstreamFailureClass(err)
+		meta.errorClass = manifestValidationFailureClass(err)
 		if created {
 			s.markDiscoveryFailed(request.Context(), &task, "manifest_invalid", err)
 		}
@@ -95,7 +97,7 @@ func (s *Service) serveUpstreamManifest(writer http.ResponseWriter, request *htt
 		return
 	}
 	if _, err := artifact.ParseManifest(data, mediaType, s.cfg.Limits.MaxDescriptors, s.cfg.Limits.DescriptorDataBytes); err != nil {
-		meta.errorClass = upstreamFailureClass(err)
+		meta.errorClass = manifestValidationFailureClass(err)
 		if created {
 			s.markDiscoveryFailed(request.Context(), &task, "manifest_invalid", err)
 		}
@@ -125,9 +127,9 @@ func (s *Service) serveUpstreamManifest(writer http.ResponseWriter, request *htt
 			}
 		}
 	}
-	if !acceptsMedia(request.Header.Get("Accept"), mediaType) {
+	if !acceptsMedia(clientAccept, mediaType) {
 		compatHeaders := requestHeaders(request.Header)
-		compatHeaders.Set("Accept", request.Header.Get("Accept"))
+		compatHeaders.Set("Accept", clientAccept)
 		compat, compatErr := s.fetchUpstreamMethod(request.Context(), http.MethodGet, routed.Upstream, routed.RemoteRepo, upstreamPath(routed), nil, compatHeaders)
 		if compatErr != nil {
 			meta.errorClass = upstreamFailureClass(compatErr)
@@ -143,14 +145,20 @@ func (s *Service) serveUpstreamManifest(writer http.ResponseWriter, request *htt
 			return
 		}
 		body, compatibleType, compatibleDigest, readErr := readUpstreamManifest(compat, routed.Reference, s.cfg.Limits.ManifestBytes)
-		if readErr != nil || !acceptsMedia(request.Header.Get("Accept"), compatibleType) {
-			meta.errorClass = "manifest_invalid"
+		if readErr != nil {
+			meta.errorClass = manifestValidationFailureClass(readErr)
+			meta.cacheSource = "upstream"
+			registryapi.WriteError(writer, http.StatusBadGateway, "MANIFEST_INVALID", "compatible upstream manifest failed validation")
+			return
+		}
+		if !acceptsMedia(clientAccept, compatibleType) {
+			meta.errorClass = "manifest_negotiation"
 			meta.cacheSource = "upstream"
 			registryapi.WriteError(writer, http.StatusNotAcceptable, "MANIFEST_INVALID", "no compatible manifest representation is available")
 			return
 		}
 		if _, parseErr := artifact.ParseManifest(body, compatibleType, s.cfg.Limits.MaxDescriptors, s.cfg.Limits.DescriptorDataBytes); parseErr != nil {
-			meta.errorClass = upstreamFailureClass(parseErr)
+			meta.errorClass = manifestValidationFailureClass(parseErr)
 			meta.cacheSource = "upstream"
 			registryapi.WriteError(writer, http.StatusBadGateway, "MANIFEST_INVALID", "compatible upstream manifest failed validation")
 			return

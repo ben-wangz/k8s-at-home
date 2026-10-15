@@ -228,3 +228,10 @@ func upstreamFailureClass(err error) string {
 		return "upstream"
 	}
 }
+
+func manifestValidationFailureClass(err error) string {
+	if errors.Is(err, artifact.ErrDigestMismatch) {
+		return "digest_mismatch"
+	}
+	return "manifest_invalid"
+}

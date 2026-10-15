@@ -47,7 +47,7 @@ func (m *metrics) recordRequest(operation, method string, status int, cacheSourc
 
 func boundedRequestErrorClass(class string, status int) string {
 	switch class {
-	case "rate_limit", "concurrency", "authentication", "authorization", "queue", "storage", "upstream", "upstream_auth", "upstream_policy", "upstream_not_found", "object_wait_timeout", "manifest_invalid", "digest_mismatch", "fencing", "distribution", "referrer_index":
+	case "rate_limit", "concurrency", "authentication", "authorization", "queue", "storage", "upstream", "upstream_auth", "upstream_policy", "upstream_not_found", "object_wait_timeout", "manifest_invalid", "manifest_negotiation", "digest_mismatch", "fencing", "distribution", "referrer_index":
 		return class
 	case "":
 		if status >= 500 {

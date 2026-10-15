@@ -191,6 +191,7 @@ func TestCompatibilityFailureMatrixKeepsVerifiedDiscoveryRoot(t *testing.T) {
 		name       string
 		responses  []upstreamResult
 		wantStatus int
+		wantClass  string
 		body       string
 	}{
 		{name: "unauthorized", responses: []upstreamResult{{status: http.StatusUnauthorized}}, wantStatus: http.StatusUnauthorized, body: dockerManifestBody},
@@ -202,17 +203,24 @@ func TestCompatibilityFailureMatrixKeepsVerifiedDiscoveryRoot(t *testing.T) {
 			{status: http.StatusServiceUnavailable, retryAfter: "0"},
 			{status: http.StatusServiceUnavailable, retryAfter: "0"},
 		}, wantStatus: http.StatusBadGateway, body: dockerManifestBody},
-		{name: "invalid compatible manifest", responses: []upstreamResult{{status: http.StatusOK, contentType: dockerManifestMediaType, body: `{"schemaVersion":1}`}}, wantStatus: http.StatusBadGateway, body: `{"schemaVersion":1}`},
-		{name: "unacceptable compatible media type", responses: []upstreamResult{{status: http.StatusOK, contentType: ociIndexMediaType, body: ociIndexBody}}, wantStatus: http.StatusNotAcceptable, body: ociIndexBody},
+		{name: "invalid compatible manifest", responses: []upstreamResult{{status: http.StatusOK, contentType: dockerManifestMediaType, body: `{"schemaVersion":1}`}}, wantStatus: http.StatusBadGateway, wantClass: "manifest_invalid", body: `{"schemaVersion":1}`},
+		{name: "invalid compatible manifest metadata", responses: []upstreamResult{{
+			status: http.StatusOK, contentType: dockerManifestMediaType, body: dockerManifestBody,
+			contentLength: int64(len(dockerManifestBody) + 1), contentLengthSet: true,
+		}}, wantStatus: http.StatusBadGateway, wantClass: "manifest_invalid", body: dockerManifestBody},
+		{name: "unacceptable compatible media type", responses: []upstreamResult{{status: http.StatusOK, contentType: ociIndexMediaType, body: ociIndexBody}}, wantStatus: http.StatusNotAcceptable, wantClass: "manifest_negotiation", body: ociIndexBody},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			results := []upstreamResult{{status: http.StatusOK, contentType: ociIndexMediaType, body: ociIndexBody}}
 			results = append(results, test.responses...)
 			remote := &scriptedUpstream{results: results}
 			service, manager, routed := newDiscoveryTestService(t, remote)
-			recorder := serveDiscoveryRequest(t, service, routed, dockerManifestMediaType)
+			recorder, meta := serveDiscoveryRequestWithMeta(t, service, routed, dockerManifestMediaType)
 			if recorder.Code != test.wantStatus {
 				t.Fatalf("compatibility status = %d, want %d: %s", recorder.Code, test.wantStatus, recorder.Body.String())
+			}
+			if test.wantClass != "" && meta.errorClass != test.wantClass {
+				t.Fatalf("compatibility error class = %q, want %q", meta.errorClass, test.wantClass)
 			}
 			wantCalls := 1 + len(test.responses)
 			if len(remote.calls) != wantCalls {

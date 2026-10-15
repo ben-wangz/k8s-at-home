@@ -60,6 +60,7 @@ func TestStorageMetricsUseBoundedResultLabels(t *testing.T) {
 func TestFeatureMetricsUseBoundedLabelsAndExposeRequiredFamilies(t *testing.T) {
 	metrics := newMetrics()
 	metrics.recordRequest("manifests", http.MethodGet, http.StatusBadGateway, "upstream", "digest_mismatch", time.Millisecond)
+	metrics.recordRequest("manifests", http.MethodGet, http.StatusNotAcceptable, "upstream", "manifest_negotiation", time.Millisecond)
 	metrics.recordRequest("blobs", http.MethodGet, http.StatusOK, "local", "", time.Millisecond)
 	metrics.recordEvent("upstream_auth_challenge")
 	metrics.recordEvent("upstream_redirect")
@@ -85,6 +86,7 @@ func TestFeatureMetricsUseBoundedLabelsAndExposeRequiredFamilies(t *testing.T) {
 	body := response.Body.String()
 	for _, sample := range []string{
 		`registry_hub_requests_total{cache_source="upstream",error_class="digest_mismatch",method="GET",operation="manifests",status="Bad Gateway"} 1`,
+		`registry_hub_requests_total{cache_source="upstream",error_class="manifest_negotiation",method="GET",operation="manifests",status="Not Acceptable"} 1`,
 		`registry_hub_object_leases{state="active"} 1`,
 		`registry_hub_cache_objects 2`,
 		`registry_hub_cache_bytes 7`,

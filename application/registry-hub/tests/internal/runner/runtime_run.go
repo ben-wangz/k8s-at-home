@@ -42,7 +42,7 @@ func (runtime *Runtime) Run(ctx context.Context, options RunOptions) error {
 	needsPodman := options.Image == "" && !options.Reuse
 	if !options.CreateOnly {
 		for _, caseID := range plan.Order {
-			if caseID == "initializer-faults" || caseID == "client-interop" {
+			if caseID == "initializer-faults" || caseID == "client-interop" || caseID == "podman-upstream-pull" {
 				needsPodman = true
 				break
 			}

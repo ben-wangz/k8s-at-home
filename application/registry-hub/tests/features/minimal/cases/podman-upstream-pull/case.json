@@ -1,0 +1,15 @@
+{
+  "id": "podman-upstream-pull",
+  "description": "Verify Podman can pull a pinned multi-platform image from the NJU GHCR mirror by tag, index digest, and platform manifest digest.",
+  "dependsOn": ["installation"],
+  "timeoutSeconds": 300,
+  "preconditions": ["The minimal feature configuration is deployed and the installation case has passed."],
+  "assertions": ["Podman pulls the image by tag, root index digest, and linux/amd64 platform manifest digest through the client Service."],
+  "checks": [
+    {"id": "podman-upstream-pull.tag", "description": "Pull the upstream image by tag."},
+    {"id": "podman-upstream-pull.index-digest", "description": "Pull the upstream image by root index digest."},
+    {"id": "podman-upstream-pull.platform-digest", "description": "Pull the linux/amd64 platform manifest by digest."}
+  ],
+  "outputs": ["Case result includes all three references and pull modes."],
+  "requirements": ["docs/usage.md"]
+}

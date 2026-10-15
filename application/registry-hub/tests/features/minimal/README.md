@@ -113,4 +113,5 @@ See the [environment guide](environment/README.md) for prerequisites and environ
 | dependency-failure | Distribution scale-down, diagnostic Service, backend errors, and recovery | artifact-persistence |
 | default-limits | Default request-rate limits for manifests, descriptors, uploads, tags/list, and unauthenticated requests | manifest-validation, tags-pagination |
 | observability | JSON logs, Prometheus metrics, low-cardinality labels, and sensitive-data scans | dependency-failure, default-limits, referrers-lifecycle, delete-semantics |
+| podman-upstream-pull | Podman pulls a pinned image from the NJU GHCR mirror by tag, index digest, and platform manifest digest | installation |
 | upstream-mirror | Local-first behavior, Docker/OCI media negotiation, upstream error matrix, descriptor.data/urls, nested multi-platform index graphs, original-field solidification, non-recursive subjects, HEAD metadata/cache boundaries, shared digest conflicts, default closure depth, controlled closure/object-byte limits, Range/If-Range, and digest validation | installation |

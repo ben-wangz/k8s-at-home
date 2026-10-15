@@ -23,6 +23,7 @@ import (
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/installation"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/manifest-validation"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/observability"
+	podmanpull "github.com/ben-wangz/registry-hub-tests/features/minimal/cases/podman-upstream-pull"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/rbac-boundary"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/referrers-lifecycle"
 	referrersmigration "github.com/ben-wangz/registry-hub-tests/features/minimal/cases/referrers-migration"
@@ -75,6 +76,7 @@ func Registry() ([]testkit.Case, error) {
 		defaultlimits.New,
 		observability.New,
 		clientinterop.New,
+		podmanpull.New,
 		clientauthcatalog.New,
 		upstreamauthtransport.New,
 		backends3.New,

@@ -20,7 +20,7 @@ func (s *Service) serveRead(writer http.ResponseWriter, request *http.Request, r
 		s.serveUpstreamTags(writer, request, routed, query, meta)
 		return
 	}
-	if routed.Endpoint == route.EndpointManifest && request.Header.Get("Accept") == "" {
+	if routed.Endpoint == route.EndpointManifest && combinedAccept(request.Header) == "" {
 		request.Header.Set("Accept", manifestAcceptFor(""))
 	}
 	localPath := registryPath(routed)
@@ -109,7 +109,7 @@ func (s *Service) serveRead(writer http.ResponseWriter, request *http.Request, r
 
 func (s *Service) localManifestProbe(request *http.Request, routed route.Route, query url.Values) *http.Response {
 	headers := requestHeaders(request.Header)
-	headers.Set("Accept", manifestAcceptFor(request.Header.Get("Accept")))
+	headers.Set("Accept", manifestAcceptFor(combinedAccept(request.Header)))
 	response, err := s.registry.Do(request.Context(), request.Method, registryPath(routed), query, headers, nil, 0)
 	if err != nil {
 		return nil
@@ -125,7 +125,7 @@ func (s *Service) writeLocalManifestResponse(writer http.ResponseWriter, request
 			registryapi.WriteError(writer, http.StatusBadGateway, "MANIFEST_INVALID", "internal Registry manifest Content-Type is invalid")
 			return
 		}
-		if !acceptsMedia(request.Header.Get("Accept"), mediaType) {
+		if !acceptsMedia(combinedAccept(request.Header), mediaType) {
 			_ = response.Body.Close()
 			registryapi.WriteError(writer, http.StatusNotAcceptable, "MANIFEST_INVALID", "no compatible local manifest representation is available")
 			return
