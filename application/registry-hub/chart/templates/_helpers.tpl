@@ -127,6 +127,7 @@ app.kubernetes.io/component: registry
 
 {{- define "registry-hub.internalInitJobName" -}}
 {{- $identity := dict
+  "chartVersion" .Chart.Version
   "internalScope" (ternary (include "registry-hub.internalInitScope" . | sha256sum) "" (eq (include "registry-hub.needsInternalInitialization" .) "true"))
   "adminScope" (ternary (include "registry-hub.adminInitScope" . | sha256sum) "" (eq (include "registry-hub.needsAdminInitialization" .) "true"))
   "image" (include "registry-hub.backendImage" .)
