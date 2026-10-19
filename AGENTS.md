@@ -8,7 +8,7 @@
 - Do not create temporary summary files like `summary.md`.
 - For large tasks, discuss a high-level design before implementation.
 - Use UTF-8 by default.
-- Project documentation must be written in Chinese, except documentation under `application/registry-hub/docs/`, which must be written in English. Keep AGENTS.md in English.
+- All project documentation must be written in English, including `AGENTS.md`.
 
 ## Code Constraints
 - Comments must be in English.
