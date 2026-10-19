@@ -17,6 +17,9 @@ func verifyFixtureRequestLogs(ctx context.Context, environment testkit.CaseConte
 	if strings.Contains(text, password) || strings.Contains(text, bearerToken) {
 		return 0, fmt.Errorf("upstream fixture logs exposed the configured credential")
 	}
+	if err := validateProxyRelayLogs(text); err != nil {
+		return 0, err
+	}
 	for _, marker := range []string{
 		"host=registry-1.docker.io path=/v2/library/registry-hub-test/manifests/authorized auth=basic-matched",
 		"host=auth.docker.io path=/token auth=basic-matched scope=repository:library/registry-hub-test:pull",

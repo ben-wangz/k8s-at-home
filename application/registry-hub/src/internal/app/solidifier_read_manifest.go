@@ -92,7 +92,13 @@ func (s *solidifier) fetchObject(ctx context.Context, task *tasks.Task, taskLeas
 				_ = s.tasks.Leases().Release(context.Background(), objectLease)
 				return renewErr
 			}
-			downloadErr := s.downloadObject(leaseCtx, task, taskLease, ref, manifest, objectLease)
+			downloadCtx := leaseCtx
+			if manifest {
+				var downloadCancel context.CancelFunc
+				downloadCtx, downloadCancel = context.WithTimeout(leaseCtx, s.cfg.Limits.RequestTimeout)
+				defer downloadCancel()
+			}
+			downloadErr := s.downloadObject(downloadCtx, task, taskLease, ref, manifest, objectLease)
 			cancel()
 			renewErr := <-renewDone
 			_ = s.tasks.Leases().Release(context.Background(), objectLease)
@@ -128,6 +134,9 @@ func (s *solidifier) fetchObject(ctx context.Context, task *tasks.Task, taskLeas
 }
 
 func (s *solidifier) downloadObject(ctx context.Context, task *tasks.Task, taskLease lease.Lease, ref contentRef, manifest bool, objectLease lease.Lease) error {
+	if !manifest {
+		return s.downloadBlobObject(ctx, task, taskLease, ref, objectLease)
+	}
 	endpoint := "blobs"
 	limit := s.cfg.Limits.ObjectBytes
 	if manifest {

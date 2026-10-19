@@ -1,0 +1,25 @@
+{
+  "id": "upstream-resume",
+  "description": "Verify resumable upstream Blob downloads.",
+  "dependsOn": ["upstream-mirror"],
+  "timeoutSeconds": 1800,
+  "preconditions": ["The upstream fixture and direct Registry Service endpoint are ready."],
+  "assertions": ["Blob bytes are digest-verified and persisted progress is reused after interrupted transfers and Backend restarts."],
+  "checks": [
+    {"id":"upstream-resume.healthy-download","description":"Verify a healthy full Blob response completes without an internal Range request."},
+    {"id":"upstream-resume.frontend-resume","description":"Verify a disconnected full response resumes from the committed offset."},
+    {"id":"upstream-resume.multiple-interruptions","description":"Verify consecutive interruptions advance the persisted offset."},
+    {"id":"upstream-resume.attempt-timeout","description":"Verify a timed out Range attempt saves its received tail."},
+    {"id":"upstream-resume.idle-timeout","description":"Verify an idle full response resumes from saved progress."},
+    {"id":"upstream-resume.slow-full-response","description":"Verify a slow full 200 response outlives the ordinary request timeout."},
+    {"id":"upstream-resume.range-fallback","description":"Verify an ignored Range response restarts safely from byte zero."},
+    {"id":"upstream-resume.validator-recovery","description":"Verify a changed strong ETag causes a bounded full restart."},
+    {"id":"upstream-resume.range-416","description":"Verify a rejected range causes a bounded restart."},
+    {"id":"upstream-resume.concurrent-waiters","description":"Verify concurrent readers share one upstream transfer."},
+    {"id":"upstream-resume.backend-restart","description":"Verify a restarted Backend resumes from persistent progress."},
+    {"id":"upstream-resume.background-retry","description":"Verify a background task resumes after entering retry_wait."},
+    {"id":"upstream-resume.podman-pull","description":"Verify a real Podman pull completes through the Registry Service."}
+  ],
+  "outputs": ["Per-check result and structured evidence including digest, byte count, Range offsets, transfer bytes, timeout settings, task ID, and restart result."],
+  "requirements": ["docs/configuration.md", "docs/operations.md"]
+}

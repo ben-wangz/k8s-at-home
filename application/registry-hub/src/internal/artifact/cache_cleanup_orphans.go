@@ -12,8 +12,6 @@ import (
 // Corrupt records are left in place and returned as an error so recovery cannot
 // mistake an unreadable object for an unreferenced object.
 func (c *Cache) CleanupOrphans(ctx context.Context, now time.Time, olderThan time.Duration, limit int) (int, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if olderThan <= 0 {
 		return 0, errors.New("orphan retention must be positive")
 	}
@@ -32,15 +30,7 @@ func (c *Cache) CleanupOrphans(ctx context.Context, now time.Time, olderThan tim
 			if removed >= limit || entry.ModTime == 0 || time.Unix(0, entry.ModTime).After(cutoff) {
 				continue
 			}
-			var changed bool
-			switch {
-			case strings.Contains(entry.Key, "/representations/") && strings.HasSuffix(entry.Key, ".json"):
-				changed, err = c.cleanupOrphanMetadata(ctx, entry)
-			case strings.Contains(entry.Key, "/complete/") && strings.HasSuffix(entry.Key, ".json"):
-				changed, err = c.cleanupOrphanComplete(ctx, entry)
-			case strings.HasSuffix(entry.Key, "/data"):
-				changed, err = c.cleanupOrphanData(ctx, entry)
-			}
+			changed, err := c.cleanupOrphanEntry(ctx, entry)
 			if err != nil {
 				return removed, err
 			}
@@ -54,6 +44,25 @@ func (c *Cache) CleanupOrphans(ctx context.Context, now time.Time, olderThan tim
 		token = next
 	}
 	return removed, nil
+}
+
+func (c *Cache) cleanupOrphanEntry(ctx context.Context, entry storage.Entry) (bool, error) {
+	identity, ok := cacheEntryIdentity(entry.Key)
+	if !ok {
+		return false, nil
+	}
+	unlock := c.lockIdentity(identity)
+	defer unlock()
+	switch {
+	case strings.Contains(entry.Key, "/representations/") && strings.HasSuffix(entry.Key, ".json"):
+		return c.cleanupOrphanMetadata(ctx, entry)
+	case strings.Contains(entry.Key, "/complete/") && strings.HasSuffix(entry.Key, ".json"):
+		return c.cleanupOrphanComplete(ctx, entry)
+	case strings.HasSuffix(entry.Key, "/data"):
+		return c.cleanupOrphanData(ctx, entry)
+	default:
+		return false, nil
+	}
 }
 
 func (c *Cache) cleanupOrphanMetadata(ctx context.Context, entry storage.Entry) (bool, error) {
@@ -141,10 +150,13 @@ func (c *Cache) cleanupOrphanComplete(ctx context.Context, entry storage.Entry) 
 }
 
 func (c *Cache) isProtected(ctx context.Context, authority, repository, digest string) (bool, error) {
-	if c.protectOrphans == nil {
+	c.mu.Lock()
+	protect := c.protectOrphans
+	c.mu.Unlock()
+	if protect == nil {
 		return false, nil
 	}
-	return c.protectOrphans(ctx, authority, repository, digest)
+	return protect(ctx, authority, repository, digest)
 }
 
 func (c *Cache) cleanupOrphanData(ctx context.Context, entry storage.Entry) (bool, error) {

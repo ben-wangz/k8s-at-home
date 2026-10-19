@@ -137,6 +137,12 @@ func (runtime *fixtureRuntime) requestState(request *http.Request) fixtureReques
 
 func (runtime *fixtureRuntime) serveBlob(writer http.ResponseWriter, request *http.Request, state fixtureRequestState) bool {
 	path := request.URL.Path
+	if state.host == "github.com" && state.auth == "absent" {
+		if blob, ok := runtime.resumeByDigest[strings.TrimPrefix(path, "/v2/registry-hub-test/fixture/blobs/")]; ok && strings.HasPrefix(path, "/v2/registry-hub-test/fixture/blobs/") {
+			runtime.serveResumeBlob(writer, request, blob)
+			return true
+		}
+	}
 	switch {
 	case state.host == "registry-1.docker.io" && path == "/v2/library/registry-hub-test/blobs/"+runtime.configDigest && (state.auth == "basic-matched" || state.auth == "bearer-matched"):
 		writeBlob(writer, runtime.config, runtime.configDigest)

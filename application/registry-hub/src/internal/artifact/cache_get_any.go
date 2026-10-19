@@ -66,9 +66,9 @@ func (c *Cache) PutBytes(ctx context.Context, authority, repository, mediaType s
 }
 
 func (c *Cache) Remove(ctx context.Context, authority, repository, digest, mediaType string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	identity := cacheIdentity(authority, repository, digest)
+	unlock := c.lockIdentity(identity)
+	defer unlock()
 	metaKey := cacheMetadataKey(identity, mediaType)
 	metadata, version, err := c.readMetadataEntry(ctx, metaKey)
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {

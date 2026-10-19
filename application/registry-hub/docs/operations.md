@@ -42,6 +42,29 @@ curl --fail --silent --show-error --netrc-file "$ADMIN_NETRC" \
 
 An accepted request is not proof of completion. Read the task again. Cancellation is refused once root publication has started; permanent failures cannot be retried through this operation.
 
+## Upstream Blob downloads
+
+Blob data is downloaded to temporary persistent chunks and becomes readable only after the full size and digest have been verified. If a connection, transfer attempt, or Backend Pod stops, the next attempt resumes from the last committed byte. Upstreams that ignore Range are fetched again from byte zero. Registry clients and ingress controllers can impose shorter request deadlines than the Backend.
+
+The defaults are a 24-hour total Blob transfer budget, a 300-second per-Range attempt limit, a 60-second wait without upstream data, a 24-hour partial-download retention period, and a 200 GiB aggregate partial-download limit. Set these optional Backend environment variables through `backend.extraEnvVars`:
+
+```yaml
+backend:
+  extraEnvVars:
+    - name: REGISTRY_HUB_BLOB_TRANSFER_TIMEOUT_SECONDS
+      value: "86400"
+    - name: REGISTRY_HUB_REQUEST_TIMEOUT_SECONDS
+      value: "300"
+    - name: REGISTRY_HUB_UPSTREAM_BODY_IDLE_TIMEOUT_SECONDS
+      value: "60"
+    - name: REGISTRY_HUB_DOWNLOAD_PARTIAL_TTL_SECONDS
+      value: "86400"
+    - name: REGISTRY_HUB_DOWNLOAD_MAX_BYTES
+      value: "214748364800"
+```
+
+While a Blob is being assembled into the complete cache, storage usage can temporarily approach twice the Blob size. The default backend PVC is 20 GiB while the default per-object limit is 100 GiB; size persistent storage for expected concurrent downloads and cache assembly. A cold Blob response waits for verification before returning its first byte, so a client or ingress with a shorter deadline may need to retry. Retrying reuses committed progress when the upstream supports Range.
+
 ## Cleanup and Referrers
 
 Trigger bounded cleanup of expired upload sessions, eligible temporary objects, orphaned storage objects, and old terminal tasks:

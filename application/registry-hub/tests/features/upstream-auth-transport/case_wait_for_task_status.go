@@ -156,7 +156,8 @@ func validateSecret(data map[string][]byte, release, namespace string) (string, 
 		return "", "", "", fmt.Errorf("upstream transport configuration is invalid")
 	}
 	caFile := "/etc/registry-hub/upstream-tls/ca.crt"
-	if len(transports) != 5 || !validHTTPRule(transports["docker.io"]) || !validHTTPAndTLSRule(transports["github.com"], caFile) || !validHTTPRule(transports["ghcr.io"]) ||
+	if len(transports) != 6 || !validHTTPRule(transports["docker.io"]) || !validHTTPAndTLSRule(transports["github.com"], caFile) || !validHTTPRule(transports["ghcr.io"]) ||
+		!validTLSRule(transports["ghcr.nju.edu.cn"], "") ||
 		!validTLSRule(transports["tls.registry-hub.test"], caFile) || !validTLSRule(transports["tls-untrusted.registry-hub.test"], "") {
 		return "", "", "", fmt.Errorf("upstream transport configuration does not match the test contract")
 	}
@@ -165,8 +166,9 @@ func validateSecret(data map[string][]byte, release, namespace string) (string, 
 		return "", "", "", fmt.Errorf("upstream proxy configuration is invalid")
 	}
 	proxyURL := "http://" + release + proxySuffix + "." + namespace + ".svc.cluster.local:8080"
-	if proxy.Default != "" || len(proxy.Authorities) != 5 || proxy.Authorities["docker.io"] != proxyURL ||
+	if proxy.Default != "" || len(proxy.Authorities) != 6 || proxy.Authorities["docker.io"] != proxyURL ||
 		proxy.Authorities["github.com"] != proxyURL || proxy.Authorities["ghcr.io"] != proxyURL ||
+		proxy.Authorities["ghcr.nju.edu.cn"] != proxyURL ||
 		proxy.Authorities["tls.registry-hub.test"] != proxyURL || proxy.Authorities["tls-untrusted.registry-hub.test"] != proxyURL {
 		return "", "", "", fmt.Errorf("upstream proxy configuration does not match the test contract")
 	}

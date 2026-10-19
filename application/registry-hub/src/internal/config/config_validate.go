@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -90,7 +91,7 @@ func (c Config) Validate() error {
 			return errors.New("S3 HTTP requires REGISTRY_HUB_S3_ALLOW_HTTP=true")
 		}
 	}
-	if c.Limits.ManifestBytes < 1 || c.Limits.UploadBytes < 1 || c.Limits.ObjectBytes < 1 || c.Limits.ClosureObjects < 1 || c.Limits.ClosureBytes < 1 || c.Limits.ClosureDepth < 1 || c.Limits.MaxDescriptors < 1 || c.Limits.DescriptorDataBytes < 1 || c.Limits.Workers < 1 || c.Limits.Workers > 4 || c.Limits.PendingTasks < 1 || c.Limits.MaxPageSize < 1 || c.Limits.MaxReferrerPages < 1 || c.Limits.UploadIdleTimeout <= 0 || c.Limits.UploadMaxLifetime <= 0 || c.Limits.GlobalRate <= 0 || c.Limits.GlobalBurst < 1 || c.Limits.NoAuthRate <= 0 || c.Limits.NoAuthBurst < 1 || c.Limits.RequestTimeout <= 0 {
+	if c.Limits.ManifestBytes < 1 || c.Limits.UploadBytes < 1 || c.Limits.ObjectBytes < 1 || c.Limits.ObjectBytes > math.MaxInt64/2 || c.Limits.ClosureObjects < 1 || c.Limits.ClosureBytes < 1 || c.Limits.ClosureDepth < 1 || c.Limits.MaxDescriptors < 1 || c.Limits.DescriptorDataBytes < 1 || c.Limits.Workers < 1 || c.Limits.Workers > 4 || c.Limits.PendingTasks < 1 || c.Limits.MaxPageSize < 1 || c.Limits.MaxReferrerPages < 1 || c.Limits.UploadIdleTimeout <= 0 || c.Limits.UploadMaxLifetime <= 0 || c.Limits.GlobalRate <= 0 || c.Limits.GlobalBurst < 1 || c.Limits.NoAuthRate <= 0 || c.Limits.NoAuthBurst < 1 || c.Limits.RequestTimeout <= 0 || c.Limits.BlobTransferTimeout <= 0 || c.Limits.UpstreamBodyIdleTimeout <= 0 || c.Limits.DownloadPartialTTL <= 0 || c.Limits.DownloadMaxBytes <= 0 {
 		return errors.New("resource limits must be positive")
 	}
 	for authority, auth := range c.UpstreamAuth {

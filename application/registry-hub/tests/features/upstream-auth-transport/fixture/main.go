@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -24,6 +25,7 @@ const (
 	ociIndexMediaType   = "application/vnd.oci.image.index.v1+json"
 	dockerListMediaType = "application/vnd.docker.distribution.manifest.list.v2+json"
 	dockerListBody      = `{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.list.v2+json","manifests":[]}`
+	proxyRelayAuthority = "ghcr.nju.edu.cn:443"
 )
 
 func serveConnect(writer http.ResponseWriter, request *http.Request, handler http.Handler, tlsConfig *tls.Config) {
@@ -48,6 +50,62 @@ func serveConnect(writer http.ResponseWriter, request *http.Request, handler htt
 	server := &http.Server{Handler: handler}
 	if err := server.Serve(listener); err != nil && !errors.Is(err, net.ErrClosed) {
 		log.Printf("TLS proxy tunnel failed: %v", err)
+	}
+}
+
+func serveRelayConnect(writer http.ResponseWriter, request *http.Request) {
+	if !strings.EqualFold(request.Host, proxyRelayAuthority) {
+		http.Error(writer, "CONNECT target is not allowed", http.StatusForbidden)
+		return
+	}
+	upstream, err := net.DialTimeout("tcp", proxyRelayAuthority, 10*time.Second)
+	if err != nil {
+		log.Printf("relay connect host=%s status=failed", proxyRelayAuthority)
+		http.Error(writer, "upstream connection failed", http.StatusBadGateway)
+		return
+	}
+	hijacker, ok := writer.(http.Hijacker)
+	if !ok {
+		upstream.Close()
+		writer.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	client, buffered, err := hijacker.Hijack()
+	if err != nil {
+		upstream.Close()
+		return
+	}
+	if _, err := buffered.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
+		client.Close()
+		upstream.Close()
+		return
+	}
+	if err := buffered.Flush(); err != nil {
+		client.Close()
+		upstream.Close()
+		return
+	}
+	log.Printf("relay connect host=%s status=connected", proxyRelayAuthority)
+	done := make(chan struct{}, 2)
+	go func() {
+		_, _ = io.Copy(upstream, buffered)
+		closeWrite(upstream)
+		done <- struct{}{}
+	}()
+	go func() {
+		_, _ = io.Copy(client, upstream)
+		closeWrite(client)
+		done <- struct{}{}
+	}()
+	<-done
+	client.Close()
+	upstream.Close()
+	<-done
+}
+
+func closeWrite(connection net.Conn) {
+	if tcp, ok := connection.(*net.TCPConn); ok {
+		_ = tcp.CloseWrite()
 	}
 }
 

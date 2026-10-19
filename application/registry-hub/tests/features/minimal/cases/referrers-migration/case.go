@@ -130,7 +130,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		return fmt.Errorf("restored Chart Registry returned %d for the Zot-only subject, want 404", restoredStatus)
 	}
 	return support.WriteResult(environment, map[string]any{
-		"fixtureImage": zotFixtureImage, "repository": repository, "subjectDigest": subject.ManifestDigest,
+		"fixtureImage": zotImageReference(), "repository": repository, "subjectDigest": subject.ManifestDigest,
 		"nativeTagsStatus": tagsStatus, "nativeReferrersStatus": nativeStatus,
 		"legacyReferrerDigest": legacyDigest, "nativeReferrerDigest": nativeDigest,
 		"fallbackTag": legacyTag, "fallbackIndexDigest": fallbackIndexDigest,

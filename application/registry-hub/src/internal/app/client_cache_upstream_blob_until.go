@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"os"
 	"registry-hub/internal/artifact"
+	"registry-hub/internal/download"
 	"registry-hub/internal/lease"
 	"registry-hub/internal/registryapi"
 	"registry-hub/internal/route"
 	"registry-hub/internal/storage"
+	"registry-hub/internal/upstream"
 	"strconv"
 	"strings"
 	"time"
@@ -60,7 +62,9 @@ func (s *Service) downloadSharedBlob(ctx context.Context, routed route.Route, ob
 		if renewErr := <-renewDone; result == nil && renewErr != nil {
 			result = renewErr
 		}
-		_ = s.tasks.Leases().Release(context.Background(), objectLease)
+		releaseCtx, releaseCancel := context.WithTimeout(context.WithoutCancel(leaseCtx), 5*time.Second)
+		defer releaseCancel()
+		_ = s.tasks.Leases().Release(releaseCtx, objectLease)
 	}()
 	if cached, err := s.cache.GetAny(leaseCtx, routed.Upstream, routed.RemoteRepo, routed.Reference); err == nil {
 		_ = cached.Body.Close()
@@ -68,52 +72,79 @@ func (s *Service) downloadSharedBlob(ctx context.Context, routed route.Route, ob
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		return err
 	}
-	headers := requestHeaders(nil)
-	response, err := s.fetchUpstreamMethod(leaseCtx, http.MethodGet, routed.Upstream, routed.RemoteRepo, upstreamPath(routed), nil, headers)
+	identity := objectLeaseKey(routed.Upstream, routed.RemoteRepo, routed.Reference)
+	maxBytes := s.cfg.Limits.ObjectBytes
+	if maxBytes <= 0 {
+		maxBytes = 100 << 30
+	}
+	requestTimeout := s.cfg.Limits.RequestTimeout
+	if requestTimeout <= 0 {
+		requestTimeout = 300 * time.Second
+	}
+	idleTimeout := s.cfg.Limits.UpstreamBodyIdleTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = 60 * time.Second
+	}
+	transferTimeout := s.cfg.Limits.BlobTransferTimeout
+	if transferTimeout <= 0 {
+		transferTimeout = 24 * time.Hour
+	}
+	transferCtx, transferCancel := context.WithTimeout(leaseCtx, transferTimeout)
+	defer transferCancel()
+	manager := s.downloadManager()
+	downloadResult, err := manager.Fetch(transferCtx, download.Request{
+		Identity: identity, Digest: routed.Reference, ExpectedSize: -1, MaxBytes: maxBytes,
+		OwnerFence: objectLease.FencingToken, AttemptLimit: requestTimeout,
+		IdleTimeout: idleTimeout,
+		Guard:       func(ctx context.Context) error { return s.tasks.Leases().Validate(ctx, objectLease) },
+		Retryable:   upstream.Retryable,
+		WaitRetry:   s.downloadRetryWaiter(),
+		Observe:     s.metrics.recordEvent,
+		Source: func(ctx context.Context, start, end int64, etag string) (*http.Response, context.CancelFunc, error) {
+			attemptCtx, attemptCancel := context.WithCancel(ctx)
+			headers := requestHeaders(nil)
+			if start > 0 {
+				headers.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
+				if etag != "" {
+					headers.Set("If-Range", etag)
+				}
+			}
+			response, fetchErr := s.fetchUpstreamOnce(attemptCtx, http.MethodGet, routed.Upstream, routed.RemoteRepo, upstreamPath(routed), nil, headers)
+			if fetchErr != nil {
+				attemptCancel()
+				return nil, nil, fetchErr
+			}
+			return response, attemptCancel, nil
+		},
+	})
 	if err != nil {
+		var statusErr *download.StatusError
+		if errors.As(err, &statusErr) {
+			return &upstreamBlobFetchError{status: statusErr.Code, retryAfter: statusErr.RetryAfter, err: err}
+		}
 		return &upstreamBlobFetchError{err: err}
 	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return &upstreamBlobFetchError{status: response.StatusCode, err: fmt.Errorf("upstream blob returned status %d", response.StatusCode)}
-	}
-	hasher, err := artifact.Hasher(routed.Reference)
-	if err != nil {
-		return &upstreamBlobFetchError{err: err}
-	}
-	spool, size, err := spoolResponse(response.Body, s.cfg.Limits.ObjectBytes, hasher)
-	if err != nil {
-		return &upstreamBlobFetchError{err: err}
-	}
-	defer removeSpool(spool)
-	if response.ContentLength >= 0 && response.ContentLength != size {
-		return &upstreamBlobFetchError{err: errors.New("upstream blob length does not match Content-Length")}
-	}
-	if artifact.DigestFromHasher(routed.Reference, hasher) != routed.Reference {
-		return &upstreamBlobFetchError{err: artifact.ErrDigestMismatch}
-	}
-	if digestHeader := response.Header.Get("Docker-Content-Digest"); digestHeader != "" && digestHeader != routed.Reference {
-		return &upstreamBlobFetchError{err: fmt.Errorf("%w: upstream blob digest header does not match the request", artifact.ErrDigestMismatch)}
-	}
-	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
-	if err != nil || mediaType == "" {
+	mediaType, _, parseErr := mime.ParseMediaType(downloadResult.MediaType)
+	if parseErr != nil || mediaType == "" {
 		mediaType = "application/octet-stream"
 	}
-	if err := s.tasks.Leases().Validate(leaseCtx, objectLease); err != nil {
+	body, size, err := manager.Open(transferCtx, identity, routed.Reference, maxBytes)
+	if err != nil {
 		return err
 	}
-	if _, err := spool.Seek(0, io.SeekStart); err != nil {
-		return &upstreamBlobFetchError{err: err}
-	}
-	if err := s.cache.PutChecked(leaseCtx, routed.Upstream, routed.RemoteRepo, routed.Reference, mediaType, spool, size, func() error {
-		return s.tasks.Leases().Validate(leaseCtx, objectLease)
+	defer body.Close()
+	if err := s.cache.PutChecked(transferCtx, routed.Upstream, routed.RemoteRepo, routed.Reference, mediaType, body, size, func() error {
+		return s.tasks.Leases().Validate(transferCtx, objectLease)
 	}); err != nil {
+		if errors.Is(err, artifact.ErrDigestMismatch) {
+			_ = manager.Discard(transferCtx, identity, routed.Reference, objectLease.FencingToken)
+		}
 		return err
 	}
-	if err := s.tasks.Leases().Validate(leaseCtx, objectLease); err != nil {
+	if err := s.tasks.Leases().Validate(transferCtx, objectLease); err != nil {
 		return err
 	}
-	return nil
+	return manager.CommitComplete(transferCtx, identity, routed.Reference, objectLease.FencingToken)
 }
 
 func (s *Service) serveUpstreamBlobRange(writer http.ResponseWriter, request *http.Request, routed route.Route, response *http.Response) {

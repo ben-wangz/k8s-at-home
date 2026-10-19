@@ -33,8 +33,12 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err := configurePublicAuthorityHosts(ctx, environment); err != nil {
 		return err
 	}
-
 	registry := support.NewRegistryClient(environment)
+	proxyRelayEvidence, err := verifyProxyRelay(ctx, environment, registry)
+	if err != nil {
+		return err
+	}
+
 	dockerRepo := "docker.io/library/registry-hub-test"
 	dockerBody, dockerHeaders, err := support.ReadManifest(ctx, registry, dockerRepo, "authorized", support.OCIManifestMediaType)
 	if err != nil {
@@ -190,7 +194,8 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		"untrustedTLSStatus":     http.StatusBadGateway,
 		"downgradeStatus":        http.StatusBadGateway,
 		"publicAuthorityIP":      publicAuthorityIP,
-		"proxyEvidence":          "fixture logs contain authority, path, auth state and non-secret pull scope",
+		"proxyEvidence":          "controlled fixture logs record request state and the real NJU mirror CONNECT relay",
+		"proxyRelay":             proxyRelayEvidence,
 		"tokenDeadline":          tokenDeadlineResults,
 		"tokenRetryRequests":     tokenRetryRequests,
 		"tokenRetryDigest":       support.Digest(tokenRetryBody),

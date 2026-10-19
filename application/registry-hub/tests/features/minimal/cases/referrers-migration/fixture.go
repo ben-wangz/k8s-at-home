@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/ben-wangz/registry-hub-tests/internal/testkit"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -153,6 +154,13 @@ func installZotFixture(ctx context.Context, environment testkit.CaseContext) (fi
 	}
 	registryScaledDown = false
 	return fixture, nil
+}
+
+func zotImageReference() string {
+	if image := strings.TrimSpace(os.Getenv("REGISTRY_HUB_TEST_ZOT_IMAGE")); image != "" {
+		return image
+	}
+	return zotFixtureImage
 }
 
 func waitBackendReady(ctx context.Context, environment testkit.CaseContext) error {

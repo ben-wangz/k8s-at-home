@@ -59,6 +59,8 @@ type fixtureRuntime struct {
 	nestedObjects             map[string]fixtureManifest
 	sharedSizeConflict        fixtureManifest
 	sharedMediaConflict       fixtureManifest
+	resumeByReference         map[string]*resumeFixture
+	resumeByDigest            map[string]*resumeBlob
 	dockerListBytes           []byte
 	dockerListDigest          string
 	retryAfterRequests        int32
@@ -116,6 +118,9 @@ func newFixtureRuntime() (*fixtureRuntime, error) {
 		return nil, err
 	}
 	if err := runtime.buildBlobFixtures(); err != nil {
+		return nil, err
+	}
+	if err := runtime.buildResumableFixtures(); err != nil {
 		return nil, err
 	}
 	if err := runtime.buildInlineFixtures(); err != nil {

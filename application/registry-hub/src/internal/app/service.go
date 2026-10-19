@@ -9,6 +9,7 @@ import (
 	"registry-hub/internal/artifact"
 	"registry-hub/internal/config"
 	"registry-hub/internal/distribution"
+	"registry-hub/internal/download"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/storage/filesystem"
 	"registry-hub/internal/storage/s3store"
@@ -31,6 +32,8 @@ type Service struct {
 	registry            *distribution.Client
 	upstream            upstreamRequester
 	cache               *artifact.Cache
+	downloader          *download.Manager
+	downloadOnce        sync.Once
 	tasks               *tasks.Manager
 	gate                *writeGate
 	uploads             *uploadSessions
@@ -206,6 +209,13 @@ func pingWithRetry(ctx context.Context, ping func(context.Context) error, interv
 
 func (s *Service) ClientHandler() http.Handler {
 	return http.HandlerFunc(s.handleClient)
+}
+
+func (s *Service) downloadManager() *download.Manager {
+	s.downloadOnce.Do(func() {
+		s.downloader = download.New(s.store, s.cfg.Limits.DownloadMaxBytes)
+	})
+	return s.downloader
 }
 
 func (s *Service) SetReady(ready bool) { s.ready.Store(ready) }

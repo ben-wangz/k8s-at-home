@@ -4,34 +4,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"registry-hub/internal/auth"
 	"registry-hub/internal/route"
 	"registry-hub/internal/upstream"
 	"strconv"
+	"sync"
 	"time"
 )
 
 func (s *Service) fetchUpstreamMethod(ctx context.Context, method, authority, repository, path string, query url.Values, headers http.Header) (*http.Response, error) {
-	globalRelease, ok := s.acquireSlot(ctx, s.upstreamSlots)
-	if !ok {
-		s.metrics.recordRejection("upstream_concurrency")
-		return nil, errors.New("upstream concurrency limit exceeded")
-	}
-	defer globalRelease()
-	perAuthorityRelease, ok := s.acquireSlot(ctx, s.upstreamSlot(authority))
-	if !ok {
-		s.metrics.recordRejection("upstream_authority_concurrency")
-		return nil, errors.New("upstream authority concurrency limit exceeded")
-	}
-	defer perAuthorityRelease()
 	waited := time.Duration(0)
 	for attempt := 0; attempt < maxUpstreamRetryAttempts; attempt++ {
+		release, ok := s.acquireUpstreamRequest(ctx, authority)
+		if !ok {
+			return nil, errors.New("upstream concurrency limit exceeded")
+		}
 		var retryAfter string
 		s.metrics.recordEvent("upstream_fetch")
 		response, err := s.upstream.Do(ctx, authority, repository, method, path, query, headers)
 		if err != nil {
+			release()
 			retryAfter = upstream.RetryAfter(err)
 			if status, ok := upstream.HTTPStatus(err); ok {
 				s.metrics.upstream.WithLabelValues(strconv.Itoa(status)).Inc()
@@ -49,12 +44,14 @@ func (s *Service) fetchUpstreamMethod(ctx context.Context, method, authority, re
 			if response.StatusCode == http.StatusNotFound {
 				s.metrics.recordEvent("upstream_404")
 			}
+			response.Body = &upstreamSlotBody{ReadCloser: response.Body, release: release}
 			return response, nil
 		} else {
 			s.metrics.upstream.WithLabelValues(strconv.Itoa(response.StatusCode)).Inc()
 			s.metrics.recordEvent("upstream_retry")
 			retryAfter = response.Header.Get("Retry-After")
 			_ = response.Body.Close()
+			release()
 			if attempt == maxUpstreamRetryAttempts-1 {
 				return nil, fmt.Errorf("upstream returned status %d", response.StatusCode)
 			}
@@ -75,6 +72,89 @@ func (s *Service) fetchUpstreamMethod(ctx context.Context, method, authority, re
 		}
 	}
 	return nil, errors.New("upstream retry budget exhausted")
+}
+
+func (s *Service) fetchUpstreamOnce(ctx context.Context, method, authority, repository, path string, query url.Values, headers http.Header) (*http.Response, error) {
+	release, ok := s.acquireUpstreamRequest(ctx, authority)
+	if !ok {
+		return nil, errors.New("upstream concurrency limit exceeded")
+	}
+	s.metrics.recordEvent("upstream_fetch")
+	response, err := s.upstream.Do(ctx, authority, repository, method, path, query, headers)
+	if err != nil {
+		if response != nil && response.Body != nil {
+			_ = response.Body.Close()
+		}
+		release()
+		if status, ok := upstream.HTTPStatus(err); ok {
+			s.metrics.upstream.WithLabelValues(strconv.Itoa(status)).Inc()
+		} else {
+			s.metrics.upstream.WithLabelValues("network_error").Inc()
+		}
+		return nil, err
+	}
+	if response == nil || response.Body == nil {
+		release()
+		return nil, errors.New("upstream returned an empty response")
+	}
+	s.metrics.upstream.WithLabelValues(strconv.Itoa(response.StatusCode)).Inc()
+	if response.StatusCode == http.StatusNotFound {
+		s.metrics.recordEvent("upstream_404")
+	}
+	response.Body = &upstreamSlotBody{ReadCloser: response.Body, release: release}
+	return response, nil
+}
+
+func (s *Service) downloadRetryWaiter() func(context.Context, string, int) error {
+	waited := time.Duration(0)
+	return func(ctx context.Context, retryAfter string, attempt int) error {
+		delay, ok := upstreamRetryDelay(retryAfter, attempt, waited)
+		if !ok {
+			return errors.New("upstream retry wait budget exhausted")
+		}
+		if _, hasRetryAfter := parseRetryAfter(retryAfter); !hasRetryAfter {
+			waited += delay
+		}
+		s.metrics.recordEvent("upstream_retry")
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return nil
+		}
+	}
+}
+
+func (s *Service) acquireUpstreamRequest(ctx context.Context, authority string) (func(), bool) {
+	globalRelease, ok := s.acquireSlot(ctx, s.upstreamSlots)
+	if !ok {
+		s.metrics.recordRejection("upstream_concurrency")
+		return nil, false
+	}
+	authorityRelease, ok := s.acquireSlot(ctx, s.upstreamSlot(authority))
+	if !ok {
+		globalRelease()
+		s.metrics.recordRejection("upstream_authority_concurrency")
+		return nil, false
+	}
+	return func() {
+		authorityRelease()
+		globalRelease()
+	}, true
+}
+
+type upstreamSlotBody struct {
+	io.ReadCloser
+	release func()
+	once    sync.Once
+}
+
+func (b *upstreamSlotBody) Close() error {
+	err := b.ReadCloser.Close()
+	b.once.Do(b.release)
+	return err
 }
 
 func registryPath(routed route.Route) string {

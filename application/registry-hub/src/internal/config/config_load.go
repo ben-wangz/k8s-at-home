@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"strconv"
@@ -24,6 +25,14 @@ func Load() (Config, error) {
 			return fallback
 		}
 		return parsed
+	}
+	secondsValue := func(name string, fallback int64) time.Duration {
+		seconds := intValue(name, fallback)
+		if seconds > math.MaxInt64/int64(time.Second) || seconds < math.MinInt64/int64(time.Second) {
+			parseErrors = errors.Join(parseErrors, fmt.Errorf("%s duration overflows time.Duration", name))
+			seconds = fallback
+		}
+		return time.Duration(seconds) * time.Second
 	}
 	cfg.ClientAddr = value("REGISTRY_HUB_CLIENT_ADDR", ":5000")
 	cfg.AdminAddr = value("REGISTRY_HUB_ADMIN_ADDR", ":8081")
@@ -52,26 +61,38 @@ func Load() (Config, error) {
 	cfg.GCUploadPurgingDisabled = strings.EqualFold(os.Getenv("REGISTRY_HUB_GC_UPLOAD_PURGING_DISABLED"), "true")
 	cfg.DistributionCA = value("REGISTRY_HUB_DISTRIBUTION_CA", os.Getenv("REGISTRY_HUB_DISTRIBUTION_CA_FILE"))
 	cfg.CatalogEnabled = strings.EqualFold(os.Getenv("REGISTRY_HUB_CATALOG_ENABLED"), "true")
+	objectBytes := intValue("REGISTRY_HUB_LIMIT_OBJECT_BYTES", 100<<30)
+	defaultDownloadMaxBytes := int64(0)
+	if objectBytes > math.MaxInt64/2 || objectBytes < 0 {
+		parseErrors = errors.Join(parseErrors, errors.New("REGISTRY_HUB_LIMIT_OBJECT_BYTES cannot be doubled safely for the default download quota"))
+	} else {
+		defaultDownloadMaxBytes = 2 * objectBytes
+	}
+	downloadMaxBytes := intValue("REGISTRY_HUB_DOWNLOAD_MAX_BYTES", defaultDownloadMaxBytes)
 	cfg.Limits = Limits{
-		ManifestBytes:       intValue("REGISTRY_HUB_LIMIT_MANIFEST_BYTES", 16<<20),
-		UploadBytes:         intValue("REGISTRY_HUB_LIMIT_UPLOAD_BYTES", 256<<20),
-		ObjectBytes:         intValue("REGISTRY_HUB_LIMIT_OBJECT_BYTES", 100<<30),
-		ClosureObjects:      int(intValue("REGISTRY_HUB_LIMIT_CLOSURE_OBJECTS", 10000)),
-		ClosureBytes:        intValue("REGISTRY_HUB_LIMIT_CLOSURE_BYTES", 1<<40),
-		ClosureDepth:        int(intValue("REGISTRY_HUB_LIMIT_CLOSURE_DEPTH", 64)),
-		MaxDescriptors:      int(intValue("REGISTRY_HUB_LIMIT_DESCRIPTORS", 10000)),
-		DescriptorDataBytes: intValue("REGISTRY_HUB_LIMIT_DESCRIPTOR_DATA_BYTES", 16<<20),
-		Workers:             int(intValue("REGISTRY_HUB_WORKERS", 4)),
-		PendingTasks:        int(intValue("REGISTRY_HUB_PENDING_TASKS", 1024)),
-		MaxPageSize:         int(intValue("REGISTRY_HUB_LIMIT_PAGE_SIZE", 1000)),
-		MaxReferrerPages:    int(intValue("REGISTRY_HUB_LIMIT_REFERRER_PAGES", 100)),
-		UploadIdleTimeout:   time.Duration(intValue("REGISTRY_HUB_UPLOAD_IDLE_TIMEOUT_SECONDS", 30*60)) * time.Second,
-		UploadMaxLifetime:   time.Duration(intValue("REGISTRY_HUB_UPLOAD_MAX_LIFETIME_SECONDS", 24*60*60)) * time.Second,
-		GlobalRate:          float64(intValue("REGISTRY_HUB_RATE_GLOBAL", 200)),
-		GlobalBurst:         float64(intValue("REGISTRY_HUB_RATE_GLOBAL_BURST", 400)),
-		NoAuthRate:          float64(intValue("REGISTRY_HUB_RATE_NO_AUTH", 20)),
-		NoAuthBurst:         float64(intValue("REGISTRY_HUB_RATE_NO_AUTH_BURST", 40)),
-		RequestTimeout:      time.Duration(intValue("REGISTRY_HUB_REQUEST_TIMEOUT_SECONDS", 300)) * time.Second,
+		ManifestBytes:           intValue("REGISTRY_HUB_LIMIT_MANIFEST_BYTES", 16<<20),
+		UploadBytes:             intValue("REGISTRY_HUB_LIMIT_UPLOAD_BYTES", 256<<20),
+		ObjectBytes:             objectBytes,
+		ClosureObjects:          int(intValue("REGISTRY_HUB_LIMIT_CLOSURE_OBJECTS", 10000)),
+		ClosureBytes:            intValue("REGISTRY_HUB_LIMIT_CLOSURE_BYTES", 1<<40),
+		ClosureDepth:            int(intValue("REGISTRY_HUB_LIMIT_CLOSURE_DEPTH", 64)),
+		MaxDescriptors:          int(intValue("REGISTRY_HUB_LIMIT_DESCRIPTORS", 10000)),
+		DescriptorDataBytes:     intValue("REGISTRY_HUB_LIMIT_DESCRIPTOR_DATA_BYTES", 16<<20),
+		Workers:                 int(intValue("REGISTRY_HUB_WORKERS", 4)),
+		PendingTasks:            int(intValue("REGISTRY_HUB_PENDING_TASKS", 1024)),
+		MaxPageSize:             int(intValue("REGISTRY_HUB_LIMIT_PAGE_SIZE", 1000)),
+		MaxReferrerPages:        int(intValue("REGISTRY_HUB_LIMIT_REFERRER_PAGES", 100)),
+		UploadIdleTimeout:       time.Duration(intValue("REGISTRY_HUB_UPLOAD_IDLE_TIMEOUT_SECONDS", 30*60)) * time.Second,
+		UploadMaxLifetime:       time.Duration(intValue("REGISTRY_HUB_UPLOAD_MAX_LIFETIME_SECONDS", 24*60*60)) * time.Second,
+		GlobalRate:              float64(intValue("REGISTRY_HUB_RATE_GLOBAL", 200)),
+		GlobalBurst:             float64(intValue("REGISTRY_HUB_RATE_GLOBAL_BURST", 400)),
+		NoAuthRate:              float64(intValue("REGISTRY_HUB_RATE_NO_AUTH", 20)),
+		NoAuthBurst:             float64(intValue("REGISTRY_HUB_RATE_NO_AUTH_BURST", 40)),
+		RequestTimeout:          time.Duration(intValue("REGISTRY_HUB_REQUEST_TIMEOUT_SECONDS", 300)) * time.Second,
+		BlobTransferTimeout:     secondsValue("REGISTRY_HUB_BLOB_TRANSFER_TIMEOUT_SECONDS", 24*60*60),
+		UpstreamBodyIdleTimeout: secondsValue("REGISTRY_HUB_UPSTREAM_BODY_IDLE_TIMEOUT_SECONDS", 60),
+		DownloadPartialTTL:      secondsValue("REGISTRY_HUB_DOWNLOAD_PARTIAL_TTL_SECONDS", 24*60*60),
+		DownloadMaxBytes:        downloadMaxBytes,
 	}
 
 	endpoint := value("REGISTRY_HUB_DISTRIBUTION_ENDPOINT", "https://registry:5000")

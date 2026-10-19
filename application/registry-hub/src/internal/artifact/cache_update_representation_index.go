@@ -138,8 +138,6 @@ func cacheRepresentationIndexIdentity(key string) (string, bool) {
 }
 
 func (c *Cache) MarkCleanupPending(ctx context.Context, authority, repository string, digests []string, cleanupAfter time.Time) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	seen := make(map[string]struct{}, len(digests))
 	for _, digest := range digests {
 		if _, ok := seen[digest]; ok {
@@ -147,8 +145,10 @@ func (c *Cache) MarkCleanupPending(ctx context.Context, authority, repository st
 		}
 		seen[digest] = struct{}{}
 		identity := cacheIdentity(authority, repository, digest)
+		unlock := c.lockIdentity(identity)
 		entries, _, err := c.store.List(ctx, "cache/objects/"+identity+"/representations/", "", 1000)
 		if err != nil {
+			unlock()
 			return err
 		}
 		for _, entry := range entries {
@@ -157,6 +157,7 @@ func (c *Cache) MarkCleanupPending(ctx context.Context, authority, repository st
 				continue
 			}
 			if readErr != nil {
+				unlock()
 				return readErr
 			}
 			if metadata.State != "complete" || metadata.Authority != authority || metadata.Repository != repository || metadata.Digest != digest {
@@ -166,12 +167,15 @@ func (c *Cache) MarkCleanupPending(ctx context.Context, authority, repository st
 			metadata.CleanupAfter = cleanupAfter
 			data, marshalErr := json.Marshal(metadata)
 			if marshalErr != nil {
+				unlock()
 				return marshalErr
 			}
 			if _, err := c.store.Put(ctx, entry.Key, bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfMatch: version}); err != nil && !errors.Is(err, storage.ErrConditionFailed) {
+				unlock()
 				return err
 			}
 		}
+		unlock()
 	}
 	return nil
 }

@@ -169,7 +169,15 @@ func (environment Environment) WriteValues(path string, image ImageBuild) error 
 	if err != nil {
 		return fmt.Errorf("registry image repository is invalid: %w", err)
 	}
-	content := fmt.Sprintf("backend:\n  image:\n    registry: '%s'\n    repository: '%s'\n    digest: '%s'\nregistry:\n  image:\n    registry: '%s'\n    repository: '%s'\n", backendRegistry, backendImageRepository, image.Digest, registryImageRegistry, registryImageRepository)
+	registryDigest := strings.TrimSpace(os.Getenv("REGISTRY_HUB_TEST_REGISTRY_IMAGE_DIGEST"))
+	if registryDigest != "" && !validDigest(registryDigest) {
+		return fmt.Errorf("registry image digest is invalid")
+	}
+	registryDigestValue := ""
+	if registryDigest != "" {
+		registryDigestValue = fmt.Sprintf("    digest: '%s'\n", registryDigest)
+	}
+	content := fmt.Sprintf("backend:\n  image:\n    registry: '%s'\n    repository: '%s'\n    digest: '%s'\nregistry:\n  image:\n    registry: '%s'\n    repository: '%s'\n%s", backendRegistry, backendImageRepository, image.Digest, registryImageRegistry, registryImageRepository, registryDigestValue)
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		return fmt.Errorf("write environment values: %w", err)
 	}

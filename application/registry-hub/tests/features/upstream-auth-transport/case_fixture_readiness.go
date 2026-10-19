@@ -119,7 +119,7 @@ func waitBackendServiceEndpoint(ctx context.Context, environment testkit.CaseCon
 
 func waitProxyReady(ctx context.Context, environment testkit.CaseContext) error {
 	name := environment.Release + proxySuffix
-	if _, err := testkit.Command(ctx, "kubectl", "-n", environment.Namespace, "wait", "--for=condition=Ready", "pod/"+name, "--timeout=180s"); err != nil {
+	if _, err := testkit.Command(ctx, "kubectl", "-n", environment.Namespace, "wait", "--for=condition=Ready", "pod/"+name, "--timeout=300s"); err != nil {
 		logs, _ := testkit.Command(ctx, "kubectl", "-n", environment.Namespace, "logs", "pod/"+name, "-c", "proxy", "--tail=40")
 		return fmt.Errorf("upstream proxy fixture did not become ready: %w: %s", err, strings.TrimSpace(string(logs.Stdout)))
 	}

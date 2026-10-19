@@ -89,8 +89,7 @@ func (s *solidifier) Process(ctx context.Context, task *tasks.Task, taskLease le
 		return temporary("solidification_busy", errors.New("solidification worker slot is unavailable"))
 	}
 	defer releaseSlot()
-	workCtx, cancel := context.WithTimeout(ctx, s.cfg.Limits.RequestTimeout)
-	defer cancel()
+	workCtx := ctx
 	graph := &closure{seen: make(map[string]contentRef), active: make(map[string]bool)}
 	root := contentRef{digest: task.RootDigest, mediaType: task.MediaType, size: -1}
 	if entry, ok := task.Graph[task.RootDigest]; ok {
@@ -110,7 +109,10 @@ func (s *solidifier) Process(ctx context.Context, task *tasks.Task, taskLease le
 		}
 	}
 	if !strings.Contains(task.Reference, ":") {
-		if err := s.publishRootTag(workCtx, task, taskLease); err != nil {
+		requestCtx, cancel := context.WithTimeout(workCtx, s.cfg.Limits.RequestTimeout)
+		err := s.publishRootTag(requestCtx, task, taskLease)
+		cancel()
+		if err != nil {
 			return err
 		}
 	}
@@ -118,7 +120,10 @@ func (s *solidifier) Process(ctx context.Context, task *tasks.Task, taskLease le
 	for digest := range graph.seen {
 		digests = append(digests, digest)
 	}
-	if err := s.cache.MarkCleanupPending(workCtx, task.Authority, task.Repository, digests, time.Now().UTC().Add(time.Hour)); err != nil {
+	requestCtx, cancel := context.WithTimeout(workCtx, s.cfg.Limits.RequestTimeout)
+	err := s.cache.MarkCleanupPending(requestCtx, task.Authority, task.Repository, digests, time.Now().UTC().Add(time.Hour))
+	cancel()
+	if err != nil {
 		return temporary("storage", err)
 	}
 	return nil

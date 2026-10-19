@@ -28,7 +28,7 @@ func scenarioRegistry() map[string]ScenarioDefinition {
 				"dependency-failure", "external-combinations", "initialization-secrets", "initializer-faults",
 				"installation", "manifest-validation", "observability", "podman-upstream-pull", "rbac-boundary", "referrers-lifecycle",
 				"referrers-migration", "referrers-read", "registry-protocol", "registry-roundtrip", "restart-reuse",
-				"routing-paths", "security-defaults", "startup-wait", "tag-publication", "tags-pagination", "upstream-mirror",
+				"routing-paths", "security-defaults", "startup-wait", "tag-publication", "tags-pagination", "upstream-mirror", "upstream-resume",
 			},
 		},
 		"feature-client-auth-catalog": {

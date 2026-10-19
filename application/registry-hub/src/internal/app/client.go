@@ -94,7 +94,13 @@ func (s *Service) handleClient(original http.ResponseWriter, request *http.Reque
 		registryapi.WriteError(writer, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
 		return
 	}
-	ctx, cancel := context.WithTimeout(request.Context(), s.cfg.Limits.RequestTimeout)
+	timeout := s.cfg.Limits.RequestTimeout
+	if request.Method == http.MethodGet {
+		if routed, routeErr := route.Parse(request.RequestURI); routeErr == nil && routed.Endpoint == route.EndpointBlob && s.cfg.Limits.BlobTransferTimeout > 0 {
+			timeout = s.cfg.Limits.BlobTransferTimeout
+		}
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), timeout)
 	defer cancel()
 	request = request.WithContext(context.WithValue(ctx, requestMetaKey{}, meta))
 	if request.URL.Path == "/v2" {

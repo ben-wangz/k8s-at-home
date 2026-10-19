@@ -163,6 +163,9 @@ func (s *Service) runCacheCleanup(ctx context.Context) {
 			return
 		case now := <-ticker.C:
 			utcNow := now.UTC()
+			if err := s.cleanupPartialDownloads(ctx, utcNow); err != nil {
+				s.logger.Warn("partial download cleanup failed", "error_class", "storage")
+			}
 			if _, err := s.uploads.CleanupExpired(ctx, s.gate, 100); err != nil {
 				s.logger.Warn("expired upload cleanup failed", "error_class", "distribution")
 			}

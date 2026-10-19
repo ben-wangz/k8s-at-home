@@ -5,7 +5,7 @@
   "timeoutSeconds": 900,
   "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
   "assertions": ["All case-specific behavior is verified by the declared checks."],
-  "checks": [{"id":"feature-backend-s3.secret","description":"Verify feature backend s3 secret."},{"id":"feature-backend-s3.configuration","description":"Verify feature backend s3 configuration."},{"id":"feature-backend-s3.authentication","description":"Verify feature backend s3 authentication."},{"id":"feature-backend-s3.multipart","description":"Verify feature backend s3 multipart."},{"id":"feature-backend-s3.objects","description":"Verify feature backend s3 objects."},{"id":"feature-backend-s3.restart","description":"Verify feature backend s3 restart."}],
+  "checks": [{"id":"feature-backend-s3.secret","description":"Verify feature backend s3 secret."},{"id":"feature-backend-s3.configuration","description":"Verify feature backend s3 configuration."},{"id":"feature-backend-s3.authentication","description":"Verify feature backend s3 authentication."},{"id":"feature-backend-s3.multipart","description":"Verify feature backend s3 multipart."},{"id":"feature-backend-s3.objects","description":"Verify feature backend s3 objects."},{"id":"feature-backend-s3.download-resume","description":"Verify interrupted download state is stored in S3 and reclaimed after resume."},{"id":"feature-backend-s3.restart","description":"Verify feature backend s3 restart."}],
   "outputs": ["Case result and declared check evidence."],
   "requirements": ["docs/configuration.md"]
 }

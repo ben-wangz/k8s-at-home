@@ -34,9 +34,11 @@ Deployment uses the resolved repository@sha256:... digest and does not depend on
 - REGISTRY_HUB_TEST_RUNTIME_IMAGE
 - REGISTRY_HUB_TEST_GOPROXY (default: https://goproxy.cn,direct)
 - REGISTRY_HUB_TEST_REGISTRY_IMAGE_REPOSITORY (full registry/repository path)
+- REGISTRY_HUB_TEST_REGISTRY_IMAGE_DIGEST (optional sha256 digest override for a mirrored Distribution image)
+- REGISTRY_HUB_TEST_ZOT_IMAGE (optional immutable image reference for the referrers-migration fixture)
 - REGISTRY_HUB_TEST_PLATFORM (default: linux/amd64)
 
-An example Distribution image reference is container-registry-mirror.internal.home.geekcity.tech:32443/docker.io/library/registry. The chart's current default version is used. Do not pre-create admin or internal Registry Secrets. The minimal [config.yaml](../config.yaml) is empty, and the initialization Job generates and persistently reuses the required credentials. Environment values override the backend image registry, repository, and digest, plus the Distribution image registry and repository.
+An example Distribution image reference is container-registry-mirror.internal.home.geekcity.tech:32443/docker.io/library/registry. The chart's current default version is used. Do not pre-create admin or internal Registry Secrets. The minimal [config.yaml](../config.yaml) is empty, and the initialization Job generates and persistently reuses the required credentials. Environment values override the backend image registry, repository, and digest, plus the Distribution image registry and repository; set the optional Distribution digest override when the mirrored manifest has a different digest.
 
 Use run --image <repository>@sha256:<digest> to specify an existing backend image. The report records prebuilt-image mode. The image must still be pullable by nodes in develop.
 

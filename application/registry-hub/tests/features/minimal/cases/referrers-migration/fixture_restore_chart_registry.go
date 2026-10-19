@@ -51,7 +51,7 @@ func zotPod(environment testkit.CaseContext, fixture zotFixture, labels map[stri
 			"automountServiceAccountToken": false, "restartPolicy": "Always",
 			"securityContext": map[string]any{"runAsNonRoot": true, "runAsUser": 1000, "runAsGroup": 1000, "fsGroup": 1000, "seccompProfile": map[string]string{"type": "RuntimeDefault"}},
 			"containers": []map[string]any{{
-				"name": "registry", "image": zotFixtureImage, "imagePullPolicy": "IfNotPresent",
+				"name": "registry", "image": zotImageReference(), "imagePullPolicy": "IfNotPresent",
 				"args":            []string{"serve", "/etc/zot/config.json"},
 				"ports":           []map[string]any{{"name": "https-registry", "containerPort": 5000, "protocol": "TCP"}},
 				"resources":       map[string]any{"requests": map[string]string{"cpu": "50m", "memory": "64Mi"}, "limits": map[string]string{"cpu": "500m", "memory": "512Mi"}},

@@ -132,6 +132,14 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if support.Digest(manifestBefore) != manifestDigest || !strings.EqualFold(headersBefore.Get("Docker-Content-Digest"), manifestDigest) {
 		return fmt.Errorf("solidified manifest does not match its recorded digest before restart")
 	}
+	resumeEvidence, err := verifyBackendS3Resume(ctx, environment, client, bucket, registry)
+	if err != nil {
+		return err
+	}
+	beforeObjects, err = listBackendObjects(ctx, client, bucket)
+	if err != nil {
+		return err
+	}
 	if _, err := testkit.Command(ctx, "kubectl", "-n", environment.Namespace, "rollout", "restart", "deployment/"+environment.Fullname); err != nil {
 		return err
 	}
@@ -173,6 +181,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		"taskID":             taskID, "taskStatus": testkit.String(taskAfter["status"]),
 		"rootDigest":           manifestDigest,
 		"manifestDigestBefore": support.Digest(manifestBefore), "manifestDigestAfter": support.Digest(manifestAfter),
+		"downloadResume": resumeEvidence,
 	})
 }
 

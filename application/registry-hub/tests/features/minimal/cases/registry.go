@@ -37,6 +37,7 @@ import (
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/tag-publication"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/tags-pagination"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/upstream-mirror"
+	upstreamresume "github.com/ben-wangz/registry-hub-tests/features/minimal/cases/upstream-resume"
 	referrersfallback "github.com/ben-wangz/registry-hub-tests/features/referrers-fallback"
 	registrys3 "github.com/ben-wangz/registry-hub-tests/features/registry-s3"
 	storageredirect "github.com/ben-wangz/registry-hub-tests/features/storage-redirect"
@@ -85,6 +86,7 @@ func Registry() ([]testkit.Case, error) {
 		referrersfallback.New,
 		featuregc.New,
 		upstreammirror.New,
+		upstreamresume.New,
 	}
 	registered := make([]testkit.Case, 0, len(constructors))
 	for _, construct := range constructors {

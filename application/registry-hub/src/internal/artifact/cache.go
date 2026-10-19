@@ -3,6 +3,7 @@ package artifact
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
@@ -70,6 +71,7 @@ const (
 type Cache struct {
 	store          storage.Store
 	mu             sync.Mutex
+	identityLocks  [256]sync.Mutex
 	protectOrphans func(context.Context, string, string, string) (bool, error)
 }
 
@@ -86,9 +88,16 @@ func (c *Cache) Put(ctx context.Context, authority, repository, digest, mediaTyp
 }
 
 func (c *Cache) PutChecked(ctx context.Context, authority, repository, digest, mediaType string, body io.Reader, size int64, beforeComplete func() error) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	unlock := c.lockIdentity(cacheIdentity(authority, repository, digest))
+	defer unlock()
 	return c.put(ctx, authority, repository, digest, mediaType, body, size, beforeComplete)
+}
+
+func (c *Cache) lockIdentity(identity string) func() {
+	hash := sha256.Sum256([]byte(identity))
+	lock := &c.identityLocks[hash[0]]
+	lock.Lock()
+	return lock.Unlock
 }
 
 func (c *Cache) put(ctx context.Context, authority, repository, digest, mediaType string, body io.Reader, size int64, beforeComplete func() error) error {
@@ -112,7 +121,7 @@ func (c *Cache) put(ctx context.Context, authority, repository, digest, mediaTyp
 	}
 	if putErr == nil && digestValue(digest, source.hasher) != digest {
 		_ = c.store.DeleteIfMatch(ctx, dataKey, entry.Version)
-		return errors.New("cache object digest mismatch")
+		return errors.Join(ErrDigestMismatch, errors.New("cache object digest mismatch"))
 	}
 	if errors.Is(putErr, storage.ErrAlreadyExists) {
 		entry, err = c.store.Head(ctx, dataKey)

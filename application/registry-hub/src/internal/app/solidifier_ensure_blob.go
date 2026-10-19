@@ -11,6 +11,7 @@ import (
 	"registry-hub/internal/lease"
 	"registry-hub/internal/tasks"
 	"strings"
+	"time"
 )
 
 func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease lease.Lease, blob contentRef) error {
@@ -23,6 +24,13 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 	}
 	defer releaseObject()
 	ctx = leaseCtx
+	transferTimeout := s.cfg.Limits.BlobTransferTimeout
+	if transferTimeout <= 0 {
+		transferTimeout = 24 * time.Hour
+	}
+	transferCtx, cancelTransfer := context.WithTimeout(ctx, transferTimeout)
+	defer cancelTransfer()
+	ctx = transferCtx
 	if err := s.tasks.CheckActive(ctx, task, taskLease); err != nil {
 		return err
 	}
@@ -92,6 +100,13 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 }
 
 func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskLease lease.Lease, manifest contentRef, reference string) error {
+	requestTimeout := s.cfg.Limits.RequestTimeout
+	if requestTimeout <= 0 {
+		requestTimeout = 300 * time.Second
+	}
+	manifestCtx, cancelManifest := context.WithTimeout(ctx, requestTimeout)
+	defer cancelManifest()
+	ctx = manifestCtx
 	leaseCtx, releaseObject, err := acquireContentLease(ctx, s.tasks.Leases(), task.Authority, task.Repository, manifest.digest, task.ID)
 	if errors.Is(err, lease.ErrHeld) {
 		return temporary("object_busy", err)

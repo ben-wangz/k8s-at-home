@@ -62,25 +62,29 @@ type S3 struct {
 }
 
 type Limits struct {
-	ManifestBytes       int64
-	UploadBytes         int64
-	ObjectBytes         int64
-	ClosureObjects      int
-	ClosureBytes        int64
-	ClosureDepth        int
-	MaxDescriptors      int
-	DescriptorDataBytes int64
-	Workers             int
-	PendingTasks        int
-	MaxPageSize         int
-	MaxReferrerPages    int
-	UploadIdleTimeout   time.Duration
-	UploadMaxLifetime   time.Duration
-	GlobalRate          float64
-	GlobalBurst         float64
-	NoAuthRate          float64
-	NoAuthBurst         float64
-	RequestTimeout      time.Duration
+	ManifestBytes           int64
+	UploadBytes             int64
+	ObjectBytes             int64
+	ClosureObjects          int
+	ClosureBytes            int64
+	ClosureDepth            int
+	MaxDescriptors          int
+	DescriptorDataBytes     int64
+	Workers                 int
+	PendingTasks            int
+	MaxPageSize             int
+	MaxReferrerPages        int
+	UploadIdleTimeout       time.Duration
+	UploadMaxLifetime       time.Duration
+	GlobalRate              float64
+	GlobalBurst             float64
+	NoAuthRate              float64
+	NoAuthBurst             float64
+	RequestTimeout          time.Duration
+	BlobTransferTimeout     time.Duration
+	UpstreamBodyIdleTimeout time.Duration
+	DownloadPartialTTL      time.Duration
+	DownloadMaxBytes        int64
 }
 
 type Config struct {

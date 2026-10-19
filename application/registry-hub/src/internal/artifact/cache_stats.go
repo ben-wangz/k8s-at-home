@@ -127,8 +127,6 @@ func cacheEntryIdentityValue(key string) string {
 }
 
 func (c *Cache) Cleanup(ctx context.Context, now time.Time, limit int) (int, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if limit <= 0 || limit > 10000 {
 		limit = 1000
 	}
@@ -143,59 +141,13 @@ func (c *Cache) Cleanup(ctx context.Context, now time.Time, limit int) (int, err
 			if !strings.Contains(entry.Key, "/representations/") || !strings.HasSuffix(entry.Key, ".json") {
 				continue
 			}
-			metadata, version, readErr := c.readMetadataEntry(ctx, entry.Key)
-			if errors.Is(readErr, storage.ErrNotFound) {
-				continue
-			}
-			if readErr != nil {
-				return removed, readErr
-			}
-			identityEnd := strings.Index(entry.Key, "/representations/")
-			if identityEnd < len("cache/objects/") {
-				continue
-			}
-			identity := strings.TrimPrefix(entry.Key[:identityEnd], "cache/objects/")
-			complete, completeErr := c.readComplete(ctx, identity, metadata.MediaType)
-			if errors.Is(completeErr, storage.ErrNotFound) {
-				continue
-			}
-			if completeErr != nil {
-				return removed, completeErr
-			}
-			if complete.DataVersion != metadata.DataVersion || complete.Size != metadata.Size || complete.Digest != metadata.Digest || complete.MediaType != metadata.MediaType {
-				return removed, errors.New("cache complete marker does not match metadata")
-			}
-			deadline := cacheCleanupDeadline(metadata)
-			if (metadata.State != "complete" && metadata.State != "cleanup_pending") || deadline.IsZero() || deadline.After(now) {
-				continue
-			}
-			protected, err := c.isProtected(ctx, metadata.Authority, metadata.Repository, metadata.Digest)
+			deleted, err := c.cleanupExpiredEntry(ctx, entry, now)
 			if err != nil {
 				return removed, err
 			}
-			if protected {
-				continue
+			if deleted {
+				removed++
 			}
-			if err := c.store.DeleteIfMatch(ctx, entry.Key, version); err != nil {
-				if errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrNotFound) {
-					continue
-				}
-				return removed, err
-			}
-			if err := c.updateRepresentationIndex(ctx, metadata.Authority, metadata.Repository, metadata.Digest, metadata.MediaType, false); err != nil {
-				return removed, err
-			}
-			if completeEntry, completeErr := c.store.Head(ctx, cacheCompleteKey(identity, metadata.MediaType)); completeErr == nil {
-				if completeErr = c.store.DeleteIfMatch(ctx, cacheCompleteKey(identity, metadata.MediaType), completeEntry.Version); completeErr != nil && !errors.Is(completeErr, storage.ErrNotFound) {
-					return removed, completeErr
-				}
-			} else if !errors.Is(completeErr, storage.ErrNotFound) {
-				return removed, completeErr
-			}
-			if err := c.removeDataIfUnreferenced(ctx, identity, metadata.DataVersion); err != nil && !errors.Is(err, storage.ErrNotFound) {
-				return removed, err
-			}
-			removed++
 			if removed >= limit {
 				return removed, nil
 			}
@@ -206,4 +158,59 @@ func (c *Cache) Cleanup(ctx context.Context, now time.Time, limit int) (int, err
 		token = next
 	}
 	return removed, nil
+}
+
+func (c *Cache) cleanupExpiredEntry(ctx context.Context, entry storage.Entry, now time.Time) (bool, error) {
+	identityEnd := strings.Index(entry.Key, "/representations/")
+	if identityEnd < len("cache/objects/") {
+		return false, nil
+	}
+	identity := strings.TrimPrefix(entry.Key[:identityEnd], "cache/objects/")
+	unlock := c.lockIdentity(identity)
+	defer unlock()
+	metadata, version, err := c.readMetadataEntry(ctx, entry.Key)
+	if errors.Is(err, storage.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	complete, err := c.readComplete(ctx, identity, metadata.MediaType)
+	if errors.Is(err, storage.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if complete.DataVersion != metadata.DataVersion || complete.Size != metadata.Size || complete.Digest != metadata.Digest || complete.MediaType != metadata.MediaType {
+		return false, errors.New("cache complete marker does not match metadata")
+	}
+	deadline := cacheCleanupDeadline(metadata)
+	if (metadata.State != "complete" && metadata.State != "cleanup_pending") || deadline.IsZero() || deadline.After(now) {
+		return false, nil
+	}
+	protected, err := c.isProtected(ctx, metadata.Authority, metadata.Repository, metadata.Digest)
+	if err != nil || protected {
+		return false, err
+	}
+	if err := c.store.DeleteIfMatch(ctx, entry.Key, version); err != nil {
+		if errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	if err := c.updateRepresentationIndex(ctx, metadata.Authority, metadata.Repository, metadata.Digest, metadata.MediaType, false); err != nil {
+		return false, err
+	}
+	if completeEntry, completeErr := c.store.Head(ctx, cacheCompleteKey(identity, metadata.MediaType)); completeErr == nil {
+		if err := c.store.DeleteIfMatch(ctx, cacheCompleteKey(identity, metadata.MediaType), completeEntry.Version); err != nil && !errors.Is(err, storage.ErrNotFound) {
+			return false, err
+		}
+	} else if !errors.Is(completeErr, storage.ErrNotFound) {
+		return false, completeErr
+	}
+	if err := c.removeDataIfUnreferenced(ctx, identity, metadata.DataVersion); err != nil && !errors.Is(err, storage.ErrNotFound) {
+		return false, err
+	}
+	return true, nil
 }

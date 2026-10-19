@@ -46,6 +46,10 @@ func (runtime *fixtureRuntime) serveGitHubMinimalManifest(writer http.ResponseWr
 	if path == request.URL.Path {
 		return false
 	}
+	if fixture := runtime.resumeByReference[path]; fixture != nil {
+		writeManifestRepresentation(writer, fixture.manifest, "application/vnd.oci.image.manifest.v1+json", fixture.manifestDigest)
+		return true
+	}
 	switch path {
 	case "minimal-multipart":
 		writeManifest(writer, runtime.multipartManifestBytes, runtime.multipartManifestDigest)
@@ -219,7 +223,12 @@ func tunnelHandler(handler http.Handler, tlsConfig *tls.Config) http.Handler {
 	var fixtureHandler http.Handler
 	fixtureHandler = http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method == http.MethodConnect {
-			log.Printf("connect host=%s", strings.ToLower(request.Host))
+			host := strings.ToLower(request.Host)
+			log.Printf("connect host=%s", host)
+			if host == proxyRelayAuthority {
+				serveRelayConnect(writer, request)
+				return
+			}
 			serveConnect(writer, request, fixtureHandler, tlsConfig)
 			return
 		}
