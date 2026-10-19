@@ -8,11 +8,12 @@ namespaces, mounts, and devices.
 
 Preinstalled components include:
 
-- Go 1.26.5, Node.js 24.13.1, and Python 3
-- kubectl 1.35.4 and Helm 4.1.4
+- Go 1.27.2, Node.js 24.22.0 LTS, and Python 3
+- kubectl 1.37.1 and Helm 4.3.1
+- Skopeo and ORAS CLI 1.3.5 for remote image and OCI artifact operations
 - Claude Code (`claude`), Codex (`codex`), Grok (`grok` and `grok-agent`), and
   Cursor Agent (`cursor-agent`) development CLIs (under `/usr/local`, not home)
-- Playwright 1.61.1 with Chromium; amd64 images also include Google Chrome
+- Playwright 1.64.1 with Chromium; amd64 images also include Google Chrome
 - poppler-utils, pdftk, and img2pdf
 - Common development, terminal, archive, and network diagnostic tools,
   including `less`

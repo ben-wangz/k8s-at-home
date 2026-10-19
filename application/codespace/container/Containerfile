@@ -9,14 +9,16 @@ ENV PATH=/opt/python/bin:/opt/nodejs/bin:/usr/local/go/bin:/usr/local/sbin:/usr/
     PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG GO_VERSION=1.26.5
+ARG GO_VERSION=1.27.2
 ARG GO_DOWNLOAD_BASE=https://go.dev/dl
-ARG NODEJS_VERSION=v24.13.1
-ARG HELM_VERSION=v4.1.4
+ARG NODEJS_VERSION=v24.22.0
+ARG HELM_VERSION=v4.3.1
 ARG HELM_DOWNLOAD_BASE=https://get.helm.sh
-ARG KUBECTL_VERSION=v1.35.4
+ARG KUBECTL_VERSION=v1.37.1
 ARG KUBECTL_DOWNLOAD_BASE=https://dl.k8s.io/release
-ARG PLAYWRIGHT_VERSION=1.61.1
+ARG ORAS_VERSION=1.3.5
+ARG ORAS_DOWNLOAD_BASE=https://github.com/oras-project/oras/releases/download
+ARG PLAYWRIGHT_VERSION=1.64.1
 
 # Install the development workstation and rootful Podman runtime packages.
 RUN apt-get update \
@@ -50,6 +52,7 @@ RUN apt-get update \
         ripgrep \
         screen \
         slirp4netns \
+        skopeo \
         sudo \
         telnet \
         tini \
@@ -62,6 +65,7 @@ RUN apt-get update \
         xz-utils \
         yq \
     && rm -rf /var/lib/apt/lists/* \
+    && skopeo --version \
     && locale-gen en_US.UTF-8 zh_CN.UTF-8 \
     && update-locale LANG=en_US.UTF-8 \
     && rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub \
@@ -148,6 +152,30 @@ RUN case "$(uname -m)" in \
         -o /usr/local/bin/kubectl \
     && chmod 0755 /usr/local/bin/kubectl \
     && rm -rf /tmp/helm.tar.gz "/tmp/linux-${TOOL_ARCH}"
+
+# Install ORAS from its upstream release archive and verify the published checksum.
+RUN case "$(uname -m)" in \
+        x86_64) ORAS_ARCH=amd64 ;; \
+        aarch64) ORAS_ARCH=arm64 ;; \
+        *) echo "Unsupported architecture for ORAS: $(uname -m)" >&2; exit 1 ;; \
+    esac \
+    && ORAS_ARCHIVE="oras_${ORAS_VERSION}_linux_${ORAS_ARCH}.tar.gz" \
+    && curl -4 -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+        --connect-timeout 30 --max-time 300 \
+        "${ORAS_DOWNLOAD_BASE}/v${ORAS_VERSION}/${ORAS_ARCHIVE}" \
+        -o "/tmp/${ORAS_ARCHIVE}" \
+    && curl -4 -fsSL --retry 3 --retry-all-errors --retry-delay 2 \
+        --connect-timeout 30 --max-time 300 \
+        "${ORAS_DOWNLOAD_BASE}/v${ORAS_VERSION}/oras_${ORAS_VERSION}_checksums.txt" \
+        -o /tmp/oras_checksums.txt \
+    && ORAS_CHECKSUM="$(awk -v archive="${ORAS_ARCHIVE}" '$2 == archive { print $1 }' /tmp/oras_checksums.txt)" \
+    && test -n "${ORAS_CHECKSUM}" \
+    && printf '%s  %s\n' "${ORAS_CHECKSUM}" "/tmp/${ORAS_ARCHIVE}" | sha256sum --check --status \
+    && install -d -m 0755 /tmp/oras \
+    && tar -xzf "/tmp/${ORAS_ARCHIVE}" -C /tmp/oras oras \
+    && install -m 0755 /tmp/oras/oras /usr/local/bin/oras \
+    && oras version \
+    && rm -rf "/tmp/${ORAS_ARCHIVE}" /tmp/oras_checksums.txt /tmp/oras
 
 # Cursor publishes its official CLI through cursor.com rather than an npm
 # package. This npm wrapper downloads that official binary; remove its generic
