@@ -1,15 +1,12 @@
-apiVersion: batch/v1
+apiVersion: {{ include "common.capabilities.cronjob.apiVersion" . }}
 kind: CronJob
 metadata:
   name: {{ include "git-repo-backup.cronjob.name" . }}
   labels:
     {{- include "git-repo-backup.labels" . | nindent 4 }}
-    {{- with .Values.commonLabels }}
-      {{- toYaml . | nindent 4 }}
-    {{- end }}
   {{- with .Values.cronJobAnnotations }}
   annotations:
-    {{- toYaml . | nindent 4 }}
+    {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 4 }}
   {{- end }}
 spec:
   schedule: {{ .Values.schedule | quote }}
@@ -30,16 +27,10 @@ spec:
       template:
         metadata:
           labels:
-            {{- include "git-repo-backup.selectorLabels" . | nindent 12 }}
-            {{- with .Values.commonLabels }}
-              {{- toYaml . | nindent 12 }}
-            {{- end }}
-            {{- with .Values.podLabels }}
-              {{- toYaml . | nindent 12 }}
-            {{- end }}
+            {{- include "git-repo-backup.podLabels" . | nindent 12 }}
           annotations:
             {{- with .Values.podAnnotations }}
-              {{- toYaml . | nindent 12 }}
+              {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 12 }}
             {{- end }}
             checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
             {{- if and .Values.repositories (not .Values.repositoriesConfigMap.existingConfigMap) }}
@@ -51,25 +42,25 @@ spec:
           automountServiceAccountToken: {{ .Values.automountServiceAccountToken | default false }}
           {{- with .Values.imagePullSecrets }}
           imagePullSecrets:
-            {{- toYaml . | nindent 12 }}
+            {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 12 }}
           {{- end }}
           securityContext:
             {{- toYaml .Values.podSecurityContext | nindent 12 }}
           {{- with .Values.nodeSelector }}
           nodeSelector:
-            {{- toYaml . | nindent 12 }}
+            {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 12 }}
           {{- end }}
           {{- with .Values.affinity }}
           affinity:
-            {{- toYaml . | nindent 12 }}
+            {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 12 }}
           {{- end }}
           {{- with .Values.tolerations }}
           tolerations:
-            {{- toYaml . | nindent 12 }}
+            {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 12 }}
           {{- end }}
           {{- with .Values.topologySpreadConstraints }}
           topologySpreadConstraints:
-            {{- toYaml . | nindent 12 }}
+            {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 12 }}
           {{- end }}
           initContainers:
             - name: prepare
@@ -233,7 +224,7 @@ spec:
             {{- if eq (default "accept-new" .Values.ssh.hostKeyPolicy) "accept-new" }}
             - name: known-hosts-state
               persistentVolumeClaim:
-                claimName: {{ if .Values.ssh.knownHosts.existingClaim }}{{ .Values.ssh.knownHosts.existingClaim }}{{ else }}{{ include "git-repo-backup.rawfullname" . }}-ssh-known-hosts{{ end }}
+                claimName: {{ if .Values.ssh.knownHosts.existingClaim }}{{ .Values.ssh.knownHosts.existingClaim }}{{ else }}{{ include "git-repo-backup.persistentNamePrefix" . }}-ssh-known-hosts{{ end }}
             {{- end }}
             {{- end }}
             - name: tmp
@@ -246,7 +237,7 @@ spec:
               {{- else }}
             - name: backup
               persistentVolumeClaim:
-                claimName: {{ include "git-repo-backup.rawfullname" . }}-backup
+                claimName: {{ include "git-repo-backup.persistentNamePrefix" . }}-backup
               {{- end }}
             {{- end }}
             {{- if .Values.workspace.existingClaim }}

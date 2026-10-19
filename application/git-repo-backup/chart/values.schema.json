@@ -7,6 +7,15 @@
   "properties": {
     "nameOverride": {"type": "string"},
     "fullnameOverride": {"type": "string"},
+    "global": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "imageRegistry": {"type": "string"},
+        "storageClass": {"type": "string"},
+        "defaultStorageClass": {"type": "string"}
+      }
+    },
     "schedule": {"type": "string", "minLength": 1},
     "timeZone": {"type": "string", "minLength": 1},
     "suspend": {"type": "boolean"},

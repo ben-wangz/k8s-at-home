@@ -2,20 +2,17 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "git-repo-backup.rawfullname" . }}-ssh-known-hosts
+  name: {{ include "git-repo-backup.persistentNamePrefix" . }}-ssh-known-hosts
   labels:
     {{- include "git-repo-backup.labels" . | nindent 4 }}
-    {{- with .Values.commonLabels }}
-      {{- toYaml . | nindent 4 }}
-    {{- end }}
   annotations:
     # Host keys are trust state and must survive release recreation.
     helm.sh/resource-policy: keep
     {{- with .Values.commonAnnotations }}
-      {{- toYaml . | nindent 4 }}
+      {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 4 }}
     {{- end }}
     {{- with .Values.ssh.knownHosts.persistence.annotations }}
-      {{- toYaml . | nindent 4 }}
+      {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 4 }}
     {{- end }}
 spec:
   accessModes:
@@ -23,10 +20,5 @@ spec:
   resources:
     requests:
       storage: {{ .Values.ssh.knownHosts.persistence.size | quote }}
-  {{- $sc := .Values.ssh.knownHosts.persistence.storageClass | default "" }}
-  {{- if eq $sc "-" }}
-  storageClassName: ""
-  {{- else if $sc }}
-  storageClassName: {{ $sc | quote }}
-  {{- end }}
+  {{- include "common.storage.class" (dict "persistence" .Values.ssh.knownHosts.persistence "global" .Values.global) | nindent 2 }}
 {{- end }}

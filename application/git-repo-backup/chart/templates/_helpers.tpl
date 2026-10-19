@@ -1,14 +1,13 @@
-{{/* Expand the chart name. */}}
-{{- define "git-repo-backup.name" -}}
-{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
+{{- define "git-repo-backup.fullname" -}}
+{{- include "common.names.fullname" . -}}
 {{- end -}}
 
-{{/* Fullname without the length suffix logic. */}}
-{{- define "git-repo-backup.rawfullname" -}}
+{{/* Preserve retained PVC names for releases whose name contains the chart name. */}}
+{{- define "git-repo-backup.persistentNamePrefix" -}}
 {{- if .Values.fullnameOverride -}}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- include "common.names.fullname" . -}}
 {{- else -}}
-{{- printf "%s-%s" .Release.Name (include "git-repo-backup.name" .) | trunc 63 | trimSuffix "-" -}}
+{{- printf "%s-%s" .Release.Name (include "common.names.name" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 {{- end -}}
 
@@ -18,7 +17,7 @@ within the 63-character Kubernetes limit; truncation appends a stable hash
 to avoid collisions between equal-length prefixes.
 */}}
 {{- define "git-repo-backup.cronjob.name" -}}
-{{- $name := include "git-repo-backup.rawfullname" . -}}
+{{- $name := include "git-repo-backup.fullname" . -}}
 {{- if gt (len $name) 52 -}}
 {{- printf "%s-%s" (substr 0 41 $name) (substr 0 10 (sha256sum $name)) -}}
 {{- else -}}
@@ -26,49 +25,38 @@ to avoid collisions between equal-length prefixes.
 {{- end -}}
 {{- end -}}
 
-{{/* Standard labels; identity labels cannot be overridden. */}}
 {{- define "git-repo-backup.labels" -}}
-helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-{{ include "git-repo-backup.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+{{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" .) -}}
 {{- end -}}
 
 {{- define "git-repo-backup.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "git-repo-backup.name" . | quote }}
-app.kubernetes.io/instance: {{ .Release.Name | quote }}
+{{- $labels := mergeOverwrite (deepCopy .Values.commonLabels) .Values.podLabels -}}
+{{- include "common.labels.matchLabels" (dict "customLabels" $labels "context" .) -}}
+{{- end -}}
+
+{{- define "git-repo-backup.podLabels" -}}
+{{- $labels := mergeOverwrite (deepCopy .Values.commonLabels) .Values.podLabels -}}
+{{- include "common.labels.standard" (dict "customLabels" $labels "context" .) -}}
 {{- end -}}
 
 {{- define "git-repo-backup.configMapName" -}}
-{{- printf "%s-config" (include "git-repo-backup.rawfullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- printf "%s-config" (include "git-repo-backup.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{- define "git-repo-backup.repositoriesConfigMapName" -}}
-{{- printf "%s-repositories" (include "git-repo-backup.rawfullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- printf "%s-repositories" (include "git-repo-backup.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{- define "git-repo-backup.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
-{{- default (include "git-repo-backup.rawfullname" .) .Values.serviceAccount.name | trunc 63 | trimSuffix "-" -}}
+{{- default (include "git-repo-backup.fullname" .) .Values.serviceAccount.name | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
 {{- default "default" .Values.serviceAccount.name -}}
 {{- end -}}
 {{- end -}}
 
 {{- define "git-repo-backup.image" -}}
-{{- $registry := .Values.image.registry -}}
-{{- $repository := .Values.image.repository -}}
-{{- $image := $repository -}}
-{{- if $registry -}}
-{{- $image = printf "%s/%s" $registry $repository -}}
-{{- end -}}
-{{- if .Values.image.digest -}}
-{{- printf "%s@%s" $image .Values.image.digest -}}
-{{- else -}}
-{{- printf "%s:%s" $image .Values.image.tag -}}
-{{- end -}}
+{{- include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global "chart" .Chart) -}}
 {{- end -}}
 
 {{/*

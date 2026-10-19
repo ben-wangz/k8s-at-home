@@ -6,6 +6,10 @@
 
 nameOverride: ""
 fullnameOverride: ""
+global:
+  imageRegistry: ""
+  storageClass: ""
+  defaultStorageClass: ""
 
 schedule: "0 2 * * *"
 timeZone: Etc/UTC
@@ -103,7 +107,7 @@ backup:
 # complete backups; stale incomplete data is still cleaned up.
 retention:
   enabled: true
-  maxBackups: 30
+  maxBackups: 7
   maxAge: 720h
   incompleteMaxAge: 24h
 

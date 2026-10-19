@@ -5,12 +5,9 @@ metadata:
   name: {{ include "git-repo-backup.configMapName" . }}
   labels:
     {{- include "git-repo-backup.labels" . | nindent 4 }}
-    {{- with .Values.commonLabels }}
-      {{- toYaml . | nindent 4 }}
-    {{- end }}
   annotations:
     {{- with .Values.commonAnnotations }}
-      {{- toYaml . | nindent 4 }}
+      {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 4 }}
     {{- end }}
 data:
   config.yaml: |

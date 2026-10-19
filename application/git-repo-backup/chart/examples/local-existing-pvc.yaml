@@ -45,6 +45,6 @@ cache:
 
 retention:
   enabled: true
-  maxBackups: 30
+  maxBackups: 7
   maxAge: 720h
   incompleteMaxAge: 24h
