@@ -7,6 +7,7 @@
   "properties": {
     "nameOverride": {"type": "string"},
     "fullnameOverride": {"type": "string"},
+    "common": {"type": "object", "additionalProperties": true},
     "global": {
       "type": "object",
       "additionalProperties": false,
