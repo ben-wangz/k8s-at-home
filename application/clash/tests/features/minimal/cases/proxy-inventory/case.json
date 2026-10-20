@@ -1,0 +1,23 @@
+{
+  "id": "proxy-inventory",
+  "description": "List fixture proxies, built-in actions, and filtered group members.",
+  "dependsOn": [
+    "installation"
+  ],
+  "timeoutSeconds": 180,
+  "mode": "browser",
+  "spec": "proxies.spec.ts",
+  "preconditions": [
+    "Declared dependencies passed; the selected controller or fixture is available."
+  ],
+  "requirements": [
+    "CC-001"
+  ],
+  "checks": [
+    {
+      "id": "proxy-inventory.members",
+      "description": "List proxy groups, members, built-in actions, and filtered results.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    }
+  ]
+}

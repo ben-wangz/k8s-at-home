@@ -1,0 +1,24 @@
+{
+  "id": "controller-auth",
+  "description": "Verify invalid credentials, HTTP authentication, and authenticated streams.",
+  "dependsOn": [
+    "installation"
+  ],
+  "timeoutSeconds": 180,
+  "mode": "browser",
+  "spec": "controller.spec.ts",
+  "preconditions": [
+    "Declared dependencies passed; the selected controller or fixture is available."
+  ],
+  "requirements": [
+    "CC-006",
+    "CC-007"
+  ],
+  "checks": [
+    {
+      "id": "controller-auth.http-and-streams",
+      "description": "Reject invalid credentials and authenticate controller HTTP and WebSocket requests.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    }
+  ]
+}

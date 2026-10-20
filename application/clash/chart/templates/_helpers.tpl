@@ -9,6 +9,10 @@ Generate the name of the generated config template.
 {{- printf "%s-config-template" (include "common.names.fullname" .) -}}
 {{- end -}}
 
+{{- define "clash.console.configMapName" -}}
+{{- default (printf "%s-console" (include "common.names.fullname" .)) .Values.console.existingConfigMap -}}
+{{- end -}}
+
 {{/*
 Resolve the required subscription Secret.
 */}}

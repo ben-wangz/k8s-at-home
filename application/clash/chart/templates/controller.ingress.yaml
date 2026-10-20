@@ -22,10 +22,10 @@ spec:
             backend: {{- include "common.ingress.backend" (dict "serviceName" (include "common.names.fullname" .) "servicePort" "controller" "context" $)  | nindent 14 }}
       host: {{ include "common.tplvalues.render" ( dict "value" .Values.ingress.controller.hostname "context" $ ) }}
     {{- end }}
-  {{- if and .Values.ingress.controller.tls (include "common.ingress.certManagerRequest" ( dict "annotations" .Values.ingress.controller.annotations )) }}
+  {{- if .Values.ingress.controller.tls }}
   tls:
     - hosts:
         - {{ include "common.tplvalues.render" ( dict "value" .Values.ingress.controller.hostname "context" $ ) }}
-      secretName: {{ printf "%s-controller-tls" .Values.ingress.controller.hostname }}
+      secretName: {{ default (printf "%s-controller-tls" .Values.ingress.controller.hostname) .Values.ingress.controller.secretName | quote }}
   {{- end }}
 {{- end }}

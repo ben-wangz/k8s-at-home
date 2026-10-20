@@ -1,0 +1,47 @@
+[
+  {
+    "id": "feature-minimal",
+    "directory": "minimal",
+    "cases": [
+      "default-render",
+      "suite-lifecycle",
+      "suite-independence",
+      "installation",
+      "proxy-inventory",
+      "proxy-selection",
+      "selection-errors",
+      "connections",
+      "traffic",
+      "connection-metadata",
+      "live-logs",
+      "log-buffer",
+      "stream-recovery"
+    ]
+  },
+  {
+    "id": "feature-controller-auth",
+    "directory": "controller-auth",
+    "cases": [
+      "controller-auth",
+      "proxy-inventory",
+      "live-logs"
+    ]
+  },
+  {
+    "id": "feature-controller-failure",
+    "directory": "controller-failure",
+    "cases": [
+      "controller-recovery",
+      "stream-recovery"
+    ]
+  },
+  {
+    "id": "feature-ingress",
+    "directory": "ingress",
+    "cases": [
+      "ingress-access",
+      "live-logs",
+      "connections"
+    ]
+  }
+]

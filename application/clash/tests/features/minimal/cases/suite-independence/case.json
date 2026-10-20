@@ -1,0 +1,27 @@
+{
+  "id": "suite-independence",
+  "description": "Build and plan the suite in a checkout containing only Clash.",
+  "dependsOn": [
+    "suite-lifecycle"
+  ],
+  "timeoutSeconds": 180,
+  "mode": "local",
+  "preconditions": [
+    "Clash source and the declared local tools are available."
+  ],
+  "requirements": [
+    "CC-009"
+  ],
+  "checks": [
+    {
+      "id": "suite-independence.isolated",
+      "description": "Build and run planning and unit checks in a Clash-only checkout.",
+      "expectedEvidence": [
+        { "id": "dependencies" },
+        { "id": "list" },
+        { "id": "plan" },
+        { "id": "runner" }
+      ]
+    }
+  ]
+}

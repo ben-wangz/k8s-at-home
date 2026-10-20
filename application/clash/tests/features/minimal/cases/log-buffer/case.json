@@ -1,0 +1,21 @@
+{
+  "id": "log-buffer",
+  "description": "Verify bounded buffering, pause/resume, and severity filtering.",
+  "dependsOn": [],
+  "timeoutSeconds": 180,
+  "mode": "mock-browser",
+  "spec": "observability.spec.ts",
+  "preconditions": [
+    "Declared dependencies passed; the selected controller or fixture is available."
+  ],
+  "requirements": [
+    "CC-005"
+  ],
+  "checks": [
+    {
+      "id": "log-buffer.capacity",
+      "description": "Keep at most 1,000 events and retain severity filtering while paused.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    }
+  ]
+}

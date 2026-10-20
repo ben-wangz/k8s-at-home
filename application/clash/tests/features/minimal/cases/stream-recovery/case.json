@@ -1,0 +1,21 @@
+{
+  "id": "stream-recovery",
+  "description": "Verify stale data, reconnect, stream replacement, and controller changes.",
+  "dependsOn": [],
+  "timeoutSeconds": 180,
+  "mode": "mock-browser",
+  "spec": "controller.spec.ts",
+  "preconditions": [
+    "Declared dependencies passed; the selected controller or fixture is available."
+  ],
+  "requirements": [
+    "CC-006"
+  ],
+  "checks": [
+    {
+      "id": "stream-recovery.lifecycle",
+      "description": "Mark interrupted data stale and replace old streams after recovery or controller changes.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    }
+  ]
+}

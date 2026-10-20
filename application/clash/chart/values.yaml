@@ -35,6 +35,19 @@ subscription:
 config:
   dir: /root/.config/mihomo
   logLevel: info
+  storeSelected: true
+
+console:
+  enabled: true
+  existingConfigMap: ""
+  mountPath: /root/.config/mihomo/ui
+
+controller:
+  existingSecret: ""
+  secretKey: secret
+  cors:
+    allowedOrigins: []
+    allowPrivateNetwork: false
 
 provider:
   cachePath: providers/subscription.yaml
@@ -96,4 +109,5 @@ ingress:
     path: /
     pathType: Prefix
     tls: false
+    secretName: ""
 extraDeploy: []

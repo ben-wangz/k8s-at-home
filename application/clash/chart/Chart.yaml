@@ -1,6 +1,6 @@
 apiVersion: v2
 name: clash
-version: 1.4.0
+version: 1.4.1
 appVersion: "v1.19.30"
 description: A rule-based tunnel in Go
 type: application

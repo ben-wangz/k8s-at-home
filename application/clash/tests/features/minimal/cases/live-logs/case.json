@@ -1,0 +1,28 @@
+{
+  "id": "live-logs",
+  "description": "Receive operation-generated controller logs and exercise display controls.",
+  "dependsOn": [
+    "installation"
+  ],
+  "timeoutSeconds": 180,
+  "mode": "browser",
+  "spec": "observability.spec.ts",
+  "preconditions": [
+    "Declared dependencies passed; the selected controller or fixture is available."
+  ],
+  "requirements": [
+    "CC-005"
+  ],
+  "checks": [
+    {
+      "id": "live-logs.events",
+      "description": "Receive and filter new events from the controller logs stream.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    },
+    {
+      "id": "live-logs.controls",
+      "description": "Pause and resume display, clear the buffer, and change severity.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "id": "proxy-selection",
+  "description": "Select a node with a special-character name and confirm controller state after reload.",
+  "dependsOn": [
+    "installation"
+  ],
+  "timeoutSeconds": 180,
+  "mode": "browser",
+  "spec": "proxies.spec.ts",
+  "preconditions": [
+    "Declared dependencies passed; the selected controller or fixture is available."
+  ],
+  "requirements": [
+    "CC-002",
+    "CC-003"
+  ],
+  "checks": [
+    {
+      "id": "proxy-selection.readback",
+      "description": "Select an encoded proxy member and confirm controller state after reload.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    }
+  ]
+}

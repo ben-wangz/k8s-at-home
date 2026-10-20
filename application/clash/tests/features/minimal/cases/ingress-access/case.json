@@ -1,0 +1,21 @@
+{
+  "id": "ingress-access",
+  "description": "Optional smoke test for HTTPS UI access and authenticated streams through a configured ingress.",
+  "dependsOn": [
+    "controller-auth"
+  ],
+  "timeoutSeconds": 180,
+  "mode": "browser",
+  "spec": "controller.spec.ts",
+  "preconditions": [
+    "Declared dependencies passed; the selected controller or fixture is available."
+  ],
+  "requirements": [],
+  "checks": [
+    {
+      "id": "ingress-access.secure-route",
+      "description": "Load the HTTPS UI and connect authenticated HTTP and WebSocket APIs through ingress.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    }
+  ]
+}

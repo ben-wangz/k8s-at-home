@@ -1,0 +1,16 @@
+{{- if and .Values.console.enabled (not .Values.console.existingConfigMap) }}
+{{- if not (.Files.Get "files/console/index.html") }}
+{{- fail "Console assets are missing; run npm run build in application/clash/console/frontend" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "clash.console.configMapName" . }}
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" (dict "customLabels" .Values.commonLabels "context" $) | nindent 4 }}
+  {{- if .Values.commonAnnotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.commonAnnotations "context" $) | nindent 4 }}
+  {{- end }}
+data:
+{{ (.Files.Glob "files/console/*").AsConfig | indent 2 }}
+{{- end }}

@@ -1,0 +1,21 @@
+{
+  "id": "default-render",
+  "description": "Validate packaged Console assets, Secret wiring, disabled UI, persistence, and ingress rendering.",
+  "dependsOn": [],
+  "timeoutSeconds": 180,
+  "mode": "local",
+  "preconditions": [
+    "Clash source and the declared local tools are available."
+  ],
+  "requirements": [
+    "CC-007",
+    "CC-008"
+  ],
+  "checks": [
+    {
+      "id": "default-render.assets",
+      "description": "Render default and configured chart variants, including asset, Secret, storage, and ingress wiring.",
+      "expectedEvidence": [{ "id": "rendered-chart" }]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "id": "connections",
+  "description": "Observe identifiable traffic and filter connection snapshots.",
+  "dependsOn": [
+    "installation"
+  ],
+  "timeoutSeconds": 180,
+  "mode": "browser",
+  "spec": "observability.spec.ts",
+  "preconditions": [
+    "Declared dependencies passed; the selected controller or fixture is available."
+  ],
+  "requirements": [
+    "CC-004"
+  ],
+  "checks": [
+    {
+      "id": "connections.snapshot",
+      "description": "Show a connection created by fixture traffic and filter the live snapshot.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    }
+  ]
+}

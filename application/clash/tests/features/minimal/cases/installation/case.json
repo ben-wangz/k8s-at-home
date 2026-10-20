@@ -1,0 +1,24 @@
+{
+  "id": "installation",
+  "description": "Load static assets and reload a Console view.",
+  "dependsOn": [
+    "default-render"
+  ],
+  "timeoutSeconds": 180,
+  "mode": "browser",
+  "spec": "controller.spec.ts",
+  "preconditions": [
+    "Declared dependencies passed; the selected controller or fixture is available."
+  ],
+  "requirements": [
+    "CC-007",
+    "CC-008"
+  ],
+  "checks": [
+    {
+      "id": "installation.assets-and-reload",
+      "description": "Load the static Console assets and restore a view after a page reload.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    }
+  ]
+}

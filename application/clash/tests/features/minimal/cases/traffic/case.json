@@ -1,0 +1,23 @@
+{
+  "id": "traffic",
+  "description": "Observe traffic rates and totals while fixture traffic is active.",
+  "dependsOn": [
+    "installation"
+  ],
+  "timeoutSeconds": 180,
+  "mode": "browser",
+  "spec": "observability.spec.ts",
+  "preconditions": [
+    "Declared dependencies passed; the selected controller or fixture is available."
+  ],
+  "requirements": [
+    "CC-004"
+  ],
+  "checks": [
+    {
+      "id": "traffic.rates-and-totals",
+      "description": "Update traffic rates and totals while fixture traffic is active.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Clash Console</title>
+    <script type="module" crossorigin src="/ui/index-BXLBI_-w.js"></script>
+    <link rel="stylesheet" crossorigin href="/ui/index-zRlOJ_G7.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#proxies"><span class="mark">C</span> Clash Console</a>
+      <span id="core-version" class="muted">Mihomo controller</span>
+      <span id="controller-status" class="badge" role="status">Disconnected</span>
+    </header>
+    <main>
+      <details id="controller-settings" class="panel" open>
+        <summary>Controller connection</summary>
+        <form id="controller-form" class="settings">
+          <label>Controller URL<input id="controller-url" type="url" required spellcheck="false" /></label>
+          <label>Controller secret<input id="controller-secret" type="password" autocomplete="off" placeholder="Optional; held in memory" /></label>
+          <button type="submit">Connect</button>
+          <button id="disconnect" type="button" class="secondary">Disconnect</button>
+        </form>
+        <p class="muted">The browser connects directly to Mihomo. Credentials are kept in this tab's memory.</p>
+      </details>
+      <p id="controller-error" role="alert" hidden></p>
+      <div class="metrics" aria-label="Traffic overview">
+        <article class="metric"><span>Upload rate</span><strong id="upload-rate">Unavailable</strong></article>
+        <article class="metric"><span>Download rate</span><strong id="download-rate">Unavailable</strong></article>
+        <article class="metric"><span>Total uploaded</span><strong id="upload-total">Unavailable</strong></article>
+        <article class="metric"><span>Total downloaded</span><strong id="download-total">Unavailable</strong></article>
+      </div>
+      <p id="traffic-status" class="muted">Traffic unavailable</p>
+      <nav aria-label="Console views">
+        <a href="#proxies">Proxies</a><a href="#connections">Connections</a><a href="#logs">Live logs</a>
+      </nav>
+      <section id="proxies-view" aria-label="Proxies">
+        <div class="view-heading"><div><h1>Proxy routes</h1><p class="muted">Inspect groups and choose the route for new connections.</p></div><button id="refresh-proxies" class="secondary">Refresh proxies</button></div>
+        <label class="filter">Filter proxies<input id="proxy-filter" type="search" placeholder="Group or node name" /></label>
+        <p id="proxy-message" role="status">Connect to a controller to load proxies.</p>
+        <div id="proxy-groups" class="groups"></div>
+      </section>
+      <section id="connections-view" aria-label="Connections" hidden>
+        <div class="view-heading"><div><h1>Connections</h1><p class="muted">Live controller snapshots. Existing connections keep their current route.</p></div><span id="connection-count" class="badge">Unavailable</span></div>
+        <label class="filter">Filter connections<input id="connection-filter" type="search" placeholder="Destination, source, chain, rule, or process" /></label>
+        <p id="connection-status" role="status">Connections unavailable</p>
+        <div class="table-scroll"><table><thead><tr><th>Destination</th><th>Source</th><th>Network</th><th>Proxy chain</th><th>Rule</th><th>Started</th><th>Upload</th><th>Download</th></tr></thead><tbody id="connection-rows"></tbody></table></div>
+      </section>
+      <section id="logs-view" aria-label="Live logs" hidden>
+        <div class="view-heading"><div><h1>Live logs</h1><p class="muted">New events from the controller. Historical logs are unavailable.</p></div><span id="log-count" class="badge">0 / 1000 events</span></div>
+        <div class="toolbar">
+          <label>Log level<select id="log-level" aria-label="Log level"><option value="debug">Debug</option><option value="info" selected>Info</option><option value="warning">Warning</option><option value="error">Error</option></select></label>
+          <label class="grow">Filter logs<input id="log-filter" type="search" placeholder="Message text" /></label>
+          <button id="pause-logs" class="secondary" aria-pressed="false">Pause display</button>
+          <button id="clear-logs" class="secondary">Clear buffer</button>
+          <label class="check"><input id="log-scroll" type="checkbox" checked />Auto-scroll</label>
+        </div>
+        <p class="muted">Changing the log level restarts this stream. Pausing freezes display while the bounded buffer continues receiving events.</p>
+        <p id="log-status" role="status">Logs unavailable</p>
+        <div id="log-entries" class="log-entries" aria-label="Log events"></div>
+      </section>
+    </main>
+    <footer>Clash Console · Direct access to your Mihomo controller</footer>
+  </body>
+</html>

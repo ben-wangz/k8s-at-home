@@ -1,0 +1,21 @@
+{
+  "id": "connection-metadata",
+  "description": "Render connection snapshots with missing optional fields.",
+  "dependsOn": [],
+  "timeoutSeconds": 180,
+  "mode": "mock-browser",
+  "spec": "observability.spec.ts",
+  "preconditions": [
+    "Declared dependencies passed; the selected controller or fixture is available."
+  ],
+  "requirements": [
+    "CC-004"
+  ],
+  "checks": [
+    {
+      "id": "connection-metadata.optional-fields",
+      "description": "Render snapshots with missing metadata and a null connection list.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    }
+  ]
+}

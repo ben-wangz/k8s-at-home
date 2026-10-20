@@ -1,0 +1,233 @@
+{
+  "requirements": [
+    {
+      "id": "CC-001",
+      "status": "verified",
+      "cases": [
+        {
+          "id": "proxy-inventory",
+          "checks": [
+            "proxy-inventory.members"
+          ],
+          "mode": "browser"
+        }
+      ],
+      "verification": [
+        { "mode": "mock", "report": "feature-minimal/run-9b31c15242" },
+        { "mode": "integration", "report": "feature-minimal/run-964a946102" }
+      ]
+    },
+    {
+      "id": "CC-002",
+      "status": "verified",
+      "cases": [
+        {
+          "id": "proxy-selection",
+          "checks": [
+            "proxy-selection.readback"
+          ],
+          "mode": "browser"
+        }
+      ],
+      "verification": [
+        { "mode": "mock", "report": "feature-minimal/run-9b31c15242" },
+        { "mode": "integration", "report": "feature-minimal/run-964a946102" }
+      ]
+    },
+    {
+      "id": "CC-003",
+      "status": "verified",
+      "cases": [
+        {
+          "id": "proxy-selection",
+          "checks": [
+            "proxy-selection.readback"
+          ],
+          "mode": "browser"
+        },
+        {
+          "id": "selection-errors",
+          "checks": [
+            "selection-errors.rejection",
+            "selection-errors.names-and-pending"
+          ],
+          "mode": "mock-browser"
+        }
+      ],
+      "verification": [
+        { "mode": "mock", "report": "feature-minimal/run-9b31c15242" },
+        { "mode": "integration", "report": "feature-minimal/run-964a946102" }
+      ]
+    },
+    {
+      "id": "CC-004",
+      "status": "verified",
+      "cases": [
+        {
+          "id": "connections",
+          "checks": [
+            "connections.snapshot"
+          ],
+          "mode": "browser"
+        },
+        {
+          "id": "traffic",
+          "checks": [
+            "traffic.rates-and-totals"
+          ],
+          "mode": "browser"
+        },
+        {
+          "id": "connection-metadata",
+          "checks": [
+            "connection-metadata.optional-fields"
+          ],
+          "mode": "mock-browser"
+        }
+      ],
+      "verification": [
+        { "mode": "mock", "report": "feature-minimal/run-9b31c15242" },
+        { "mode": "integration", "report": "feature-minimal/run-964a946102" }
+      ]
+    },
+    {
+      "id": "CC-005",
+      "status": "verified",
+      "cases": [
+        {
+          "id": "live-logs",
+          "checks": [
+            "live-logs.events",
+            "live-logs.controls"
+          ],
+          "mode": "browser"
+        },
+        {
+          "id": "log-buffer",
+          "checks": [
+            "log-buffer.capacity"
+          ],
+          "mode": "mock-browser"
+        }
+      ],
+      "verification": [
+        { "mode": "mock", "report": "feature-minimal/run-9b31c15242" },
+        { "mode": "integration", "report": "feature-minimal/run-964a946102" }
+      ]
+    },
+    {
+      "id": "CC-006",
+      "status": "verified",
+      "cases": [
+        {
+          "id": "stream-recovery",
+          "checks": [
+            "stream-recovery.lifecycle"
+          ],
+          "mode": "mock-browser"
+        },
+        {
+          "id": "controller-auth",
+          "checks": [
+            "controller-auth.http-and-streams"
+          ],
+          "mode": "browser"
+        },
+        {
+          "id": "controller-recovery",
+          "checks": [
+            "controller-recovery.outage"
+          ],
+          "mode": "browser"
+        }
+      ],
+      "verification": [
+        { "mode": "mock", "report": "feature-minimal/run-9b31c15242" },
+        { "mode": "mock", "report": "feature-controller-failure/run-e922b8e208" },
+        { "mode": "integration", "report": "feature-controller-auth/run-7fd0658f44" },
+        { "mode": "integration", "report": "feature-controller-failure/run-cddc31421e" }
+      ]
+    },
+    {
+      "id": "CC-007",
+      "status": "verified",
+      "cases": [
+        {
+          "id": "default-render",
+          "checks": [
+            "default-render.assets"
+          ],
+          "mode": "local"
+        },
+        {
+          "id": "installation",
+          "checks": [
+            "installation.assets-and-reload"
+          ],
+          "mode": "browser"
+        },
+        {
+          "id": "controller-auth",
+          "checks": [
+            "controller-auth.http-and-streams"
+          ],
+          "mode": "browser"
+        }
+      ],
+      "verification": [
+        { "mode": "mock", "report": "feature-minimal/run-9b31c15242" },
+        { "mode": "integration", "report": "feature-minimal/run-964a946102" },
+        { "mode": "integration", "report": "feature-controller-auth/run-7fd0658f44" },
+        { "mode": "local", "report": "feature-minimal/run-6df58471e0" }
+      ]
+    },
+    {
+      "id": "CC-008",
+      "status": "verified",
+      "cases": [
+        {
+          "id": "default-render",
+          "checks": [
+            "default-render.assets"
+          ],
+          "mode": "local"
+        },
+        {
+          "id": "installation",
+          "checks": [
+            "installation.assets-and-reload"
+          ],
+          "mode": "browser"
+        }
+      ],
+      "verification": [
+        { "mode": "integration", "report": "feature-minimal/run-964a946102" },
+        { "mode": "local", "report": "feature-minimal/run-6df58471e0" }
+      ]
+    },
+    {
+      "id": "CC-009",
+      "status": "verified",
+      "cases": [
+        {
+          "id": "suite-lifecycle",
+          "checks": [
+            "suite-lifecycle.runner"
+          ],
+          "mode": "lifecycle"
+        },
+        {
+          "id": "suite-independence",
+          "checks": [
+            "suite-independence.isolated"
+          ],
+          "mode": "local"
+        }
+      ],
+      "verification": [
+        { "mode": "mock", "report": "feature-minimal/run-5566b10eb7" },
+        { "mode": "integration", "report": "feature-minimal/run-f4afc97ccb" }
+      ]
+    }
+  ]
+}

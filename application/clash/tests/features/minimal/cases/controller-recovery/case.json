@@ -1,0 +1,23 @@
+{
+  "id": "controller-recovery",
+  "description": "Recover browser streams after an outage of the run-owned Mihomo deployment.",
+  "dependsOn": [
+    "installation"
+  ],
+  "timeoutSeconds": 360,
+  "mode": "browser",
+  "spec": "controller.spec.ts",
+  "preconditions": [
+    "Declared dependencies passed; the selected controller or fixture is available."
+  ],
+  "requirements": [
+    "CC-006"
+  ],
+  "checks": [
+    {
+      "id": "controller-recovery.outage",
+      "description": "Recover browser streams after scaling the run-owned Mihomo deployment down and up.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    }
+  ]
+}

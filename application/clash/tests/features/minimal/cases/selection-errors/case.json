@@ -1,0 +1,26 @@
+{
+  "id": "selection-errors",
+  "description": "Exercise rejection, encoded group names, and submission controls with deterministic controller faults.",
+  "dependsOn": [],
+  "timeoutSeconds": 180,
+  "mode": "mock-browser",
+  "spec": "proxies.spec.ts",
+  "preconditions": [
+    "Declared dependencies passed; the selected controller or fixture is available."
+  ],
+  "requirements": [
+    "CC-003"
+  ],
+  "checks": [
+    {
+      "id": "selection-errors.rejection",
+      "description": "Preserve the confirmed selection and show an error after the controller rejects a change.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    },
+    {
+      "id": "selection-errors.names-and-pending",
+      "description": "Handle encoded group names and prevent duplicate changes while a request is pending.",
+      "expectedEvidence": [{ "id": "browser-report" }]
+    }
+  ]
+}

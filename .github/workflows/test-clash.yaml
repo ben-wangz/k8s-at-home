@@ -1,0 +1,62 @@
+name: test-clash
+
+on:
+  pull_request:
+    paths:
+      - application/clash/**
+      - .github/workflows/test-clash.yaml
+  push:
+    branches: [main]
+    paths:
+      - application/clash/**
+      - .github/workflows/test-clash.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  console:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      XDG_STATE_HOME: ${{ runner.temp }}/clash-state
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            application/clash/console/frontend/package-lock.json
+            application/clash/tests/browser/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: application/clash/tests/go.mod
+          cache-dependency-path: application/clash/tests/go.sum
+      - uses: azure/setup-helm@v5
+      - name: Build and verify packaged assets
+        run: |
+          npm --prefix application/clash/console/frontend ci
+          npm --prefix application/clash/console/frontend run build
+          git diff --exit-code -- application/clash/chart/files/console
+      - name: Install test dependencies
+        run: |
+          npm --prefix application/clash/tests/browser ci
+          npm --prefix application/clash/tests/browser exec -- playwright install --with-deps chromium
+          helm dependency update application/clash/chart
+      - name: Verify Go runner
+        run: go -C application/clash/tests test -race ./...
+      - name: Run independent mock scenarios
+        run: |
+          application/clash/tests/features/minimal/run.sh run --mock
+          application/clash/tests/features/minimal/run.sh run --mock --scenario feature-controller-auth
+          application/clash/tests/features/minimal/run.sh run --mock --scenario feature-controller-failure
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: clash-console-evidence
+          path: |
+            ${{ runner.temp }}/clash-state/clash/tests/
+            !${{ runner.temp }}/clash-state/**/controller-secret
+          if-no-files-found: ignore
+          retention-days: 7

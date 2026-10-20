@@ -19,6 +19,10 @@ spec:
     metadata:
       labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.podLabels "context" $ ) | nindent 8 }}
       annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if and .Values.console.enabled (not .Values.console.existingConfigMap) }}
+        checksum/console: {{ include (print $.Template.BasePath "/console.configmap.yaml") . | sha256sum }}
+        {{- end }}
         {{- if .Values.podAnnotations }}
         {{- include "common.tplvalues.render" ( dict "value" .Values.podAnnotations "context" $) | nindent 8 }}
         {{- end }}
@@ -62,6 +66,12 @@ spec:
             exit 1
           fi
           mkdir -p "$MIHOMO_CONFIG_DIR/$(dirname "$MIHOMO_PROVIDER_PATH")"
+          if [ -f /input/controller-secret ]; then
+            if ! awk 'END { if (NR != 1 || length($0) == 0) exit 1 }' /input/controller-secret; then
+              echo "controller secret must be a nonempty single line" >&2
+              exit 1
+            fi
+          fi
           awk '
             $0 == "      __SUBSCRIPTION_URL__" {
               if ((getline url < "/input/subscription-url") <= 0) {
@@ -70,10 +80,17 @@ spec:
               print "      " url
               next
             }
+            $0 == "  __CONTROLLER_SECRET__" {
+              if ((getline secret < "/input/controller-secret") <= 0) {
+                exit 1
+              }
+              print "  " secret
+              next
+            }
             { print }
           ' /input/config.yaml.template > "$MIHOMO_CONFIG_DIR/config.yaml"
-          if grep -q '__SUBSCRIPTION_URL__' "$MIHOMO_CONFIG_DIR/config.yaml"; then
-            echo "failed to render subscription URL" >&2
+          if grep -qE '__SUBSCRIPTION_URL__|__CONTROLLER_SECRET__' "$MIHOMO_CONFIG_DIR/config.yaml"; then
+            echo "failed to render runtime configuration" >&2
             exit 1
           fi
         env:
@@ -92,6 +109,15 @@ spec:
           readOnly: true
         - name: runtime-config
           mountPath: {{ .Values.config.dir | quote }}
+          {{- if .Values.persistence.subPath }}
+          subPath: {{ .Values.persistence.subPath | quote }}
+          {{- end }}
+        {{- if .Values.controller.existingSecret }}
+        - name: controller-secret
+          mountPath: /input/controller-secret
+          subPath: secret
+          readOnly: true
+        {{- end }}
       containers:
       - name: clash
         image: {{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
@@ -114,6 +140,14 @@ spec:
         volumeMounts:
         - name: runtime-config
           mountPath: {{ .Values.config.dir | quote }}
+          {{- if .Values.persistence.subPath }}
+          subPath: {{ .Values.persistence.subPath | quote }}
+          {{- end }}
+        {{- if .Values.console.enabled }}
+        - name: console
+          mountPath: {{ .Values.console.mountPath | quote }}
+          readOnly: true
+        {{- end }}
         {{- if .Values.extraVolumeMounts }}
           {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumeMounts "context" $) | nindent 8 }}
         {{- end }}
@@ -173,7 +207,27 @@ spec:
           - key: subscription-url
             path: subscription-url
       - name: runtime-config
+        {{- if .Values.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ default (include "common.names.fullname" .) .Values.persistence.existingClaim }}
+        {{- else }}
         emptyDir: {}
+        {{- end }}
+      {{- if .Values.console.enabled }}
+      - name: console
+        configMap:
+          name: {{ include "clash.console.configMapName" . }}
+          defaultMode: 0444
+      {{- end }}
+      {{- if .Values.controller.existingSecret }}
+      - name: controller-secret
+        secret:
+          secretName: {{ .Values.controller.existingSecret | quote }}
+          defaultMode: 0440
+          items:
+          - key: {{ .Values.controller.secretKey | quote }}
+            path: secret
+      {{- end }}
       {{- if .Values.extraVolumes }}
         {{- include "common.tplvalues.render" (dict "value" .Values.extraVolumes "context" $) | nindent 6 }}
       {{- end }}

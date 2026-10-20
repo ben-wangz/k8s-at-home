@@ -2,6 +2,15 @@
 {{- if or (hasPrefix "/" $providerCachePath) (contains ".." $providerCachePath) }}
 {{- fail "provider.cachePath must be relative and must not contain '..'" }}
 {{- end }}
+{{- if and .Values.console.enabled (not (hasPrefix "/" .Values.console.mountPath)) }}
+{{- fail "console.mountPath must be absolute" }}
+{{- end }}
+{{- if and .Values.console.enabled (or (not (hasPrefix (printf "%s/" (trimSuffix "/" .Values.config.dir)) (trimSuffix "/" .Values.console.mountPath))) (contains ".." .Values.console.mountPath)) }}
+{{- fail "console.mountPath must be below config.dir to satisfy Mihomo safe paths" }}
+{{- end }}
+{{- if and .Values.console.enabled .Values.ingress.controller.enabled (ne .Values.ingress.controller.path "/") }}
+{{- fail "Clash Console requires the controller ingress path to be /" }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -18,6 +27,18 @@ data:
     mode: rule
     log-level: {{ .Values.config.logLevel }}
     external-controller: 0.0.0.0:{{ .Values.ports.controller }}
+    {{- if .Values.console.enabled }}
+    external-ui: {{ .Values.console.mountPath | quote }}
+    {{- end }}
+    {{- if .Values.controller.existingSecret }}
+    secret: |2-
+      __CONTROLLER_SECRET__
+    {{- end }}
+    external-controller-cors:
+      allow-origins: {{ .Values.controller.cors.allowedOrigins | toJson }}
+      allow-private-network: {{ .Values.controller.cors.allowPrivateNetwork }}
+    profile:
+      store-selected: {{ .Values.config.storeSelected }}
 
     proxy-providers:
       subscription:

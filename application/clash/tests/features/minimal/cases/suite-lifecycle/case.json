@@ -1,0 +1,32 @@
+{
+  "id": "suite-lifecycle",
+  "description": "Verify suite planning, evidence enforcement, and failed environment recovery through the lifecycle commands.",
+  "dependsOn": [],
+  "timeoutSeconds": 900,
+  "mode": "lifecycle",
+  "preconditions": [
+    "Clash source and test tools are available. Integration runs also require the configured Kubernetes test environment."
+  ],
+  "requirements": [
+    "CC-009"
+  ],
+  "checks": [
+    {
+      "id": "suite-lifecycle.runner",
+      "description": "Verify runner unit checks and, in integration mode, preserve and recover a failed run before cleanup.",
+      "expectedEvidence": [
+        { "id": "runner-tests" },
+        { "id": "environment-create", "modes": ["integration"] },
+        { "id": "environment-inspect-ready", "modes": ["integration"] },
+        { "id": "environment-scale-down", "modes": ["integration"] },
+        { "id": "environment-reuse-failed", "modes": ["integration"] },
+        { "id": "environment-inspect-failed", "modes": ["integration"] },
+        { "id": "environment-scale-up", "modes": ["integration"] },
+        { "id": "environment-reuse", "modes": ["integration"] },
+        { "id": "environment-inspect-passed", "modes": ["integration"] },
+        { "id": "environment-destroy", "modes": ["integration"] },
+        { "id": "environment-inspect-destroyed", "modes": ["integration"] }
+      ]
+    }
+  ]
+}

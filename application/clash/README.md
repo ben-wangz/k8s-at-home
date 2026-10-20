@@ -3,6 +3,12 @@
 Clash is a rule-based proxy service. This chart runs the Mihomo core and
 builds its runtime configuration from a single subscription URL.
 
+Clash Console is included in the chart and served at `/ui/` on the controller
+endpoint. It provides proxy selection, live connections, traffic, and logs
+without an application backend. See the [Console guide](docs/console.md) for
+authentication, ingress, packaging, persistence, and migration from YACD, and
+the [test guide](tests/README.md) for the independent regression suite.
+
 ## Subscription Secret
 
 The chart requires an existing Secret with exactly one key named
