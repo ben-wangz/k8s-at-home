@@ -45,8 +45,9 @@ func verifyResumeBlob(ctx context.Context, environment testkit.CaseContext, regi
 	}
 	if mode == "idle" {
 		logText := strings.Join(lines, "\n")
-		if elapsed < 800*time.Millisecond || elapsed > 4500*time.Millisecond || !strings.Contains(logText, "stage=idle") || !strings.Contains(logText, "cancelled=true") {
-			return nil, fmt.Errorf("idle timeout evidence is invalid: elapsed=%s", elapsed)
+		idleMillis := fixtureIdleCancellationMillis(lines)
+		if idleMillis < 800 || idleMillis > 4500 || !strings.Contains(logText, "stage=idle") {
+			return nil, fmt.Errorf("idle timeout evidence is invalid: idle=%dms total=%s", idleMillis, elapsed)
 		}
 	}
 	return map[string]any{
@@ -57,11 +58,39 @@ func verifyResumeBlob(ctx context.Context, environment testkit.CaseContext, regi
 	}, nil
 }
 
+func fixtureIdleCancellationMillis(lines []string) int64 {
+	for _, line := range lines {
+		if !strings.Contains(line, "cancelled=true") {
+			continue
+		}
+		for _, field := range strings.Fields(line) {
+			if strings.HasPrefix(field, "idleMillis=") {
+				value, err := strconv.ParseInt(strings.TrimPrefix(field, "idleMillis="), 10, 64)
+				if err == nil {
+					return value
+				}
+			}
+		}
+	}
+	return -1
+}
+
 func buildResumeLayer(mode string) ([]byte, string) {
 	return support.BuildResumeLayerFixture(mode)
 }
 
 func fixtureLines(ctx context.Context, environment testkit.CaseContext, reference string, since time.Time) ([]string, error) {
+	lines, err := fixtureLinesIfAny(ctx, environment, reference, since)
+	if err != nil {
+		return nil, err
+	}
+	if len(lines) == 0 {
+		return nil, fmt.Errorf("fixture produced no evidence for %s", reference)
+	}
+	return lines, nil
+}
+
+func fixtureLinesIfAny(ctx context.Context, environment testkit.CaseContext, reference string, since time.Time) ([]string, error) {
 	proxyPod := "pod/" + environment.Release + "-external-upstream-proxy"
 	result, err := testkit.Command(ctx, "kubectl", "-n", environment.Namespace, "logs", proxyPod, "-c", "proxy", "--since-time="+since.UTC().Format(time.RFC3339Nano), "--tail=20000")
 	if err != nil {
@@ -73,9 +102,6 @@ func fixtureLines(ctx context.Context, environment testkit.CaseContext, referenc
 		if strings.Contains(line, marker) {
 			lines = append(lines, line)
 		}
-	}
-	if len(lines) == 0 {
-		return nil, fmt.Errorf("fixture produced no evidence for %s", reference)
 	}
 	return lines, nil
 }

@@ -23,6 +23,7 @@ func verifyQueueSaturation(ctx context.Context, environment testkit.CaseContext,
 		defer cancel()
 		if err := setBackendEnvironment(restoreCtx, environment,
 			"REGISTRY_HUB_PENDING_TASKS=1024",
+			"REGISTRY_HUB_SOLIDIFICATION_MAX_WAITING_ROOTS=1024",
 			"REGISTRY_HUB_WORKERS=4",
 			"REGISTRY_HUB_REQUEST_TIMEOUT_SECONDS=300",
 		); err != nil {
@@ -36,6 +37,7 @@ func verifyQueueSaturation(ctx context.Context, environment testkit.CaseContext,
 	}()
 	if err := setBackendEnvironment(ctx, environment,
 		fmt.Sprintf("REGISTRY_HUB_PENDING_TASKS=%d", queueLimit),
+		fmt.Sprintf("REGISTRY_HUB_SOLIDIFICATION_MAX_WAITING_ROOTS=%d", queueLimit),
 		"REGISTRY_HUB_WORKERS=1",
 		"REGISTRY_HUB_REQUEST_TIMEOUT_SECONDS=300",
 	); err != nil {

@@ -13,7 +13,6 @@ import (
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
 	"registry-hub/internal/upstream"
-	"strings"
 	"time"
 )
 
@@ -26,6 +25,24 @@ type solidifier struct {
 	upstream *upstream.Client
 	tasks    *tasks.Manager
 	gate     *writeGate
+}
+
+type solidificationFailureStage struct {
+	name  string
+	cause error
+}
+
+func (e *solidificationFailureStage) Error() string { return e.cause.Error() }
+func (e *solidificationFailureStage) Unwrap() error { return e.cause }
+
+func withSolidificationFailureStage(err error, stage string) error {
+	var failure *tasks.Failure
+	if !errors.As(err, &failure) || failure.Class != "protection_state" {
+		return err
+	}
+	copy := *failure
+	copy.Err = &solidificationFailureStage{name: stage, cause: failure.Err}
+	return &copy
 }
 
 type contentRef struct {
@@ -58,8 +75,15 @@ func manifestReadHeaders() http.Header {
 }
 
 func (s *solidifier) Process(ctx context.Context, task *tasks.Task, taskLease lease.Lease) (result error) {
+	if s.gate.State().RecoveryBarrier {
+		return tasks.WaitFor(tasks.WaitingDeps, "gc_admission")
+	}
 	defer func() {
 		if result == nil || s.service == nil || s.service.logger == nil || errors.Is(result, context.Canceled) {
+			return
+		}
+		var yielded *tasks.Yield
+		if errors.As(result, &yielded) {
 			return
 		}
 		class := "solidification"
@@ -78,7 +102,12 @@ func (s *solidifier) Process(ctx context.Context, task *tasks.Task, taskLease le
 		if errors.Is(result, lease.ErrLost) || errors.Is(result, storage.ErrLeaseLost) {
 			s.service.metrics.recordEvent("lease_lost")
 		}
-		s.service.logger.Warn("solidification failed", "task_id", task.ID, "error_class", class)
+		fields := []any{"task_id", task.ID, "error_class", class}
+		var stage *solidificationFailureStage
+		if errors.As(result, &failure) && errors.As(failure.Err, &stage) {
+			fields = append(fields, "failure_stage", stage.name)
+		}
+		s.service.logger.Warn("solidification failed", fields...)
 	}()
 	releaseSlot, ok := s.service.acquireSolidificationSlot(ctx, false)
 	if !ok {
@@ -89,44 +118,10 @@ func (s *solidifier) Process(ctx context.Context, task *tasks.Task, taskLease le
 		return temporary("solidification_busy", errors.New("solidification worker slot is unavailable"))
 	}
 	defer releaseSlot()
-	workCtx := ctx
-	graph := &closure{seen: make(map[string]contentRef), active: make(map[string]bool)}
-	root := contentRef{digest: task.RootDigest, mediaType: task.MediaType, size: -1}
-	if entry, ok := task.Graph[task.RootDigest]; ok {
-		root.size = entry.Size
+	if task.Kind == tasks.BlobKind {
+		return s.processBlob(ctx, task, taskLease)
 	}
-	if _, err := s.visitManifest(workCtx, task, taskLease, graph, root, 0, true); err != nil {
-		return err
-	}
-	for _, blob := range graph.blobs {
-		if err := s.ensureBlob(workCtx, task, taskLease, blob); err != nil {
-			return err
-		}
-	}
-	for _, manifest := range graph.manifests {
-		if err := s.ensureManifest(workCtx, task, taskLease, manifest, manifest.digest); err != nil {
-			return err
-		}
-	}
-	if !strings.Contains(task.Reference, ":") {
-		requestCtx, cancel := context.WithTimeout(workCtx, s.cfg.Limits.RequestTimeout)
-		err := s.publishRootTag(requestCtx, task, taskLease)
-		cancel()
-		if err != nil {
-			return err
-		}
-	}
-	digests := make([]string, 0, len(graph.seen))
-	for digest := range graph.seen {
-		digests = append(digests, digest)
-	}
-	requestCtx, cancel := context.WithTimeout(workCtx, s.cfg.Limits.RequestTimeout)
-	err := s.cache.MarkCleanupPending(requestCtx, task.Authority, task.Repository, digests, time.Now().UTC().Add(time.Hour))
-	cancel()
-	if err != nil {
-		return temporary("storage", err)
-	}
-	return nil
+	return s.processRootMultiStage(ctx, task, taskLease)
 }
 
 func (s *solidifier) visitManifest(ctx context.Context, task *tasks.Task, taskLease lease.Lease, graph *closure, reference contentRef, depth int, root bool) (contentRef, error) {

@@ -50,6 +50,10 @@ func (runtime *fixtureRuntime) buildInlineFixtures() error {
 	if err != nil {
 		return fmt.Errorf("fixture missing-blob manifest is invalid: %w", err)
 	}
+	runtime.gcCancellationManifest, err = buildInlineManifest(runtime.config, []byte("gc-cancellation-missing-layer"), nil, []string{"https://github.com/v2/registry-hub-test/fixture/url-must-not-fetch-gc-cancellation"})
+	if err != nil {
+		return fmt.Errorf("fixture GC-cancellation manifest is invalid: %w", err)
+	}
 	invalidBody, err := json.Marshal(map[string]any{
 		"schemaVersion": 2,
 		"mediaType":     "application/vnd.oci.image.manifest.v1+json",
@@ -148,6 +152,8 @@ func (runtime *fixtureRuntime) serveBlob(writer http.ResponseWriter, request *ht
 		writeBlob(writer, runtime.config, runtime.configDigest)
 	case state.host == "github.com" && path == "/v2/registry-hub-test/fixture/blobs/"+runtime.configDigest && state.auth == "absent":
 		writeBlob(writer, runtime.config, runtime.configDigest)
+	case state.host == "github.com" && path == "/v2/registry-hub-test/fixture/blobs/"+runtime.discoveryConfigDigest && state.auth == "absent":
+		writeBlob(writer, runtime.discoveryConfig, runtime.discoveryConfigDigest)
 	case state.host == "github.com" && path == "/v2/registry-hub-test/fixture/blobs/"+runtime.multipartBlobDigest && state.auth == "absent":
 		writeBlob(writer, runtime.multipartBlob, runtime.multipartBlobDigest)
 	case state.host == "github.com" && path == "/v2/registry-hub-test/fixture/blobs/"+runtime.objectSizeBlobDigest && state.auth == "absent":

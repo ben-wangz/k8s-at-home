@@ -48,17 +48,21 @@ type ImagePullSecretReference struct {
 }
 
 type S3 struct {
-	Endpoint           string
-	Region             string
-	Bucket             string
-	Prefix             string
-	UsePathStyle       bool
-	AllowHTTP          bool
-	CAFile             string
-	MultipartThreshold int64
-	PartSize           int64
-	Timeout            time.Duration
-	MaxConnections     int
+	Endpoint             string
+	Region               string
+	Bucket               string
+	Prefix               string
+	UsePathStyle         bool
+	AllowHTTP            bool
+	CAFile               string
+	MultipartThreshold   int64
+	PartSize             int64
+	Timeout              time.Duration
+	MaxConnections       int
+	ReplayMemoryBytes    int64
+	ReplayMaxMemoryBytes int64
+	ReplayMaxDiskBytes   int64
+	ReplayDirectory      string
 }
 
 type Limits struct {
@@ -87,6 +91,15 @@ type Limits struct {
 	DownloadMaxBytes        int64
 }
 
+type Solidification struct {
+	IdleTimeout                    time.Duration
+	MaxWaitingRoots                int
+	MaxBlobIntents                 int
+	MaxProtectionSessions          int
+	MaxProtectedCacheBytes         int64
+	MaxUnanchoredDistributionBytes int64
+}
+
 type Config struct {
 	ClientAddr                    string
 	AdminAddr                     string
@@ -103,6 +116,7 @@ type Config struct {
 	TransportRules                map[string]TransportRule
 	Proxy                         ProxyConfig
 	Limits                        Limits
+	Solidification                Solidification
 	CatalogEnabled                bool
 	InternalToken                 string
 	GCMode                        string

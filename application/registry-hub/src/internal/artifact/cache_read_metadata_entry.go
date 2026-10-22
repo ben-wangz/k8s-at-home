@@ -30,14 +30,14 @@ func (c *Cache) readMetadataEntry(ctx context.Context, key string) (cacheMetadat
 			return cacheMetadata{}, "", closeErr
 		}
 		if len(data) > 1<<20 {
-			return cacheMetadata{}, "", errors.New("cache metadata exceeds size limit")
+			return cacheMetadata{}, object.Version, errors.Join(storage.ErrCorruptObject, errors.New("cache metadata exceeds size limit"))
 		}
 		var metadata cacheMetadata
 		if err := json.Unmarshal(data, &metadata); err != nil {
-			return cacheMetadata{}, "", fmt.Errorf("decode cache metadata: %w", err)
+			return cacheMetadata{}, object.Version, errors.Join(storage.ErrCorruptObject, fmt.Errorf("decode cache metadata: %w", err))
 		}
 		if !validCacheMetadataKey(key, metadata) {
-			return cacheMetadata{}, "", storage.ErrCorruptObject
+			return cacheMetadata{}, object.Version, storage.ErrCorruptObject
 		}
 		switch metadata.SchemaVersion {
 		case cacheSchemaCurrent:
@@ -57,7 +57,7 @@ func (c *Cache) readMetadataEntry(ctx context.Context, key string) (cacheMetadat
 			}
 			return metadata, entry.Version, nil
 		default:
-			return cacheMetadata{}, "", storage.ErrCorruptObject
+			return cacheMetadata{}, object.Version, storage.ErrCorruptObject
 		}
 	}
 	return cacheMetadata{}, "", storage.ErrUnavailable
@@ -96,7 +96,7 @@ func (c *Cache) verifyComplete(ctx context.Context, identity string, metadata ca
 		return err
 	}
 	if marker.SchemaVersion != cacheSchemaCurrent || marker.Authority != metadata.Authority || marker.Repository != metadata.Repository || marker.Digest != metadata.Digest || marker.MediaType != metadata.MediaType || marker.Size != metadata.Size || marker.DataVersion != metadata.DataVersion {
-		return errors.New("cache complete marker identity is invalid")
+		return errors.Join(storage.ErrCorruptObject, errors.New("cache complete marker identity is invalid"))
 	}
 	return nil
 }
@@ -170,7 +170,7 @@ func (c *Cache) verifyData(ctx context.Context, key, digest string, size int64, 
 	}
 	defer object.Body.Close()
 	if object.Size != size || object.Version != version {
-		return errors.New("cache object changed during verification")
+		return errors.Join(storage.ErrCorruptObject, errors.New("cache object changed during verification"))
 	}
 	hasher, err := Hasher(digest)
 	if err != nil {
@@ -181,7 +181,7 @@ func (c *Cache) verifyData(ctx context.Context, key, digest string, size int64, 
 		return err
 	}
 	if count != size || digestValue(digest, hasher) != digest {
-		return errors.New("cache object failed digest or size verification")
+		return errors.Join(storage.ErrCorruptObject, errors.New("cache object failed digest or size verification"))
 	}
 	return nil
 }

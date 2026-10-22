@@ -60,19 +60,38 @@ func verifyMultipartProbe(run *mirrorRun) (map[string]any, error) {
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil || len(manifest.Layers) != 1 {
 		return nil, fmt.Errorf("multipart probe manifest is invalid")
 	}
-	task, err := waitForSolidifiedTask(run.context, run.environment, "github.com", run.upstreamRepository, "minimal-multipart")
+	task, err := waitForTaskStatus(run.context, run.environment, "github.com", run.upstreamRepository, "minimal-multipart", "waiting_dependencies")
+	if err != nil {
+		return nil, fmt.Errorf("multipart manifest discovery did not wait for client layer demand: %w", err)
+	}
+	blobPath := "/v2/registry-hub-test/fixture/blobs/" + manifest.Layers[0].Digest
+	requestsBefore, err := countFixturePath(run.context, run.environment, blobPath)
+	if err != nil {
+		return nil, err
+	}
+	if requestsBefore != 0 {
+		return nil, fmt.Errorf("multipart manifest discovery prefetched the layer %d times", requestsBefore)
+	}
+	blob, err := support.ReadBlob(run.context, run.registry, run.remoteRepository, manifest.Layers[0].Digest)
+	if err != nil {
+		return nil, fmt.Errorf("client multipart layer request failed: %w", err)
+	}
+	if len(blob) != manifest.Layers[0].Size || support.Digest(blob) != manifest.Layers[0].Digest {
+		return nil, fmt.Errorf("multipart probe blob failed size or digest validation")
+	}
+	requestsAfter, err := countFixturePath(run.context, run.environment, blobPath)
+	if err != nil {
+		return nil, err
+	}
+	if requestsAfter == 0 {
+		return nil, fmt.Errorf("client multipart layer request did not reach upstream")
+	}
+	task, err = waitForSolidifiedTask(run.context, run.environment, "github.com", run.upstreamRepository, "minimal-multipart")
 	if err != nil {
 		return nil, err
 	}
 	if testkit.String(task["rootDigest"]) != support.Digest(manifestBytes) || task["rootPublished"] != true || testkit.String(task["status"]) != "solidified" {
-		return nil, fmt.Errorf("multipart probe manifest did not solidify")
-	}
-	blob, err := support.ReadBlob(run.context, run.registry, run.remoteRepository, manifest.Layers[0].Digest)
-	if err != nil {
-		return nil, fmt.Errorf("multipart probe blob is not locally readable: %w", err)
-	}
-	if len(blob) != manifest.Layers[0].Size || support.Digest(blob) != manifest.Layers[0].Digest {
-		return nil, fmt.Errorf("multipart probe blob failed size or digest validation")
+		return nil, fmt.Errorf("multipart probe manifest did not solidify after client layer demand")
 	}
 	return map[string]any{
 		"multipartProbeTaskID":         testkit.String(task["id"]),

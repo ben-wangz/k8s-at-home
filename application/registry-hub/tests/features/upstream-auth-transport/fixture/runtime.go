@@ -20,6 +20,10 @@ type fixtureRuntime struct {
 	ghcrCredential            credential
 	config                    []byte
 	configDigest              string
+	discoveryConfig           []byte
+	discoveryConfigDigest     string
+	discoveryManifestBytes    []byte
+	discoveryManifestDigest   string
 	multipartBlob             []byte
 	multipartBlobDigest       string
 	multipartManifestBytes    []byte
@@ -34,6 +38,7 @@ type fixtureRuntime struct {
 	inlineLayer               []byte
 	inlineManifest            inlineManifestFixture
 	missingURLManifest        inlineManifestFixture
+	gcCancellationManifest    inlineManifestFixture
 	invalidInlineManifest     fixtureManifest
 	invalidInlineSize         fixtureManifest
 	invalidInlineDigest       fixtureManifest
@@ -170,14 +175,30 @@ func (runtime *fixtureRuntime) buildCoreFixtures() error {
 }
 
 func (runtime *fixtureRuntime) buildDiscoveryIndex() error {
+	runtime.discoveryConfig = []byte("registry-hub-discovery-config")
+	runtime.discoveryConfigDigest = "sha256:" + hex.EncodeToString(sha256Bytes(runtime.discoveryConfig))
 	var err error
+	runtime.discoveryManifestBytes, err = json.Marshal(map[string]any{
+		"schemaVersion": 2,
+		"mediaType":     "application/vnd.oci.image.manifest.v1+json",
+		"config": map[string]any{
+			"mediaType": "application/vnd.oci.image.config.v1+json",
+			"size":      len(runtime.discoveryConfig),
+			"digest":    runtime.discoveryConfigDigest,
+		},
+		"layers": []any{},
+	})
+	if err != nil {
+		return fmt.Errorf("fixture discovery manifest is invalid: %w", err)
+	}
+	runtime.discoveryManifestDigest = "sha256:" + hex.EncodeToString(sha256Bytes(runtime.discoveryManifestBytes))
 	runtime.indexBytes, err = json.Marshal(map[string]any{
 		"schemaVersion": 2,
 		"mediaType":     ociIndexMediaType,
 		"manifests": []any{map[string]any{
 			"mediaType": "application/vnd.oci.image.manifest.v1+json",
-			"digest":    runtime.manifestDigest,
-			"size":      len(runtime.manifestBytes),
+			"digest":    runtime.discoveryManifestDigest,
+			"size":      len(runtime.discoveryManifestBytes),
 			"platform": map[string]any{
 				"architecture": "amd64",
 				"os":           "linux",

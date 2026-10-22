@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,7 +23,7 @@ import (
 	"time"
 )
 
-func TestSolidifierVerifiesWholeClosureBeforeGraceCleanup(t *testing.T) {
+func TestSolidifierPublishesClosureAfterIndependentBlobCleanup(t *testing.T) {
 	ctx := context.Background()
 	store, err := filesystem.New(t.TempDir())
 	if err != nil {
@@ -168,7 +169,7 @@ func TestSolidifierVerifiesWholeClosureBeforeGraceCleanup(t *testing.T) {
 		MaxDescriptors: 10, DescriptorDataBytes: 1 << 20, ClosureDepth: 10,
 		ClosureObjects: 100, ClosureBytes: 1 << 20,
 	}}
-	service := &Service{cfg: cfg, store: store, gate: gate, solidificationSlots: make(chan struct{}, 1), metrics: newMetrics()}
+	service := &Service{cfg: cfg, store: store, gate: gate, records: tasks.NewRecords(store), solidificationSlots: make(chan struct{}, 1), metrics: newMetrics()}
 	processor := &solidifier{service: service, cfg: cfg, cache: cache, store: store, registry: registry, gate: gate}
 	manager, err := tasks.NewManager(store, 1, 10, nil)
 	if err != nil {
@@ -189,11 +190,80 @@ func TestSolidifierVerifiesWholeClosureBeforeGraceCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer manager.Leases().Release(ctx, taskLease)
-	if err := cache.MarkCleanupPending(ctx, authority, repository, []string{rootDigest, childDigest}, time.Now().Add(time.Hour)); err != nil {
+	task.Status = tasks.Running
+	if err := manager.SaveProgress(ctx, &task, taskLease); err != nil {
+		t.Fatal(err)
+	}
+	rootErr := processor.Process(ctx, &task, taskLease)
+	var rootYield *tasks.Yield
+	if !errors.As(rootErr, &rootYield) || rootYield.Status != tasks.WaitingDeps {
+		t.Fatalf("first root processing result = %v, want waiting_dependencies", rootErr)
+	}
+	if _, exists := objects["latest"]; exists {
+		t.Fatal("root reference was published before its blob dependency was available in Distribution")
+	}
+	task.Status = rootYield.Status
+	task.WaitReason = rootYield.Reason
+	if err := manager.SaveProgress(ctx, &task, taskLease); err != nil {
+		t.Fatal(err)
+	}
+	intent, err := service.records.GetBlobIntentByIdentity(ctx, tasks.BlobIdentity{Authority: authority, Repository: repository, Digest: blobDigest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobTask, err := manager.Get(ctx, intent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobLease, err := manager.Leases().Acquire(ctx, "tasks/"+blobTask.ID, "blob-test-worker", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Leases().Release(ctx, blobLease)
+	blobTask.Status = tasks.Running
+	if err := manager.SaveProgress(ctx, &blobTask, blobLease); err != nil {
+		t.Fatal(err)
+	}
+	blobErr := processor.Process(ctx, &blobTask, blobLease)
+	var blobYield *tasks.Yield
+	if !errors.As(blobErr, &blobYield) || blobYield.Status != tasks.VerifiedLocal {
+		t.Fatalf("blob processing result = %v, want verified_local", blobErr)
+	}
+	blobTask, err = manager.Get(ctx, blobTask.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobTask.Status = blobYield.Status
+	blobTask.WaitReason = blobYield.Reason
+	if err := manager.SaveProgress(ctx, &blobTask, blobLease); err != nil {
+		t.Fatal(err)
+	}
+	processor.TaskYielded(ctx, &blobTask)
+	removed, err := cache.Cleanup(ctx, time.Now().Add(time.Minute), 100)
+	if err != nil || removed != 1 {
+		t.Fatalf("cleanup after verified blob removed=%d err=%v, want 1", removed, err)
+	}
+	retained, err := cache.GetAnyRetained(ctx, authority, repository, blobDigest)
+	if err == nil {
+		_ = retained.Body.Close()
+	}
+	if !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("verified blob cache lookup error = %v, want not found after cleanup", err)
+	}
+	if err := storeDataObjectCount(t, ctx, store, 2); err != nil {
+		t.Fatal(err)
+	}
+	task, err = manager.Get(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Status = tasks.Running
+	task.WaitReason = ""
+	if err := manager.SaveProgress(ctx, &task, taskLease); err != nil {
 		t.Fatal(err)
 	}
 	if err := processor.Process(ctx, &task, taskLease); err != nil {
-		t.Fatalf("solidify artifact: %v (%#v)", err, err)
+		t.Fatalf("resume root after blob verification: %v (%#v)", err, err)
 	}
 	if task.Checkpoints[rootDigest] != "verified" || task.Checkpoints[childDigest] != "verified" {
 		t.Fatalf("solidification checkpoints = %#v", task.Checkpoints)
@@ -208,30 +278,31 @@ func TestSolidifierVerifiesWholeClosureBeforeGraceCleanup(t *testing.T) {
 		t.Fatalf("root tag was not published with the verified root: %#v", rootByTag)
 	}
 
-	verifySolidifierCleanupGracePeriod(t, ctx, cache, store, authority, repository, rootDigest, childDigest)
-}
-
-func verifySolidifierCleanupGracePeriod(t *testing.T, ctx context.Context, cache *artifact.Cache, store storage.Store, authority, repository, rootDigest, childDigest string) {
-	t.Helper()
-	removed, err := cache.Cleanup(ctx, time.Now().Add(time.Hour-time.Minute), 100)
-	if err != nil || removed != 0 {
-		t.Fatalf("cleanup before grace period removed=%d err=%v", removed, err)
+	removed, err = cache.Cleanup(ctx, time.Now().Add(time.Minute), 100)
+	if err != nil || removed != 3 {
+		t.Fatalf("cleanup after root anchor removed=%d err=%v, want 3", removed, err)
 	}
-	cacheEntries, _, err := store.List(ctx, "cache/objects/", "", 100)
-	if err != nil {
+	if err := storeDataObjectCount(t, ctx, store, 0); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func storeDataObjectCount(t *testing.T, ctx context.Context, store storage.Store, want int) error {
+	t.Helper()
+	cacheEntries, _, err := store.List(ctx, "cache/objects/", "", 100)
+	if err != nil {
+		return err
+	}
 	dataEntries := 0
+	dataKeys := make([]string, 0)
 	for _, entry := range cacheEntries {
 		if strings.HasSuffix(entry.Key, "/data") {
 			dataEntries++
+			dataKeys = append(dataKeys, entry.Key)
 		}
 	}
-	if dataEntries != 3 {
-		t.Fatalf("cache data objects during grace period = %d, want 3", dataEntries)
+	if dataEntries != want {
+		return fmt.Errorf("cache data objects = %d, want %d: %v", dataEntries, want, dataKeys)
 	}
-	removed, err = cache.Cleanup(ctx, time.Now().Add(2*time.Hour), 100)
-	if err != nil || removed != 3 {
-		t.Fatalf("cleanup after grace period removed=%d err=%v, want 3", removed, err)
-	}
+	return nil
 }

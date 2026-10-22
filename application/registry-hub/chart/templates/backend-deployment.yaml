@@ -87,6 +87,18 @@ spec:
               value: {{ .Values.backend.catalog.enabled | quote }}
             - name: REGISTRY_HUB_LIMIT_REFERRER_PAGES
               value: {{ .Values.backend.limits.referrerPages | quote }}
+            - name: REGISTRY_HUB_SOLIDIFICATION_IDLE_TIMEOUT_SECONDS
+              value: {{ .Values.backend.solidification.idleTimeoutSeconds | quote }}
+            - name: REGISTRY_HUB_SOLIDIFICATION_MAX_WAITING_ROOTS
+              value: {{ .Values.backend.solidification.maxWaitingRoots | quote }}
+            - name: REGISTRY_HUB_SOLIDIFICATION_MAX_BLOB_INTENTS
+              value: {{ .Values.backend.solidification.maxBlobIntents | quote }}
+            - name: REGISTRY_HUB_SOLIDIFICATION_MAX_PROTECTION_SESSIONS
+              value: {{ .Values.backend.solidification.maxProtectionSessions | quote }}
+            - name: REGISTRY_HUB_SOLIDIFICATION_MAX_PROTECTED_CACHE_BYTES
+              value: {{ .Values.backend.solidification.maxProtectedCacheBytes | int64 | quote }}
+            - name: REGISTRY_HUB_SOLIDIFICATION_MAX_UNANCHORED_DISTRIBUTION_BYTES
+              value: {{ .Values.backend.solidification.maxUnanchoredDistributionBytes | int64 | quote }}
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -129,6 +141,14 @@ spec:
               value: {{ .Values.storage.s3.timeoutSeconds | quote }}
             - name: REGISTRY_HUB_S3_MAX_CONNECTIONS
               value: {{ .Values.storage.s3.maxConnections | quote }}
+            - name: REGISTRY_HUB_S3_REPLAY_MEMORY_BYTES
+              value: {{ .Values.storage.s3.replayMemoryBytes | int64 | quote }}
+            - name: REGISTRY_HUB_S3_REPLAY_MAX_MEMORY_BYTES
+              value: {{ .Values.storage.s3.replayMaxMemoryBytes | int64 | quote }}
+            - name: REGISTRY_HUB_S3_REPLAY_MAX_DISK_BYTES
+              value: {{ .Values.storage.s3.replayMaxDiskBytes | int64 | quote }}
+            - name: REGISTRY_HUB_S3_REPLAY_DIRECTORY
+              value: {{ .Values.storage.s3.replayDirectory | quote }}
             {{- if .Values.storage.s3.caSecret }}
             - name: REGISTRY_HUB_S3_CA_FILE
               value: /etc/registry-hub/s3-ca/{{ .Values.storage.s3.caKey }}
@@ -177,6 +197,10 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+            {{- if eq .Values.storage.backend "s3" }}
+            - name: s3-replay
+              mountPath: {{ .Values.storage.s3.replayDirectory }}
+            {{- end }}
             {{- if and (eq .Values.storage.backend "filesystem") (or .Values.backend.persistence.enabled .Values.backend.persistence.existingClaim) }}
             - name: backend-data
               mountPath: {{ .Values.storage.filesystemRoot }}
@@ -198,6 +222,11 @@ spec:
                 path: ca.crt
         - name: tmp
           emptyDir: {}
+        {{- if eq .Values.storage.backend "s3" }}
+        - name: s3-replay
+          emptyDir:
+            sizeLimit: {{ .Values.storage.s3.replayMaxDiskBytes | int64 }}
+        {{- end }}
         {{- if eq (include "registry-hub.needsInitialization" .) "true" }}
         {{- include "registry-hub.backendInitWaitVolumes" . | nindent 8 }}
         {{- end }}

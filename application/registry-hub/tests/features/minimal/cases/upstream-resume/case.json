@@ -17,7 +17,7 @@
     {"id":"upstream-resume.range-416","description":"Verify a rejected range causes a bounded restart."},
     {"id":"upstream-resume.concurrent-waiters","description":"Verify concurrent readers share one upstream transfer."},
     {"id":"upstream-resume.backend-restart","description":"Verify a restarted Backend resumes from persistent progress."},
-    {"id":"upstream-resume.background-retry","description":"Verify a background task resumes after entering retry_wait."},
+    {"id":"upstream-resume.background-retry","description":"Verify a client blob read retries resumable upstream range requests after 503 responses."},
     {"id":"upstream-resume.podman-pull","description":"Verify a real Podman pull completes through the Registry Service."}
   ],
   "outputs": ["Per-check result and structured evidence including digest, byte count, Range offsets, transfer bytes, timeout settings, task ID, and restart result."],

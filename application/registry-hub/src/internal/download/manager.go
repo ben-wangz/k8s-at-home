@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	stateSchemaVersion = 1
-	indexPageLimit     = 256
-	defaultChunkSize   = 8 << 20
-	partialPrefix      = "downloads/v1/"
+	stateSchemaVersion   = 1
+	indexPageLimit       = 256
+	defaultChunkSize     = 8 << 20
+	maxNoProgressRetries = 3
+	partialPrefix        = "downloads/v1/"
 )
 
 type chunk struct {
@@ -133,7 +134,7 @@ func (m *Manager) Fetch(ctx context.Context, request Request) (Result, error) {
 		}
 		response, cancel, requestErr := request.Source(ctx, start, end, loaded.Value.ETag)
 		if requestErr != nil {
-			if !m.retryable(request, requestErr) || noProgressAttempts >= 2 {
+			if !m.retryable(request, requestErr) || noProgressAttempts >= maxNoProgressRetries {
 				return Result{}, requestErr
 			}
 			noProgressAttempts++
@@ -174,7 +175,7 @@ func (m *Manager) Fetch(ctx context.Context, request Request) (Result, error) {
 			statusErr := &StatusError{Code: response.StatusCode, RetryAfter: response.Header.Get("Retry-After")}
 			_ = response.Body.Close()
 			cancel()
-			if noProgressAttempts >= 2 {
+			if noProgressAttempts >= maxNoProgressRetries {
 				return Result{}, statusErr
 			}
 			noProgressAttempts++
@@ -227,7 +228,7 @@ func (m *Manager) Fetch(ctx context.Context, request Request) (Result, error) {
 			}
 			if loaded.Value.Offset > start {
 				noProgressAttempts = 0
-			} else if noProgressAttempts >= 2 {
+			} else if noProgressAttempts >= maxNoProgressRetries {
 				return Result{}, readErr
 			} else {
 				noProgressAttempts++

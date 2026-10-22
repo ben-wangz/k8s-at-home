@@ -50,6 +50,10 @@ func (runtime *fixtureRuntime) serveGitHubMinimalManifest(writer http.ResponseWr
 		writeManifestRepresentation(writer, fixture.manifest, "application/vnd.oci.image.manifest.v1+json", fixture.manifestDigest)
 		return true
 	}
+	if strings.HasPrefix(path, "gc-cancel-") {
+		writeManifestRepresentation(writer, runtime.gcCancellationManifest.Manifest, "application/vnd.oci.image.manifest.v1+json", runtime.gcCancellationManifest.ManifestDigest)
+		return true
+	}
 	switch path {
 	case "minimal-multipart":
 		writeManifest(writer, runtime.multipartManifestBytes, runtime.multipartManifestDigest)
@@ -65,6 +69,8 @@ func (runtime *fixtureRuntime) serveGitHubMinimalManifest(writer http.ResponseWr
 		<-request.Context().Done()
 	case runtime.manifestDigest:
 		writeManifest(writer, runtime.manifestBytes, runtime.manifestDigest)
+	case runtime.discoveryManifestDigest:
+		writeManifest(writer, runtime.discoveryManifestBytes, runtime.discoveryManifestDigest)
 	case runtime.replacementReference:
 		writeManifestWithoutDigest(writer, runtime.manifestBytes)
 	case "minimal-inline-data":

@@ -6,6 +6,7 @@ import (
 	"embed"
 	"fmt"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/support"
+	upstreammirror "github.com/ben-wangz/registry-hub-tests/features/minimal/cases/upstream-mirror"
 	"github.com/ben-wangz/registry-hub-tests/internal/testkit"
 	"io"
 	"net/http"
@@ -30,6 +31,10 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	}
 	if strings.Contains(registryConfig, "blobdescriptor: inmemory") || !strings.Contains(registryConfig, "uploadpurging:\n      enabled: false") {
 		return fmt.Errorf("GC requires a disabled Registry descriptor cache and upload purging")
+	}
+	upstreamRegistry, upstreamRepository, err := upstreammirror.PrepareExternalFixture(ctx, environment)
+	if err != nil {
+		return fmt.Errorf("prepare controlled upstream fixture: %w", err)
 	}
 	registry := support.NewRegistryClient(environment)
 	repository := support.LocalRepository(environment.CaseID, environment.RunID)
@@ -197,6 +202,10 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err := verifyPVCConsumers(ctx, environment, ""); err != nil {
 		return err
 	}
+	solidificationGC, err := verifySolidificationCancellationGC(ctx, environment, upstreamRegistry, upstreamRepository)
+	if err != nil {
+		return err
+	}
 	return support.WriteResult(environment, map[string]any{
 		"gcFailureID": testkit.String(failed["id"]), "gcFailureState": testkit.String(failed["state"]),
 		"gcFailureClass": testkit.String(failed["errorClass"]), "failedJobName": failedJobDetails["name"],
@@ -218,7 +227,8 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		"gcSuccessMetric": 1, "gcFailureMetric": 1, "gcDurationSamples": 2, "writeDuringGCStatus": http.StatusServiceUnavailable,
 		"activeUploadWriteStatus": activeWriterStatus, "gcWaitedForActiveWriter": true,
 		"registryPVCConsumersVerified": true, "registryIngressPolicyVerified": true,
-		"readDuringGCStatus": http.StatusOK,
+		"readDuringGCStatus":     http.StatusOK,
+		"solidificationCancelGC": solidificationGC,
 	})
 }
 

@@ -90,6 +90,63 @@ func TestFetchRetriesStatusWithoutDroppingProgress(t *testing.T) {
 	}
 }
 
+func TestFetchAllowsThreeNoProgressRetries(t *testing.T) {
+	content := []byte("retry-after-three-failures")
+	digest := artifact.CalculateSHA256(content)
+	t.Run("recovers", func(t *testing.T) {
+		ctx, store := testDownloadStore(t)
+		manager := testManager(store)
+		calls := 0
+		var retryAttempts []int
+		request := testRequest(content, digest, 16, func(_ context.Context, _, _ int64, _ string) (*http.Response, context.CancelFunc, error) {
+			calls++
+			if calls <= 3 {
+				response := testResponse(http.StatusServiceUnavailable, nil, 0, io.NopCloser(bytes.NewReader(nil)))
+				response.Header.Set("Retry-After", "0")
+				return response, func() {}, nil
+			}
+			response := testResponse(http.StatusOK, content, int64(len(content)), io.NopCloser(bytes.NewReader(content)))
+			response.Header.Set("Docker-Content-Digest", digest)
+			return response, func() {}, nil
+		})
+		request.WaitRetry = func(_ context.Context, retryAfter string, attempt int) error {
+			if retryAfter != "0" {
+				t.Fatalf("Retry-After = %q, want 0", retryAfter)
+			}
+			retryAttempts = append(retryAttempts, attempt)
+			return nil
+		}
+		if _, err := manager.Fetch(ctx, request); err != nil {
+			t.Fatalf("Fetch() error = %v", err)
+		}
+		if calls != 4 || !reflect.DeepEqual(retryAttempts, []int{0, 1, 2}) {
+			t.Fatalf("upstream calls=%d retry attempts=%v, want four calls and retries 0, 1, 2", calls, retryAttempts)
+		}
+	})
+	t.Run("exhausts", func(t *testing.T) {
+		ctx, store := testDownloadStore(t)
+		manager := testManager(store)
+		calls := 0
+		var retryAttempts []int
+		request := testRequest(content, digest, 17, func(_ context.Context, _, _ int64, _ string) (*http.Response, context.CancelFunc, error) {
+			calls++
+			response := testResponse(http.StatusServiceUnavailable, nil, 0, io.NopCloser(bytes.NewReader(nil)))
+			response.Header.Set("Retry-After", "0")
+			return response, func() {}, nil
+		})
+		request.WaitRetry = func(_ context.Context, _ string, attempt int) error {
+			retryAttempts = append(retryAttempts, attempt)
+			return nil
+		}
+		if _, err := manager.Fetch(ctx, request); err == nil {
+			t.Fatal("Fetch() succeeded after repeated 503 responses")
+		}
+		if calls != 4 || !reflect.DeepEqual(retryAttempts, []int{0, 1, 2}) {
+			t.Fatalf("upstream calls=%d retry attempts=%v, want four calls and retries 0, 1, 2", calls, retryAttempts)
+		}
+	})
+}
+
 func TestFetch416ResetKeepsRangeSupport(t *testing.T) {
 	ctx, store := testDownloadStore(t)
 	content := []byte("abcdefgh")

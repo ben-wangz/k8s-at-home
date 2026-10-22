@@ -13,6 +13,7 @@ import (
 )
 
 const resumeLayerSize = 4 << 20
+const s3ResumeLayerSize = 6 << 20
 
 type resumeFixture struct {
 	reference      string
@@ -71,9 +72,13 @@ func buildResumeFixture(mode string) (*resumeFixture, error) {
 func buildResumeLayer(mode string) ([]byte, string) {
 	var data bytes.Buffer
 	archive := tar.NewWriter(&data)
+	fileSize := resumeLayerSize
+	if mode == "s3" {
+		fileSize = s3ResumeLayerSize
+	}
 	pattern := []byte(mode + "-")
-	content := bytes.Repeat(pattern, (resumeLayerSize+len(pattern)-1)/len(pattern))
-	content = content[:resumeLayerSize]
+	content := bytes.Repeat(pattern, (fileSize+len(pattern)-1)/len(pattern))
+	content = content[:fileSize]
 	_ = archive.WriteHeader(&tar.Header{Name: "registry-hub-resume.txt", Mode: 0o644, Size: int64(len(content)), Typeflag: tar.TypeReg})
 	_, _ = archive.Write(content)
 	_ = archive.Close()
@@ -124,7 +129,7 @@ func (runtime *fixtureRuntime) serveResumeBlob(writer http.ResponseWriter, reque
 		return
 	}
 	log.Printf("resume_fixture reference=%s mode=%s range=%q request=%d", fixture.reference, fixture.mode, request.Header.Get("Range"), count)
-	if (fixture.mode == "background" || fixture.mode == "s3") && count <= 3 {
+	if fixture.mode == "background" && count <= 3 || fixture.mode == "s3" && count <= 4 {
 		writer.Header().Set("Retry-After", "0")
 		writer.WriteHeader(http.StatusServiceUnavailable)
 		log.Printf("resume_fixture reference=%s mode=%s sent=0 status=503", fixture.reference, fixture.mode)

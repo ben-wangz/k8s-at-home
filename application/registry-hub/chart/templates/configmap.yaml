@@ -76,6 +76,12 @@
 {{- if and (eq .Values.storage.backend "filesystem") (not .Values.backend.persistence.existingClaim) (not .Values.backend.persistence.enabled) -}}
 {{- fail "filesystem task/cache storage requires persistent storage" -}}
 {{- end -}}
+{{- if and (eq .Values.storage.backend "s3") (or (le (int64 .Values.storage.s3.replayMemoryBytes) 0) (le (int64 .Values.storage.s3.replayMaxMemoryBytes) 0) (le (int64 .Values.storage.s3.replayMaxDiskBytes) 0) (gt (int64 .Values.storage.s3.replayMemoryBytes) (int64 .Values.storage.s3.replayMaxMemoryBytes)) (not (hasPrefix "/" .Values.storage.s3.replayDirectory))) -}}
+{{- fail "S3 replay limits must be positive, per-source memory must not exceed the global memory budget, and replayDirectory must be absolute" -}}
+{{- end -}}
+{{- if or (le (int64 .Values.backend.solidification.idleTimeoutSeconds) 0) (le (int .Values.backend.solidification.maxWaitingRoots) 0) (le (int .Values.backend.solidification.maxBlobIntents) 0) (le (int .Values.backend.solidification.maxProtectionSessions) 0) (gt (int .Values.backend.solidification.maxProtectionSessions) 4096) (le (int64 .Values.backend.solidification.maxProtectedCacheBytes) 0) (le (int64 .Values.backend.solidification.maxUnanchoredDistributionBytes) 0) -}}
+{{- fail "solidification limits must be positive and maxProtectionSessions cannot exceed 4096" -}}
+{{- end -}}
 {{- if and (eq .Values.registry.storage.type "filesystem") (not .Values.registry.storage.filesystem.existingClaim) (not .Values.registry.storage.filesystem.size) -}}
 {{- fail "filesystem Distribution storage requires a PVC size or existingClaim" -}}
 {{- end -}}

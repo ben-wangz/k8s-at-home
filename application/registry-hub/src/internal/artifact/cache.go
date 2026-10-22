@@ -45,12 +45,23 @@ type cacheRepresentationIndex struct {
 }
 
 type CachedObject struct {
-	Authority  string
-	Repository string
-	Digest     string
-	MediaType  string
-	Size       int64
-	Body       io.ReadCloser
+	Authority   string
+	Repository  string
+	Digest      string
+	MediaType   string
+	Size        int64
+	DataVersion string
+	Body        io.ReadCloser
+}
+
+type CachedRepresentation struct {
+	Authority   string
+	Repository  string
+	Digest      string
+	MediaType   string
+	Size        int64
+	DataVersion string
+	State       string
 }
 
 type CacheStats struct {
@@ -193,8 +204,10 @@ func (c *Cache) GetRetained(ctx context.Context, authority, repository, digest, 
 	return c.get(ctx, authority, repository, digest, mediaType, true)
 }
 
-func (c *Cache) get(ctx context.Context, authority, repository, digest, mediaType string, includeCleanupPending bool) (CachedObject, error) {
+func (c *Cache) get(ctx context.Context, authority, repository, digest, mediaType string, _ bool) (CachedObject, error) {
 	identity := cacheIdentity(authority, repository, digest)
+	unlock := c.lockIdentity(identity)
+	defer unlock()
 	metadata, err := c.readMetadata(ctx, cacheMetadataKey(identity, mediaType))
 	if err != nil {
 		return CachedObject{}, err
@@ -203,11 +216,6 @@ func (c *Cache) get(ctx context.Context, authority, repository, digest, mediaTyp
 		return CachedObject{}, storage.ErrCorruptObject
 	}
 	cleanupPending := metadata.State == "cleanup_pending"
-	if cleanupPending {
-		if !includeCleanupPending || !cacheCleanupDeadline(metadata).After(time.Now()) {
-			return CachedObject{}, storage.ErrNotFound
-		}
-	}
 	if metadata.State != "complete" && !cleanupPending {
 		return CachedObject{}, storage.ErrCorruptObject
 	}
@@ -220,16 +228,25 @@ func (c *Cache) get(ctx context.Context, authority, repository, digest, mediaTyp
 		return CachedObject{}, err
 	}
 	if entry.Version != metadata.DataVersion || entry.Size != metadata.Size {
-		return CachedObject{}, errors.New("cache data version does not match complete metadata")
+		return CachedObject{}, errors.Join(storage.ErrCorruptObject, errors.New("cache data version does not match complete metadata"))
 	}
 	if err := c.verifyData(ctx, dataKey, digest, metadata.Size, metadata.DataVersion); err != nil {
 		return CachedObject{}, err
 	}
-	object, err := c.store.Get(ctx, dataKey)
+	readerCtx, cancel := context.WithCancel(ctx)
+	pin, err := c.createReaderPin(ctx, identity)
 	if err != nil {
+		cancel()
 		return CachedObject{}, err
 	}
-	return CachedObject{Authority: authority, Repository: repository, Digest: digest, MediaType: mediaType, Size: metadata.Size, Body: object.Body}, nil
+	object, err := c.store.Get(readerCtx, dataKey)
+	if err != nil {
+		cancel()
+		_ = c.deleteReaderPin(context.Background(), pin)
+		return CachedObject{}, err
+	}
+	body := newPinnedReader(c, object.Body, readerCtx, cancel, pin)
+	return CachedObject{Authority: authority, Repository: repository, Digest: digest, MediaType: mediaType, Size: metadata.Size, DataVersion: metadata.DataVersion, Body: body}, nil
 }
 
 func (c *Cache) GetAny(ctx context.Context, authority, repository, digest string) (CachedObject, error) {

@@ -22,33 +22,58 @@ func verifyBackgroundRetry(ctx context.Context, environment testkit.CaseContext,
 	if headers.Get("Docker-Content-Digest") != manifestDigest {
 		return nil, fmt.Errorf("background fixture manifest digest header is invalid")
 	}
-	task, err := waitForBackgroundTask(ctx, environment)
+	var root support.Manifest
+	if err := json.Unmarshal(manifest, &root); err != nil || root.Config == nil {
+		return nil, fmt.Errorf("background fixture manifest has no valid config descriptor")
+	}
+	task, err := waitForBackgroundTask(ctx, environment, "waiting_dependencies")
 	if err != nil {
 		return nil, err
+	}
+	if task["rootPublished"] == true {
+		return nil, fmt.Errorf("background fixture root was published before client blob demand")
+	}
+	lines, err := fixtureLinesIfAny(ctx, environment, "resume-background", started)
+	if err != nil {
+		return nil, err
+	}
+	if len(lines) != 0 {
+		return nil, fmt.Errorf("manifest discovery fetched the background layer before client demand: %v", lines)
+	}
+	config, err := support.ReadBlob(ctx, registry, "github.com/"+upstreamRepository, root.Config.Digest)
+	if err != nil || support.Digest(config) != root.Config.Digest {
+		return nil, fmt.Errorf("client-triggered background config read is invalid: err=%v size=%d", err, len(config))
 	}
 	expected, digest := buildResumeLayer("background")
 	blob, err := support.ReadBlob(ctx, registry, "github.com/"+upstreamRepository, digest)
 	if err != nil || len(blob) != len(expected) || support.Digest(blob) != digest {
-		return nil, fmt.Errorf("solidified background layer is invalid: err=%v size=%d", err, len(blob))
+		return nil, fmt.Errorf("client-triggered background layer is invalid: err=%v size=%d", err, len(blob))
 	}
-	lines, err := fixtureLines(ctx, environment, "resume-background", started)
+	task, err = waitForBackgroundTask(ctx, environment, "solidified")
+	if err != nil {
+		return nil, err
+	}
+	if testkit.String(task["rootDigest"]) != manifestDigest || task["rootPublished"] != true || testkit.String(task["errorClass"]) != "" {
+		return nil, fmt.Errorf("demand-triggered background task did not finish cleanly: status=%q errorClass=%q rootPublished=%v", testkit.String(task["status"]), testkit.String(task["errorClass"]), task["rootPublished"])
+	}
+	lines, err = fixtureLines(ctx, environment, "resume-background", started)
 	if err != nil {
 		return nil, err
 	}
 	offsets := fixtureRangeOffsets(lines)
-	if len(offsets) < 4 || !allOffset(offsets, 1<<20) || countFixtureStatus(lines, "status=503") != 3 {
-		return nil, fmt.Errorf("background retry did not retain the same committed offset: ranges=%v 503s=%d", offsets, countFixtureStatus(lines, "status=503"))
+	if len(offsets) != 4 || !allOffset(offsets, 1<<20) || countFixtureStatus(lines, "status=503") != 3 {
+		return nil, fmt.Errorf("client-triggered retry did not retain the same committed offset: ranges=%v 503s=%d", offsets, countFixtureStatus(lines, "status=503"))
 	}
 	return map[string]any{
 		"reference": "resume-background", "taskID": testkit.String(task["id"]),
 		"taskStatus": testkit.String(task["status"]), "taskAttempts": testkit.Int(task["attempt"]),
 		"rootDigest": testkit.String(task["rootDigest"]), "manifestDigest": manifestDigest,
-		"layerDigest": digest, "layerSize": len(blob), "rangeOffsets": offsets,
+		"configDigest": root.Config.Digest, "layerDigest": digest, "layerSize": len(blob), "rangeOffsets": offsets,
 		"status503": countFixtureStatus(lines, "status=503"), "transmittedBytes": fixtureSentBytes(lines),
 	}, nil
 }
 
-func waitForBackgroundTask(ctx context.Context, environment testkit.CaseContext) (map[string]any, error) {
+func waitForBackgroundTask(ctx context.Context, environment testkit.CaseContext, expectedStatus string) (map[string]any, error) {
 	query := url.Values{"authority": {"github.com"}, "repository": {upstreamRepository}, "digest": {"resume-background"}, "limit": {"100"}}
 	deadline := time.NewTimer(2 * time.Minute)
 	defer deadline.Stop()
@@ -63,7 +88,7 @@ func waitForBackgroundTask(ctx context.Context, environment testkit.CaseContext)
 		}
 		if task := backgroundTask(testkit.Slice(page["items"])); task != nil {
 			status := testkit.String(task["status"])
-			if status == "solidified" && task["rootPublished"] == true {
+			if status == expectedStatus {
 				return task, nil
 			}
 			if status == "failed" || status == "cancelled" {
@@ -75,7 +100,7 @@ func waitForBackgroundTask(ctx context.Context, environment testkit.CaseContext)
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-deadline.C:
-			return nil, fmt.Errorf("background resumable download did not solidify")
+			return nil, fmt.Errorf("background resumable task did not reach %s", expectedStatus)
 		case <-time.After(time.Second):
 		}
 	}

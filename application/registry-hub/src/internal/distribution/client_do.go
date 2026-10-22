@@ -70,7 +70,7 @@ func (c *Client) Close() {
 
 func (c *Client) ParseLocation(location, internalRepository string) (string, url.Values, error) {
 	parsed, err := url.Parse(location)
-	if err != nil || parsed.User != nil || parsed.Fragment != "" {
+	if err != nil || parsed.User != nil || (parsed.Host != "" && !parsed.IsAbs()) || parsed.Fragment != "" {
 		return "", nil, errors.New("Distribution returned an invalid upload Location")
 	}
 	if parsed.IsAbs() && (!strings.EqualFold(parsed.Scheme, c.base.Scheme) || !strings.EqualFold(parsed.Host, c.base.Host)) {

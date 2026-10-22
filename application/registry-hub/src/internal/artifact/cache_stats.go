@@ -189,6 +189,10 @@ func (c *Cache) cleanupExpiredEntry(ctx context.Context, entry storage.Entry, no
 	if (metadata.State != "complete" && metadata.State != "cleanup_pending") || deadline.IsZero() || deadline.After(now) {
 		return false, nil
 	}
+	pinned, err := c.hasActiveReaderPin(ctx, identity, now)
+	if err != nil || pinned {
+		return false, err
+	}
 	protected, err := c.isProtected(ctx, metadata.Authority, metadata.Repository, metadata.Digest)
 	if err != nil || protected {
 		return false, err

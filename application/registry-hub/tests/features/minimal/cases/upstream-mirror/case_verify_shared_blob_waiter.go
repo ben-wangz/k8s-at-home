@@ -43,6 +43,11 @@ func verifySharedBlobWaiter(ctx context.Context, environment testkit.CaseContext
 		leaderDone <- leaderResult{status: response.StatusCode, body: content, err: readErr}
 	}()
 	if err := waitForFixturePathCount(ctx, environment, path, 1); err != nil {
+		select {
+		case leader := <-leaderDone:
+			return nil, fmt.Errorf("shared blob leader stopped before reaching upstream: status=%d error=%v body=%q: %w", leader.status, leader.err, leader.body, err)
+		default:
+		}
 		return nil, fmt.Errorf("shared blob leader did not reach upstream fixture: %w", err)
 	}
 	waiterStarted := time.Now()

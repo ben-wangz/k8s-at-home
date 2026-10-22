@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestCacheGetTreatsCleanupPendingAsMissAndCanRestore(t *testing.T) {
+func TestCacheCleanupPendingRemainsReadableAndCanRestore(t *testing.T) {
 	store, err := filesystem.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -29,14 +29,20 @@ func TestCacheGetTreatsCleanupPendingAsMissAndCanRestore(t *testing.T) {
 	if err := cache.MarkCleanupPending(ctx, authority, repository, []string{digest}, time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := cache.Get(ctx, authority, repository, digest, mediaType); !errors.Is(err, storage.ErrNotFound) {
-		t.Fatalf("cleanup-pending Get error = %v, want ErrNotFound", err)
+	cached, err := cache.Get(ctx, authority, repository, digest, mediaType)
+	if err != nil {
+		t.Fatalf("cleanup-pending Get error = %v", err)
+	}
+	actual, err := io.ReadAll(cached.Body)
+	_ = cached.Body.Close()
+	if err != nil || !bytes.Equal(actual, body) {
+		t.Fatalf("cleanup-pending cache body = %q, err=%v", actual, err)
 	}
 	retained, err := cache.GetRetained(ctx, authority, repository, digest, mediaType)
 	if err != nil {
 		t.Fatalf("cleanup-pending retained Get error = %v", err)
 	}
-	actual, err := io.ReadAll(retained.Body)
+	actual, err = io.ReadAll(retained.Body)
 	_ = retained.Body.Close()
 	if err != nil || !bytes.Equal(actual, body) {
 		t.Fatalf("retained cache body = %q, err=%v", actual, err)
@@ -53,7 +59,7 @@ func TestCacheGetTreatsCleanupPendingAsMissAndCanRestore(t *testing.T) {
 	if err := cache.Put(ctx, authority, repository, digest, mediaType, bytes.NewReader(body), int64(len(body))); err != nil {
 		t.Fatal(err)
 	}
-	cached, err := cache.Get(ctx, authority, repository, digest, mediaType)
+	cached, err = cache.Get(ctx, authority, repository, digest, mediaType)
 	if err != nil {
 		t.Fatalf("restored cache Get error = %v", err)
 	}
@@ -64,7 +70,7 @@ func TestCacheGetTreatsCleanupPendingAsMissAndCanRestore(t *testing.T) {
 	}
 }
 
-func TestCacheRetainedGetTreatsExpiredCleanupPendingAsMiss(t *testing.T) {
+func TestCacheCleanupPendingRemainsReadableAfterEarliestReclaimTime(t *testing.T) {
 	store, err := filesystem.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -82,11 +88,29 @@ func TestCacheRetainedGetTreatsExpiredCleanupPendingAsMiss(t *testing.T) {
 	if err := cache.MarkCleanupPending(ctx, authority, repository, []string{digest}, time.Now().Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := cache.GetRetained(ctx, authority, repository, digest, mediaType); !errors.Is(err, storage.ErrNotFound) {
-		t.Fatalf("expired retained Get error = %v, want ErrNotFound", err)
+	retained, err := cache.GetRetained(ctx, authority, repository, digest, mediaType)
+	if err != nil {
+		t.Fatalf("retained Get after earliest reclaim time error = %v", err)
 	}
-	if _, err := cache.GetAnyRetained(ctx, authority, repository, digest); !errors.Is(err, storage.ErrNotFound) {
-		t.Fatalf("expired retained GetAny error = %v, want ErrNotFound", err)
+	actual, err := io.ReadAll(retained.Body)
+	_ = retained.Body.Close()
+	if err != nil || !bytes.Equal(actual, body) {
+		t.Fatalf("retained body after earliest reclaim time = %q, err=%v", actual, err)
+	}
+	retained, err = cache.GetAnyRetained(ctx, authority, repository, digest)
+	if err != nil {
+		t.Fatalf("retained GetAny after earliest reclaim time error = %v", err)
+	}
+	actual, err = io.ReadAll(retained.Body)
+	_ = retained.Body.Close()
+	if err != nil || !bytes.Equal(actual, body) {
+		t.Fatalf("retained GetAny body after earliest reclaim time = %q, err=%v", actual, err)
+	}
+	if err := cache.Remove(ctx, authority, repository, digest, mediaType); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cache.GetRetained(ctx, authority, repository, digest, mediaType); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("retained Get after physical removal error = %v, want ErrNotFound", err)
 	}
 }
 

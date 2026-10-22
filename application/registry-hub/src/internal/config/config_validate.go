@@ -82,6 +82,9 @@ func (c Config) Validate() error {
 	if c.S3.Timeout <= 0 || c.S3.MaxConnections < 1 {
 		return errors.New("S3 timeout and maximum connections must be positive")
 	}
+	if c.S3.ReplayMemoryBytes <= 0 || c.S3.ReplayMaxMemoryBytes <= 0 || c.S3.ReplayMaxDiskBytes <= 0 || c.S3.ReplayMemoryBytes > c.S3.ReplayMaxMemoryBytes || !filepath.IsAbs(c.S3.ReplayDirectory) {
+		return errors.New("S3 replay limits must be positive, per-source memory must not exceed the global memory budget, and the replay directory must be absolute")
+	}
 	if c.S3.Endpoint != "" {
 		endpoint, err := url.Parse(c.S3.Endpoint)
 		if err != nil || endpoint.Host == "" || (endpoint.Scheme != "https" && endpoint.Scheme != "http") {
@@ -93,6 +96,9 @@ func (c Config) Validate() error {
 	}
 	if c.Limits.ManifestBytes < 1 || c.Limits.UploadBytes < 1 || c.Limits.ObjectBytes < 1 || c.Limits.ObjectBytes > math.MaxInt64/2 || c.Limits.ClosureObjects < 1 || c.Limits.ClosureBytes < 1 || c.Limits.ClosureDepth < 1 || c.Limits.MaxDescriptors < 1 || c.Limits.DescriptorDataBytes < 1 || c.Limits.Workers < 1 || c.Limits.Workers > 4 || c.Limits.PendingTasks < 1 || c.Limits.MaxPageSize < 1 || c.Limits.MaxReferrerPages < 1 || c.Limits.UploadIdleTimeout <= 0 || c.Limits.UploadMaxLifetime <= 0 || c.Limits.GlobalRate <= 0 || c.Limits.GlobalBurst < 1 || c.Limits.NoAuthRate <= 0 || c.Limits.NoAuthBurst < 1 || c.Limits.RequestTimeout <= 0 || c.Limits.BlobTransferTimeout <= 0 || c.Limits.UpstreamBodyIdleTimeout <= 0 || c.Limits.DownloadPartialTTL <= 0 || c.Limits.DownloadMaxBytes <= 0 {
 		return errors.New("resource limits must be positive")
+	}
+	if c.Solidification.IdleTimeout <= 0 || c.Solidification.MaxWaitingRoots < 1 || c.Solidification.MaxBlobIntents < 1 || c.Solidification.MaxProtectionSessions < 1 || c.Solidification.MaxProtectionSessions > 4096 || c.Solidification.MaxProtectedCacheBytes < 1 || c.Solidification.MaxUnanchoredDistributionBytes < 1 {
+		return errors.New("solidification limits must be positive, with at most 4096 protection sessions")
 	}
 	for authority, auth := range c.UpstreamAuth {
 		if routeAuthorityError := validateAuthority(authority); routeAuthorityError != nil {

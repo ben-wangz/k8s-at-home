@@ -25,20 +25,46 @@ func verifyDiscoveryFlow(run *mirrorRun) (map[string]any, string, error) {
 	if headers.Get("Docker-Content-Digest") != discoveryDigest {
 		return nil, "", fmt.Errorf("Docker manifest list compatibility response digest does not match its bytes")
 	}
-	task, err := waitForSolidifiedTask(run.context, run.environment, "github.com", run.upstreamRepository, "minimal-discovery")
-	if err != nil {
-		return nil, "", err
-	}
 	childManifest, indexBody, err := discoveryIndexFixture()
 	if err != nil {
 		return nil, "", err
 	}
 	indexDigest := support.Digest(indexBody)
+	childDigest := support.Digest(childManifest)
+	config := []byte(discoveryConfigBody)
+	configDigest := support.Digest(config)
+	task, err := waitForTaskStatus(run.context, run.environment, "github.com", run.upstreamRepository, "minimal-discovery", "waiting_dependencies")
+	if err != nil {
+		return nil, "", fmt.Errorf("manifest discovery did not wait for client blob demand: %w", err)
+	}
+	configRequestsBefore, err := countFixturePath(run.context, run.environment, "/v2/registry-hub-test/fixture/blobs/"+configDigest)
+	if err != nil {
+		return nil, "", err
+	}
+	if configRequestsBefore != 0 {
+		return nil, "", fmt.Errorf("manifest discovery fetched an unrequested config blob %d times", configRequestsBefore)
+	}
+	clientConfig, err := support.ReadBlob(run.context, run.registry, run.remoteRepository, configDigest)
+	if err != nil {
+		return nil, "", fmt.Errorf("client config request failed to supply the missing blob: %w", err)
+	}
+	if string(clientConfig) != string(config) {
+		return nil, "", fmt.Errorf("client config request returned unexpected bytes")
+	}
+	configRequestsAfter, err := countFixturePath(run.context, run.environment, "/v2/registry-hub-test/fixture/blobs/"+configDigest)
+	if err != nil {
+		return nil, "", err
+	}
+	if configRequestsAfter != 1 {
+		return nil, "", fmt.Errorf("client blob demand fetched the config %d times, want exactly once", configRequestsAfter)
+	}
+	task, err = waitForSolidifiedTask(run.context, run.environment, "github.com", run.upstreamRepository, "minimal-discovery")
+	if err != nil {
+		return nil, "", err
+	}
 	if testkit.String(task["rootDigest"]) != indexDigest || testkit.String(task["mediaType"]) != support.OCIIndexMediaType || testkit.String(task["status"]) != "solidified" || task["rootPublished"] != true {
 		return nil, "", fmt.Errorf("compatibility response replaced the original OCI index discovery root")
 	}
-	childDigest := support.Digest(childManifest)
-	configDigest := support.Digest([]byte("{}"))
 	logLines, err := registryLogLines(run.context, run.environment, registryLogSince)
 	if err != nil {
 		return nil, "", err
@@ -51,7 +77,8 @@ func verifyDiscoveryFlow(run *mirrorRun) (map[string]any, string, error) {
 		return nil, "", err
 	}
 	graph, checkpoints := testkit.Map(task["graph"]), testkit.Map(task["checkpoints"])
-	if err := verifyDiscoveryGraph(graph, checkpoints, indexDigest, indexBody, childDigest, childManifest, configDigest); err != nil {
+	graphNodes := testkit.Slice(task["graphNodes"])
+	if err := verifyDiscoveryGraph(graph, checkpoints, graphNodes, indexDigest, indexBody, childDigest, childManifest, configDigest); err != nil {
 		return nil, "", err
 	}
 	localIndexBody, localIndexHeaders, err := support.ReadManifest(run.context, run.registry, run.remoteRepository, indexDigest, support.OCIIndexMediaType)
@@ -80,12 +107,13 @@ func verifyDiscoveryFlow(run *mirrorRun) (map[string]any, string, error) {
 	}
 	result := map[string]any{
 		"discoveryRootDigest": indexDigest, "discoveryRootMediaType": testkit.String(task["mediaType"]),
-		"discoveryGraphObjects": len(graph), "discoveryGraphCheckpoints": len(checkpoints),
+		"discoveryGraphObjects": len(graphNodes), "discoveryGraphCheckpoints": len(checkpoints),
 		"discoveryChildPlatform": platform, "discoveryIndexMediaType": localIndexType,
 		"discoveryIndexRawBytesPreserved": string(indexBody) == string(localIndexBody),
 		"discoveryChildMediaType":         localChildType, "discoveryChildRawBytesPreserved": string(childManifest) == string(localChildBody),
 		"compatibleDockerDigest": discoveryDigest, "compatibleDockerBytesMatch": string(discoveryBody) == dockerListBody,
 		"discoveryRequests": requests, "discoveryAccepts": accepts,
+		"discoveryBlobPrefetchRequests": configRequestsBefore, "discoveryClientBlobRequests": configRequestsAfter,
 	}
 	mergeMirrorResults(result, publishResults)
 	return result, indexDigest, nil
@@ -108,25 +136,33 @@ func verifyDiscoveryIndexFields(indexBody []byte) error {
 	return nil
 }
 
-func verifyDiscoveryGraph(graph, checkpoints map[string]any, indexDigest string, indexBody []byte, childDigest string, childManifest []byte, configDigest string) error {
+func verifyDiscoveryGraph(graph, checkpoints map[string]any, graphNodes []any, indexDigest string, indexBody []byte, childDigest string, childManifest []byte, configDigest string) error {
 	expected := map[string]struct {
 		mediaType string
 		size      int
 	}{
 		indexDigest:  {mediaType: support.OCIIndexMediaType, size: len(indexBody)},
 		childDigest:  {mediaType: support.OCIManifestMediaType, size: len(childManifest)},
-		configDigest: {mediaType: "application/vnd.oci.image.config.v1+json", size: len([]byte("{}"))},
+		configDigest: {mediaType: "application/vnd.oci.image.config.v1+json", size: len([]byte(discoveryConfigBody))},
 	}
-	if len(graph) != len(expected) || len(checkpoints) != len(expected) {
-		return fmt.Errorf("upstream OCI index graph has %d nodes and %d checkpoints, want %d each", len(graph), len(checkpoints), len(expected))
+	if len(graph) != len(expected)-1 || len(checkpoints) != len(expected)-1 || len(graphNodes) != len(expected) {
+		return fmt.Errorf("upstream OCI index graph has %d manifest entries, %d persisted nodes, and %d checkpoints, want %d, %d, and %d", len(graph), len(graphNodes), len(checkpoints), len(expected)-1, len(expected), len(expected)-1)
 	}
 	for digest, object := range expected {
-		entry := testkit.Map(graph[digest])
-		if testkit.String(entry["digest"]) != digest || testkit.String(entry["mediaType"]) != object.mediaType || testkit.Int(entry["size"]) != int64(object.size) {
-			return fmt.Errorf("upstream OCI index graph entry %q has invalid digest, media type, or size", digest)
+		role := "manifest"
+		if object.mediaType == "application/vnd.oci.image.config.v1+json" {
+			role = "blob"
+		} else {
+			if testkit.String(checkpoints[digest]) != "verified" {
+				return fmt.Errorf("upstream OCI index manifest %q has no verified checkpoint", digest)
+			}
+			entry := testkit.Map(graph[digest])
+			if testkit.String(entry["digest"]) != digest || testkit.String(entry["mediaType"]) != object.mediaType || testkit.Int(entry["size"]) != int64(object.size) {
+				return fmt.Errorf("upstream OCI index manifest entry %q has invalid digest, media type, or size", digest)
+			}
 		}
-		if testkit.String(checkpoints[digest]) != "verified" {
-			return fmt.Errorf("upstream OCI index graph entry %q has no verified checkpoint", digest)
+		if err := verifyGraphNodeMetadata(graphNodes, digest, role, object.mediaType, object.size); err != nil {
+			return err
 		}
 	}
 	return nil

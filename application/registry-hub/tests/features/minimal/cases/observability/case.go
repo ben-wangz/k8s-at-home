@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/support"
@@ -18,6 +19,11 @@ import (
 var metadata embed.FS
 
 var metricLabelPattern = regexp.MustCompile(`\{([^}]*)\}`)
+var filesystemS3ReplayMetrics = map[string]struct{}{
+	"registry_hub_s3_replay_memory_bytes":   {},
+	"registry_hub_s3_replay_disk_bytes":     {},
+	"registry_hub_s3_replay_active_sources": {},
+}
 
 func New() (testkit.Case, error) {
 	definition, raw, err := testkit.LoadDefinition(metadata, "observability")
@@ -48,6 +54,9 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		return err
 	}
 	if err := validateDisabledFeatureMetrics(metrics); err != nil {
+		return err
+	}
+	if err := validateFilesystemS3ReplayMetrics(metrics); err != nil {
 		return err
 	}
 	secretWords, err := secretValues(ctx, environment)
@@ -131,7 +140,11 @@ func readMetrics(ctx context.Context, environment testkit.CaseContext) ([]byte, 
 func validateMetrics(metrics []byte) ([]string, error) {
 	required := []string{
 		"registry_hub_requests_total", "registry_hub_request_duration_seconds", "registry_hub_storage_operations_total",
-		"registry_hub_tasks", "registry_hub_gc_gate", "registry_hub_events_total", "registry_hub_object_leases",
+		"registry_hub_tasks", "registry_hub_tasks_by_kind_state", "registry_hub_tasks_runnable", "registry_hub_tasks_waiting",
+		"registry_hub_task_waiting", "registry_hub_task_retry_attempts", "registry_hub_task_cancellations",
+		"registry_hub_solidification_recovery_unknown", "registry_hub_gc_blockers", "registry_hub_gc_gate",
+		"registry_hub_download_partial_reserved_bytes", "registry_hub_download_partial_sessions", "registry_hub_s3_replay_disk_bytes",
+		"registry_hub_events_total", "registry_hub_object_leases",
 		"registry_hub_cache_objects", "registry_hub_cache_bytes", "registry_hub_cache_staging_objects",
 		"registry_hub_cache_orphan_objects", "registry_hub_cache_cleanup_pending_objects",
 		"registry_hub_distribution_response_validation_failures_total", "registry_hub_referrer_repair_pending",
@@ -194,7 +207,7 @@ func validateDisabledGCMetrics(metrics []byte) error {
 }
 
 func validateDisabledFeatureMetrics(metrics []byte) error {
-	features := []string{"catalog", "storage_redirect", "s3"}
+	features := []string{"catalog", "storage_redirect"}
 	for _, line := range strings.Split(string(metrics), "\n") {
 		if strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "" {
 			continue
@@ -203,10 +216,47 @@ func validateDisabledFeatureMetrics(metrics []byte) error {
 		if index := strings.IndexAny(name, " {"); index >= 0 {
 			name = name[:index]
 		}
+		if strings.Contains(strings.ToLower(name), "s3") {
+			if _, ok := filesystemS3ReplayMetrics[name]; !ok {
+				return fmt.Errorf("disabled s3 feature exposed unexpected metric sample %s", name)
+			}
+			continue
+		}
 		for _, feature := range features {
 			if strings.Contains(strings.ToLower(name), feature) {
 				return fmt.Errorf("disabled %s feature exposed metric sample %s", feature, name)
 			}
+		}
+	}
+	return nil
+}
+
+func validateFilesystemS3ReplayMetrics(metrics []byte) error {
+	seen := make(map[string]struct{}, len(filesystemS3ReplayMetrics))
+	for _, line := range strings.Split(string(metrics), "\n") {
+		if strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		name := fields[0]
+		if index := strings.IndexAny(name, " {"); index >= 0 {
+			name = name[:index]
+		}
+		if _, ok := filesystemS3ReplayMetrics[name]; !ok {
+			continue
+		}
+		if len(fields) < 2 {
+			return fmt.Errorf("filesystem S3 replay metric sample %s is malformed", name)
+		}
+		value, err := strconv.ParseFloat(fields[len(fields)-1], 64)
+		if err != nil || value != 0 {
+			return fmt.Errorf("filesystem S3 replay metric %s is %q, want zero", name, fields[len(fields)-1])
+		}
+		seen[name] = struct{}{}
+	}
+	for name := range filesystemS3ReplayMetrics {
+		if _, ok := seen[name]; !ok {
+			return fmt.Errorf("filesystem S3 replay metric sample %s is missing", name)
 		}
 	}
 	return nil

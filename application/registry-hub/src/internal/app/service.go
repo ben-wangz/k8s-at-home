@@ -26,38 +26,43 @@ type upstreamRequester interface {
 }
 
 type Service struct {
-	cfg                 config.Config
-	logger              *slog.Logger
-	store               storage.Store
-	registry            *distribution.Client
-	upstream            upstreamRequester
-	cache               *artifact.Cache
-	downloader          *download.Manager
-	downloadOnce        sync.Once
-	tasks               *tasks.Manager
-	gate                *writeGate
-	uploads             *uploadSessions
-	metrics             *metrics
-	cursorKey           []byte
-	ready               atomic.Bool
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	clientSlots         chan struct{}
-	noAuthSlots         chan struct{}
-	pushSlots           chan struct{}
-	upstreamSlots       chan struct{}
-	solidificationSlots chan struct{}
-	solidificationMu    sync.Mutex
-	newSolidifications  int
-	referrerRepairs     int
-	repairPending       bool
-	upstreamPerKey      [256]chan struct{}
-	limiter             *requestLimiter
-	gc                  *gcController
-	nativeMu            sync.Mutex
-	nativeCache         map[string]nativeReferrerCapability
-	closeOnce           sync.Once
-	background          sync.WaitGroup
+	cfg                  config.Config
+	logger               *slog.Logger
+	store                storage.Store
+	registry             *distribution.Client
+	upstream             upstreamRequester
+	cache                *artifact.Cache
+	downloader           *download.Manager
+	downloadOnce         sync.Once
+	tasks                *tasks.Manager
+	records              *tasks.Records
+	gate                 *writeGate
+	uploads              *uploadSessions
+	metrics              *metrics
+	cursorKey            []byte
+	ready                atomic.Bool
+	cacheProtectionReady atomic.Bool
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	clientSlots          chan struct{}
+	noAuthSlots          chan struct{}
+	pushSlots            chan struct{}
+	upstreamSlots        chan struct{}
+	solidificationSlots  chan struct{}
+	blobIntentEvents     chan tasks.BlobIdentity
+	cacheIntentRescan    atomic.Bool
+	solidificationMu     sync.Mutex
+	protectionRecoveryMu sync.Mutex
+	newSolidifications   int
+	referrerRepairs      int
+	repairPending        bool
+	upstreamPerKey       [256]chan struct{}
+	limiter              *requestLimiter
+	gc                   *gcController
+	nativeMu             sync.Mutex
+	nativeCache          map[string]nativeReferrerCapability
+	closeOnce            sync.Once
+	background           sync.WaitGroup
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
@@ -125,14 +130,18 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	service := &Service{
 		cfg: cfg, logger: logger, store: store, registry: registry, upstream: remote,
 		cache: artifact.NewCache(store), gate: gate, metrics: serviceMetrics, cursorKey: cursorKey, ctx: ctx, cancel: cancel,
+		records:     tasks.NewRecords(store),
 		clientSlots: make(chan struct{}, 128), noAuthSlots: make(chan struct{}, 16),
 		pushSlots: make(chan struct{}, 16), upstreamSlots: make(chan struct{}, 32),
 		solidificationSlots: make(chan struct{}, cfg.Limits.Workers),
+		blobIntentEvents:    make(chan tasks.BlobIdentity, 256),
 		limiter:             newRequestLimiter(cfg.Limits.GlobalRate, cfg.Limits.GlobalBurst, cfg.Limits.NoAuthRate, cfg.Limits.NoAuthBurst), nativeCache: make(map[string]nativeReferrerCapability),
 	}
 	for index := range service.upstreamPerKey {
 		service.upstreamPerKey[index] = make(chan struct{}, 8)
 	}
+	service.records.SetMaxBlobIntents(cfg.Solidification.MaxBlobIntents)
+	service.records.SetIdleTimeout(cfg.Solidification.IdleTimeout)
 	recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	err = service.cache.RebuildRepresentationIndexes(recoveryCtx)
 	recoveryCancel()
@@ -160,11 +169,26 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 		_ = store.Close()
 		return nil, err
 	}
+	service.tasks.SetMaxWaitingRoots(cfg.Solidification.MaxWaitingRoots)
+	service.tasks.SetIdleTimeout(cfg.Solidification.IdleTimeout)
+	solidificationRecoveryCtx, solidificationRecoveryCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	if err := service.recoverSolidificationProtection(solidificationRecoveryCtx); err != nil {
+		logger.Warn("solidification startup recovery is blocked", "error_class", "recovery")
+	}
+	solidificationRecoveryCancel()
+	if !gate.State().RecoveryBarrier {
+		if err := service.wakeAvailableQuotaWaiter(context.Background(), "distribution_quota", gate.State()); err != nil {
+			logger.Warn("startup quota waiter wake failed", "error_class", "storage")
+		}
+		if err := service.wakeAvailableQuotaWaiter(context.Background(), "protected_cache_capacity", gate.State()); err != nil {
+			logger.Warn("startup protected cache quota waiter wake failed", "error_class", "storage")
+		}
+	}
 	processor.tasks = service.tasks
 	service.uploads = newUploadSessions(store, registry, service.tasks.Leases(), cfg.Limits.UploadIdleTimeout, cfg.Limits.UploadMaxLifetime)
 	service.cache.SetOrphanProtection(service.protectCacheObject)
 	service.tasks.Start(ctx)
-	service.background.Add(3)
+	service.background.Add(4)
 	go func() {
 		defer service.background.Done()
 		service.refreshMetrics(ctx)
@@ -177,8 +201,12 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 		defer service.background.Done()
 		service.runCacheCleanup(ctx)
 	}()
+	go func() {
+		defer service.background.Done()
+		service.runBlobIntentReconciliation(ctx)
+	}()
 	service.metrics.setGateState(gate.State().State)
-	service.ready.Store(true)
+	service.ready.Store(!gate.State().RecoveryBarrier)
 	return service, nil
 }
 

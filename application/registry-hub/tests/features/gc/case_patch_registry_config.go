@@ -232,7 +232,22 @@ func restartBackendPod(ctx context.Context, environment testkit.CaseContext) err
 	if _, err := testkit.Command(ctx, "kubectl", "-n", environment.Namespace, "rollout", "status", "deployment", environment.Fullname, "--timeout=180s"); err != nil {
 		return fmt.Errorf("wait for backend after restarting %s: %w", backendPod, err)
 	}
-	return nil
+	readyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	for {
+		response, err := support.AdminRequest(readyCtx, environment, http.MethodGet, "/healthz", nil, nil)
+		if err == nil {
+			_ = response.Body.Close()
+			if response.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		select {
+		case <-readyCtx.Done():
+			return fmt.Errorf("backend admin listener did not recover after restarting %s: %w", backendPod, readyCtx.Err())
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
 
 func hasControllerKind(references []any, kind string) bool {

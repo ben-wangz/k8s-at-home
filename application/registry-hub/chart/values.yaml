@@ -12,7 +12,7 @@ backend:
   image:
     registry: ghcr.io
     repository: ben-wangz/k8s-at-home-registry-hub-backend
-    tag: 0.2.0
+    tag: 0.2.1
     digest: ""
     pullPolicy: IfNotPresent
   serviceAccount:
@@ -32,6 +32,13 @@ backend:
     key: config.json
   limits:
     referrerPages: 100
+  solidification:
+    idleTimeoutSeconds: 86400
+    maxWaitingRoots: 1024
+    maxBlobIntents: 10000
+    maxProtectionSessions: 1024
+    maxProtectedCacheBytes: 214748364800
+    maxUnanchoredDistributionBytes: 1099511627776
   extraEnvVars: []
   extraEnvVarsSecret: ""
   extraEnvFrom: []
@@ -120,6 +127,10 @@ storage:
     partSize: 16777216
     timeoutSeconds: 300
     maxConnections: 20
+    replayMemoryBytes: 16777216
+    replayMaxMemoryBytes: 67108864
+    replayMaxDiskBytes: 214748364800
+    replayDirectory: /var/run/registry-hub/s3-replay
 
 gc:
   enabled: false

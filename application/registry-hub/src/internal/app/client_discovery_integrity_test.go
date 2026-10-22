@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -15,22 +16,41 @@ import (
 
 func TestInvalidUpstreamManifestNeverCreatesCompleteCacheOrTask(t *testing.T) {
 	validDigest := artifact.CalculateSHA256([]byte(ociManifestBody))
+	inlineManifest, err := json.Marshal(artifact.Manifest{
+		SchemaVersion: 2,
+		MediaType:     ociManifestMediaType,
+		Config: &artifact.Descriptor{
+			MediaType: "application/vnd.oci.empty.v1+json",
+			Digest:    artifact.CalculateSHA256([]byte("different data")),
+			Size:      2,
+			Data:      json.RawMessage(`"e30="`),
+		},
+		Layers: []artifact.Descriptor{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, test := range []struct {
-		name   string
-		result upstreamResult
+		name       string
+		result     upstreamResult
+		errorClass string
 	}{
 		{
-			name: "wrong Content-Length",
+			name: "wrong Content-Length", errorClass: "manifest_invalid",
 			result: upstreamResult{status: http.StatusOK, contentType: ociManifestMediaType, body: ociManifestBody,
 				contentLength: int64(len(ociManifestBody) + 1), contentLengthSet: true},
 		},
 		{
-			name: "wrong Docker-Content-Digest",
+			name: "descriptor.data digest mismatch", errorClass: "manifest_invalid",
+			result: upstreamResult{status: http.StatusOK, contentType: ociManifestMediaType, body: string(inlineManifest)},
+		},
+		{
+			name: "wrong Docker-Content-Digest", errorClass: "digest_mismatch",
 			result: upstreamResult{status: http.StatusOK, contentType: ociManifestMediaType, body: ociManifestBody,
 				headers: http.Header{"Docker-Content-Digest": []string{"sha256:" + strings.Repeat("f", 64)}}},
 		},
-		{name: "invalid Content-Type", result: upstreamResult{status: http.StatusOK, contentType: "text/plain", body: ociManifestBody}},
-		{name: "invalid manifest structure", result: upstreamResult{status: http.StatusOK, contentType: ociManifestMediaType, body: `{"schemaVersion":1}`}},
+		{name: "invalid Content-Type", errorClass: "manifest_invalid", result: upstreamResult{status: http.StatusOK, contentType: "text/plain", body: ociManifestBody}},
+		{name: "invalid manifest structure", errorClass: "manifest_invalid", result: upstreamResult{status: http.StatusOK, contentType: ociManifestMediaType, body: `{"schemaVersion":1}`}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			remote := &scriptedUpstream{results: []upstreamResult{test.result}}
@@ -43,13 +63,31 @@ func TestInvalidUpstreamManifestNeverCreatesCompleteCacheOrTask(t *testing.T) {
 				t.Fatalf("invalid manifest returned status %d", recorder.Code)
 			}
 			task := discoveryTask(t, manager)
-			if task.Status != tasks.Failed || task.ErrorClass != "manifest_invalid" {
+			if task.Status != tasks.Failed || task.ErrorClass != test.errorClass {
 				t.Fatalf("invalid manifest task state = %#v", task)
 			}
 			if _, err := service.cache.GetAny(context.Background(), routed.Upstream, routed.RemoteRepo, validDigest); !errors.Is(err, storage.ErrNotFound) {
 				t.Fatalf("invalid manifest became a complete cache object: %v", err)
 			}
 		})
+	}
+}
+
+func TestUpstreamAuthorizationFailureKeepsTaskClassGeneric(t *testing.T) {
+	remote := &scriptedUpstream{results: []upstreamResult{{status: http.StatusUnauthorized}}}
+	service, manager, routed := newDiscoveryTestService(t, remote)
+	request := httptest.NewRequest(http.MethodGet, routed.RawPath, nil)
+	request.Header.Set("Accept", ociManifestMediaType)
+	recorder := httptest.NewRecorder()
+	meta := &requestMeta{}
+
+	service.serveUpstreamManifest(recorder, request, routed, meta)
+	if recorder.Code != http.StatusUnauthorized || meta.errorClass != "upstream_auth" {
+		t.Fatalf("authorization response status=%d errorClass=%q, want 401/upstream_auth", recorder.Code, meta.errorClass)
+	}
+	task := discoveryTask(t, manager)
+	if task.Status != tasks.Failed || task.Phase != "discovery" || task.ErrorClass != "upstream" || task.RootDigest != "" || task.RootPublished {
+		t.Fatalf("authorization failure task state = %#v", task)
 	}
 }
 
@@ -119,7 +157,11 @@ func TestDigestManifestRejectsUpstreamDigestOrMediaTypeReplacement(t *testing.T)
 				t.Fatalf("upstream calls = %d, want one", len(remote.calls))
 			}
 			task := discoveryTask(t, manager)
-			if task.Status != tasks.Failed || task.ErrorClass != "manifest_invalid" || task.RootDigest != "" || task.RootPublished {
+			wantClass := "manifest_invalid"
+			if test.name != "body mediaType differs from response Content-Type" {
+				wantClass = "digest_mismatch"
+			}
+			if task.Status != tasks.Failed || task.ErrorClass != wantClass || task.RootDigest != "" || task.RootPublished {
 				t.Fatalf("invalid digest-addressed response advanced task state: %#v", task)
 			}
 			if _, err := service.cache.GetAny(context.Background(), routed.Upstream, routed.RemoteRepo, test.requestDigest); !errors.Is(err, storage.ErrNotFound) {

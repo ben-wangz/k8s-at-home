@@ -8,8 +8,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
-	"hash"
-	"io"
 	"net"
 	"net/http"
 	"path"
@@ -52,12 +50,18 @@ func (s *Store) CleanupOrphans(ctx context.Context, olderThan time.Duration, lim
 			if removed >= limit {
 				break
 			}
-			if aws.ToTime(upload.Initiated).After(cutoff) || aws.ToString(upload.Key) == "" || aws.ToString(upload.UploadId) == "" {
+			key := aws.ToString(upload.Key)
+			if aws.ToTime(upload.Initiated).After(cutoff) || key == "" || aws.ToString(upload.UploadId) == "" {
+				continue
+			}
+			releaseCleanup := s.claimMultipartCleanup(key)
+			if releaseCleanup == nil {
 				continue
 			}
 			_, err := s.client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
 				Bucket: aws.String(s.bucket), Key: upload.Key, UploadId: upload.UploadId,
 			})
+			releaseCleanup()
 			if err != nil {
 				if shouldResolve(err) {
 					continue
@@ -206,31 +210,4 @@ func shouldResolve(err error) bool {
 		return false
 	}
 	return err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
-}
-
-type digestReader struct {
-	reader io.Reader
-	hash   hash.Hash
-	count  int64
-}
-
-func readerHasExtra(reader io.Reader) (bool, error) {
-	var one [1]byte
-	n, err := reader.Read(one[:])
-	if n > 0 {
-		return true, nil
-	}
-	if errors.Is(err, io.EOF) {
-		return false, nil
-	}
-	return false, err
-}
-
-func (r *digestReader) Read(buffer []byte) (int, error) {
-	n, err := r.reader.Read(buffer)
-	if n > 0 {
-		_, _ = r.hash.Write(buffer[:n])
-		r.count += int64(n)
-	}
-	return n, err
 }

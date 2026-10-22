@@ -86,6 +86,10 @@ func (c *Cache) cleanupOrphanMetadata(ctx context.Context, entry storage.Entry) 
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		return false, errors.Join(storage.ErrCorruptObject, err)
 	}
+	pinned, err := c.hasActiveReaderPin(ctx, identity, time.Now().UTC())
+	if err != nil || pinned {
+		return false, err
+	}
 	protected, err := c.isProtected(ctx, metadata.Authority, metadata.Repository, metadata.Digest)
 	if err != nil {
 		return false, err
@@ -127,6 +131,10 @@ func (c *Cache) cleanupOrphanComplete(ctx context.Context, entry storage.Entry) 
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		return false, err
 	}
+	pinned, err := c.hasActiveReaderPin(ctx, identity, time.Now().UTC())
+	if err != nil || pinned {
+		return false, err
+	}
 	protected, err := c.isProtected(ctx, marker.Authority, marker.Repository, marker.Digest)
 	if err != nil {
 		return false, err
@@ -164,6 +172,10 @@ func (c *Cache) cleanupOrphanData(ctx context.Context, entry storage.Entry) (boo
 	if identity == "" || strings.Contains(identity, "/") {
 		return false, nil
 	}
+	pinned, err := c.hasActiveReaderPin(ctx, identity, time.Now().UTC())
+	if err != nil || pinned {
+		return false, err
+	}
 	representations, _, err := c.store.List(ctx, "cache/objects/"+identity+"/representations/", "", 1)
 	if err != nil {
 		return false, err
@@ -194,6 +206,10 @@ func (c *Cache) removeDataIfUnreferenced(ctx context.Context, identity, expected
 	}
 	if len(entries) != 0 {
 		return nil
+	}
+	pinned, err := c.hasActiveReaderPin(ctx, identity, time.Now().UTC())
+	if err != nil || pinned {
+		return err
 	}
 	dataKey := "cache/objects/" + identity + "/data"
 	entry, err := c.store.Head(ctx, dataKey)

@@ -234,13 +234,17 @@ func (s *Service) removeReferrerBeforeDelete(ctx context.Context, routed route.R
 
 func (s *Service) updateFallbackReferrers(ctx context.Context, routed route.Route, subject string, descriptor json.RawMessage, remove bool, taskIDs ...string) error {
 	var taskID string
+	var protectionSessionID string
 	if len(taskIDs) > 0 {
 		taskID = taskIDs[0]
 	}
-	_, err := s.mutateFallbackReferrers(ctx, routed, subject, descriptor, remove, false, taskID)
+	if len(taskIDs) > 1 {
+		protectionSessionID = taskIDs[1]
+	}
+	_, err := s.mutateFallbackReferrers(ctx, routed, subject, descriptor, remove, false, taskID, protectionSessionID)
 	return err
 }
 
 func (s *Service) updateFallbackReferrersForDelete(ctx context.Context, routed route.Route, subject string, descriptor json.RawMessage) (*referrerRepairIntent, error) {
-	return s.mutateFallbackReferrers(ctx, routed, subject, descriptor, true, true, "")
+	return s.mutateFallbackReferrers(ctx, routed, subject, descriptor, true, true, "", "")
 }

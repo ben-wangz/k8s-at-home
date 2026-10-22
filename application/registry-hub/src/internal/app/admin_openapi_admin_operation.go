@@ -107,7 +107,7 @@ func adminTaskQueryParams() []*huma.Param {
 	before := adminStringQueryParam("before", "Include tasks created before this RFC 3339 timestamp.", false)
 	before.Schema.Format = "date-time"
 	return []*huma.Param{
-		adminStringQueryParam("state", "Filter by task state.", false, "pending", "running", "retry_wait", "solidified", "failed", "cancelled", "repair_pending"),
+		adminStringQueryParam("state", "Filter by task state.", false, "pending", "running", "retry_wait", "waiting_cache", "waiting_dependencies", "waiting_capacity", "verified_local", "solidified", "failed", "cancelled", "repair_pending"),
 		adminStringQueryParam("authority", "Filter by upstream registry authority.", false),
 		adminStringQueryParam("repository", "Filter by repository.", false),
 		adminStringQueryParam("digest", "Filter by root digest or reference.", false),
@@ -115,6 +115,18 @@ func adminTaskQueryParams() []*huma.Param {
 		before,
 		adminIntegerQueryParam("limit", "Maximum number of tasks to return (default 100).", 1, 1000, 100),
 		adminStringQueryParam("token", "Opaque pagination token returned by a previous page.", false),
+	}
+}
+
+func adminTaskDetailQueryParams() []*huma.Param {
+	return []*huma.Param{
+		adminIntegerQueryParam("graphLimit", "Maximum graph entries per list (default 100).", 1, 100, 100),
+		adminStringQueryParam("graphToken", "Continuation token for the task graph map.", false),
+		adminStringQueryParam("graphNodesToken", "Opaque continuation token for persisted layered graph nodes.", false),
+		adminStringQueryParam("checkpointsToken", "Continuation token for the task checkpoint map.", false),
+		adminStringQueryParam("ownerSessionID", "Protection session whose owner IDs should be returned; defaults to the first task session.", false),
+		adminIntegerQueryParam("ownerLimit", "Maximum number of protection owners to return (default 100).", 1, 100, 100),
+		adminStringQueryParam("ownerToken", "Opaque continuation token for protection owner IDs.", false),
 	}
 }
 

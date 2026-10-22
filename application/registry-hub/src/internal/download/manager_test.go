@@ -166,6 +166,30 @@ func TestFetchRejectsUnsolicitedPartialAndQuotaOverflow(t *testing.T) {
 	}
 }
 
+func TestUsageReportsPartialDownloadReservations(t *testing.T) {
+	ctx, store := testDownloadStore(t)
+	manager := New(store, 1024)
+	first := Request{Identity: "registry/one", Digest: "sha256:first"}
+	second := Request{Identity: "registry/two", Digest: "sha256:second"}
+	if err := manager.reserve(ctx, first, "session-one", 20); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.reserve(ctx, second, "session-two", 30); err != nil {
+		t.Fatal(err)
+	}
+	reserved, sessions, err := manager.Usage(ctx)
+	if err != nil || reserved != 50 || sessions != 2 {
+		t.Fatalf("Usage() = (%d, %d, %v), want (50, 2, nil)", reserved, sessions, err)
+	}
+	if err := manager.release(ctx, first.Identity, first.Digest, "session-one"); err != nil {
+		t.Fatal(err)
+	}
+	reserved, sessions, err = manager.Usage(ctx)
+	if err != nil || reserved != 30 || sessions != 1 {
+		t.Fatalf("Usage() after release = (%d, %d, %v), want (30, 1, nil)", reserved, sessions, err)
+	}
+}
+
 func testDownloadStore(t *testing.T) (context.Context, *filesystem.Store) {
 	t.Helper()
 	store, err := filesystem.New(t.TempDir())

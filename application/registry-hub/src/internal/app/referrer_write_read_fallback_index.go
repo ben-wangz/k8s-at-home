@@ -36,7 +36,7 @@ func (s *Service) readFallbackIndex(ctx context.Context, routed route.Route, sub
 		return referrerIndex{}, err
 	}
 	if err := s.recordFallbackMarker(ctx, routed, subject, tag, index.digest); err != nil {
-		return referrerIndex{}, err
+		return referrerIndex{}, fmt.Errorf("record observed fallback referrer marker: %w", err)
 	}
 	return index, nil
 }

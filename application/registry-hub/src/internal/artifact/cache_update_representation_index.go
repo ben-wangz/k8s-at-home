@@ -179,3 +179,7 @@ func (c *Cache) MarkCleanupPending(ctx context.Context, authority, repository st
 	}
 	return nil
 }
+
+func (c *Cache) MarkBlobCleanupPending(ctx context.Context, authority, repository, digest string) error {
+	return c.MarkCleanupPending(ctx, authority, repository, []string{digest}, time.Now().UTC())
+}

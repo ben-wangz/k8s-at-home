@@ -69,6 +69,7 @@ func Load() (Config, error) {
 		defaultDownloadMaxBytes = 2 * objectBytes
 	}
 	downloadMaxBytes := intValue("REGISTRY_HUB_DOWNLOAD_MAX_BYTES", defaultDownloadMaxBytes)
+	replayMaxDiskBytes := intValue("REGISTRY_HUB_S3_REPLAY_MAX_DISK_BYTES", downloadMaxBytes)
 	cfg.Limits = Limits{
 		ManifestBytes:           intValue("REGISTRY_HUB_LIMIT_MANIFEST_BYTES", 16<<20),
 		UploadBytes:             intValue("REGISTRY_HUB_LIMIT_UPLOAD_BYTES", 256<<20),
@@ -93,6 +94,14 @@ func Load() (Config, error) {
 		UpstreamBodyIdleTimeout: secondsValue("REGISTRY_HUB_UPSTREAM_BODY_IDLE_TIMEOUT_SECONDS", 60),
 		DownloadPartialTTL:      secondsValue("REGISTRY_HUB_DOWNLOAD_PARTIAL_TTL_SECONDS", 24*60*60),
 		DownloadMaxBytes:        downloadMaxBytes,
+	}
+	cfg.Solidification = Solidification{
+		IdleTimeout:                    secondsValue("REGISTRY_HUB_SOLIDIFICATION_IDLE_TIMEOUT_SECONDS", 24*60*60),
+		MaxWaitingRoots:                int(intValue("REGISTRY_HUB_SOLIDIFICATION_MAX_WAITING_ROOTS", 1024)),
+		MaxBlobIntents:                 int(intValue("REGISTRY_HUB_SOLIDIFICATION_MAX_BLOB_INTENTS", 10000)),
+		MaxProtectionSessions:          int(intValue("REGISTRY_HUB_SOLIDIFICATION_MAX_PROTECTION_SESSIONS", 1024)),
+		MaxProtectedCacheBytes:         intValue("REGISTRY_HUB_SOLIDIFICATION_MAX_PROTECTED_CACHE_BYTES", downloadMaxBytes),
+		MaxUnanchoredDistributionBytes: intValue("REGISTRY_HUB_SOLIDIFICATION_MAX_UNANCHORED_DISTRIBUTION_BYTES", cfg.Limits.ClosureBytes),
 	}
 
 	endpoint := value("REGISTRY_HUB_DISTRIBUTION_ENDPOINT", "https://registry:5000")
@@ -144,17 +153,21 @@ func Load() (Config, error) {
 		return cfg, errList
 	}
 	cfg.S3 = S3{
-		Endpoint:           os.Getenv("REGISTRY_HUB_S3_ENDPOINT"),
-		Region:             value("REGISTRY_HUB_S3_REGION", "us-east-1"),
-		Bucket:             os.Getenv("REGISTRY_HUB_S3_BUCKET"),
-		Prefix:             strings.Trim(os.Getenv("REGISTRY_HUB_S3_PREFIX"), "/"),
-		UsePathStyle:       strings.EqualFold(os.Getenv("REGISTRY_HUB_S3_FORCE_PATH_STYLE"), "true"),
-		AllowHTTP:          strings.EqualFold(os.Getenv("REGISTRY_HUB_S3_ALLOW_HTTP"), "true"),
-		CAFile:             os.Getenv("REGISTRY_HUB_S3_CA_FILE"),
-		MultipartThreshold: intValue("REGISTRY_HUB_S3_MULTIPART_THRESHOLD", 64<<20),
-		PartSize:           intValue("REGISTRY_HUB_S3_PART_SIZE", 16<<20),
-		Timeout:            time.Duration(intValue("REGISTRY_HUB_S3_TIMEOUT_SECONDS", 300)) * time.Second,
-		MaxConnections:     int(intValue("REGISTRY_HUB_S3_MAX_CONNECTIONS", 20)),
+		Endpoint:             os.Getenv("REGISTRY_HUB_S3_ENDPOINT"),
+		Region:               value("REGISTRY_HUB_S3_REGION", "us-east-1"),
+		Bucket:               os.Getenv("REGISTRY_HUB_S3_BUCKET"),
+		Prefix:               strings.Trim(os.Getenv("REGISTRY_HUB_S3_PREFIX"), "/"),
+		UsePathStyle:         strings.EqualFold(os.Getenv("REGISTRY_HUB_S3_FORCE_PATH_STYLE"), "true"),
+		AllowHTTP:            strings.EqualFold(os.Getenv("REGISTRY_HUB_S3_ALLOW_HTTP"), "true"),
+		CAFile:               os.Getenv("REGISTRY_HUB_S3_CA_FILE"),
+		MultipartThreshold:   intValue("REGISTRY_HUB_S3_MULTIPART_THRESHOLD", 64<<20),
+		PartSize:             intValue("REGISTRY_HUB_S3_PART_SIZE", 16<<20),
+		Timeout:              secondsValue("REGISTRY_HUB_S3_TIMEOUT_SECONDS", 300),
+		MaxConnections:       int(intValue("REGISTRY_HUB_S3_MAX_CONNECTIONS", 20)),
+		ReplayMemoryBytes:    intValue("REGISTRY_HUB_S3_REPLAY_MEMORY_BYTES", 16<<20),
+		ReplayMaxMemoryBytes: intValue("REGISTRY_HUB_S3_REPLAY_MAX_MEMORY_BYTES", 64<<20),
+		ReplayMaxDiskBytes:   replayMaxDiskBytes,
+		ReplayDirectory:      value("REGISTRY_HUB_S3_REPLAY_DIRECTORY", "/tmp/registry-hub-s3-replay"),
 	}
 	if parseErrors != nil {
 		return cfg, parseErrors

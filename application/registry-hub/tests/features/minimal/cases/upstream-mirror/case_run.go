@@ -152,13 +152,6 @@ func verifySuccessfulPull(run *mirrorRun) (map[string]any, error) {
 	if !strings.EqualFold(digest, headers.Get("Docker-Content-Digest")) {
 		return nil, fmt.Errorf("successful upstream manifest digest header does not match its bytes")
 	}
-	task, err := waitForSolidifiedTask(run.context, run.environment, "github.com", run.upstreamRepository, "minimal-success")
-	if err != nil {
-		return nil, err
-	}
-	if testkit.String(task["rootDigest"]) != digest || testkit.String(task["status"]) != "solidified" || task["rootPublished"] != true {
-		return nil, fmt.Errorf("successful upstream task did not publish its manifest root")
-	}
 	var manifest support.Manifest
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil || manifest.Config == nil {
 		return nil, fmt.Errorf("successful upstream manifest has no valid config descriptor")
@@ -166,6 +159,35 @@ func verifySuccessfulPull(run *mirrorRun) (map[string]any, error) {
 	config := []byte("{}")
 	if manifest.Config.Digest != support.Digest(config) || manifest.Config.Size != len(config) {
 		return nil, fmt.Errorf("successful upstream config descriptor does not match fixture bytes")
+	}
+	task, err := waitForTaskStatus(run.context, run.environment, "github.com", run.upstreamRepository, "minimal-success", "waiting_dependencies")
+	if err != nil {
+		return nil, fmt.Errorf("manifest discovery did not wait for the client config request: %w", err)
+	}
+	configRequestsBefore, err := countFixturePath(run.context, run.environment, "/v2/registry-hub-test/fixture/blobs/"+manifest.Config.Digest)
+	if err != nil {
+		return nil, err
+	}
+	if configRequestsBefore != 0 {
+		return nil, fmt.Errorf("manifest discovery fetched an unrequested config %d times", configRequestsBefore)
+	}
+	clientConfig, err := support.ReadBlob(run.context, run.registry, run.remoteRepository, manifest.Config.Digest)
+	if err != nil || string(clientConfig) != string(config) {
+		return nil, fmt.Errorf("client config request did not return the expected bytes: %v", err)
+	}
+	configRequestsAfter, err := countFixturePath(run.context, run.environment, "/v2/registry-hub-test/fixture/blobs/"+manifest.Config.Digest)
+	if err != nil {
+		return nil, err
+	}
+	if configRequestsAfter != 1 {
+		return nil, fmt.Errorf("client config request reached upstream %d times, want once", configRequestsAfter)
+	}
+	task, err = waitForSolidifiedTask(run.context, run.environment, "github.com", run.upstreamRepository, "minimal-success")
+	if err != nil {
+		return nil, err
+	}
+	if testkit.String(task["rootDigest"]) != digest || testkit.String(task["status"]) != "solidified" || task["rootPublished"] != true {
+		return nil, fmt.Errorf("successful upstream task did not publish its manifest root")
 	}
 	requestCount, err := countFixtureRequests(run.context, run.environment, "minimal-success")
 	if err != nil {

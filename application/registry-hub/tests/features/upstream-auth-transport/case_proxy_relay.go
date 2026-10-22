@@ -32,8 +32,8 @@ func verifyProxyRelay(ctx context.Context, environment testkit.CaseContext, regi
 	if err := json.Unmarshal(body, &index); err != nil || index.SchemaVersion != 2 || index.MediaType != support.OCIIndexMediaType {
 		return nil, fmt.Errorf("proxied NJU mirror response is not a valid OCI image index")
 	}
-	if err := waitForSolidifiedTask(ctx, environment, "ghcr.nju.edu.cn", "oras-project/oras", relayTag); err != nil {
-		return nil, fmt.Errorf("proxied NJU mirror request did not solidify: %w", err)
+	if err := waitForDiscoveredTask(ctx, environment, "ghcr.nju.edu.cn", "oras-project/oras", relayTag); err != nil {
+		return nil, fmt.Errorf("proxied NJU mirror manifest discovery did not settle: %w", err)
 	}
 	return map[string]any{
 		"authority": "ghcr.nju.edu.cn",

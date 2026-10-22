@@ -2,13 +2,10 @@ package backends3
 
 import (
 	"context"
-	"crypto/sha256"
 	"embed"
-	"encoding/hex"
 	"fmt"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/support"
 	"github.com/ben-wangz/registry-hub-tests/internal/testkit"
-	"strconv"
 	"strings"
 )
 
@@ -17,6 +14,7 @@ var metadata embed.FS
 
 const backendS3SecretSuffix = "-external-backend-s3"
 const backendS3Prefix = "registry-hub-backend"
+const backendGCStateKey = backendS3Prefix + "/system/gc/state.json"
 
 func New() (testkit.Case, error) {
 	definition, raw, err := testkit.LoadDefinition(metadata, "feature-backend-s3")
@@ -63,33 +61,6 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	}
 
 	upstream := environment.DependencyResults["upstream-mirror"]
-	multipartBlobDigest, err := support.DetailString(upstream, "multipartProbeBlobDigest")
-	if err != nil {
-		return err
-	}
-	multipartBlobSize := int64(testkit.Int(upstream.Details["multipartProbeBlobSize"]))
-	if multipartBlobSize <= 5<<20 {
-		return fmt.Errorf("multipart probe blob size is %d bytes, want more than 5 MiB", multipartBlobSize)
-	}
-	cacheIdentity := sha256.Sum256([]byte("github.com\x00registry-hub-test/fixture\x00" + multipartBlobDigest))
-	multipartObjectKey := backendS3Prefix + "/cache/objects/" + hex.EncodeToString(cacheIdentity[:]) + "/data"
-	multipartObject, exists := beforeObjects[multipartObjectKey]
-	if !exists {
-		return fmt.Errorf("multipart probe cache object is missing from S3")
-	}
-	separator := strings.LastIndexByte(multipartObject, ':')
-	if separator < 0 {
-		return fmt.Errorf("multipart probe S3 object metadata is invalid")
-	}
-	multipartETag := strings.Trim(multipartObject[:separator], `"`)
-	storedMultipartSize, err := strconv.ParseInt(multipartObject[separator+1:], 10, 64)
-	if err != nil || storedMultipartSize != multipartBlobSize {
-		return fmt.Errorf("multipart probe S3 object size is %d, want %d", storedMultipartSize, multipartBlobSize)
-	}
-	multipartParts, isMultipart := testkit.S3MultipartPartCount(multipartETag)
-	if !isMultipart || multipartParts != 2 {
-		return fmt.Errorf("multipart probe S3 ETag %q identifies %d parts, want 2", multipartETag, multipartParts)
-	}
 	fixtureLogs, err := testkit.Command(ctx, "kubectl", "-n", environment.Namespace, "logs", "pod/"+secretName, "-c", "versitygw")
 	if err != nil {
 		return err
@@ -136,6 +107,11 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err != nil {
 		return err
 	}
+	multipartBlobDigest := testkit.String(resumeEvidence["digest"])
+	multipartBlobSize := testkit.Int(resumeEvidence["size"])
+	storedMultipartSize := testkit.Int(resumeEvidence["multipartObjectSize"])
+	multipartETag := testkit.String(resumeEvidence["multipartETag"])
+	multipartParts := testkit.Int(resumeEvidence["multipartParts"])
 	beforeObjects, err = listBackendObjects(ctx, client, bucket)
 	if err != nil {
 		return err
@@ -167,6 +143,13 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if _, exists := afterObjects[taskStateKey]; !exists {
 		return fmt.Errorf("solidified task state is missing from S3 after backend restart")
 	}
+	if _, exists := afterObjects[backendGCStateKey]; !exists {
+		return fmt.Errorf("GC coordinator state is missing from S3 after backend restart")
+	}
+	gcRecovery, err := verifyBackendS3GCRecovery(ctx, environment)
+	if err != nil {
+		return err
+	}
 	if err := compareObjectSnapshots(beforeObjects, afterObjects); err != nil {
 		return err
 	}
@@ -179,6 +162,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		"s3ObjectCountBefore": len(beforeObjects), "s3ObjectCountAfter": len(afterObjects),
 		"s3ObjectKeysSHA256": snapshotDigest(afterObjects),
 		"taskID":             taskID, "taskStatus": testkit.String(taskAfter["status"]),
+		"gcRecovery":           gcRecovery,
 		"rootDigest":           manifestDigest,
 		"manifestDigestBefore": support.Digest(manifestBefore), "manifestDigestAfter": support.Digest(manifestAfter),
 		"downloadResume": resumeEvidence,

@@ -66,6 +66,9 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	adminURL := "http://" + net.JoinHostPort(clusterIP, "8081")
 	diagnosticEnvironment := environment
 	diagnosticEnvironment.AdminURL = adminURL
+	if err := waitHTTPStatus(ctx, adminURL+"/readyz", http.StatusOK); err != nil {
+		return fmt.Errorf("diagnostic Service did not become ready before dependency failure: %w", err)
+	}
 	beforeTasks, err := taskIDs(ctx, diagnosticEnvironment)
 	if err != nil {
 		return err

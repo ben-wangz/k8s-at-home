@@ -85,6 +85,9 @@ func waitBackendServiceEndpoint(ctx context.Context, environment testkit.CaseCon
 				readyIPs := make(map[string]struct{})
 				for _, rawPod := range testkit.Slice(podList["items"]) {
 					pod := testkit.Map(rawPod)
+					if testkit.Map(pod["metadata"])["deletionTimestamp"] != nil {
+						continue
+					}
 					status := testkit.Map(pod["status"])
 					for _, rawCondition := range testkit.Slice(status["conditions"]) {
 						condition := testkit.Map(rawCondition)

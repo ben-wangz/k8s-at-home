@@ -1,7 +1,7 @@
 apiVersion: v2
 name: registry-hub
-version: 0.1.4
-appVersion: "0.2.0"
+version: 0.1.5
+appVersion: "0.2.1"
 description: A local-first OCI Registry proxy with persistent artifact solidification
 type: application
 keywords:

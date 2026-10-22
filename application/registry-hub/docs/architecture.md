@@ -33,10 +33,15 @@ Each can use its own S3 configuration. The backend reads and writes published co
 2. Return a local hit. Authentication failures, storage failures, and internal server errors are treated as errors.
 3. On a confirmed miss, use the first repository component as the upstream authority when the name contains a slash. A single-component name remains local.
 4. Fetch upstream content using separate credentials and transport rules, then verify digest, size, and structure before use.
-5. Persist background work to publish the root's complete content closure into Distribution and verify local readability.
-6. Make temporary objects eligible for protected cleanup after successful solidification.
+5. Persist manifest discovery and blob intent separately. Background work may fetch missing manifest metadata, but it does not fetch missing blob payloads; payloads must come from a complete verified cache entry or already exist in Distribution.
+6. Transfer ready blobs independently, verify them through Distribution readback, and make duplicate cache data eligible for protected cleanup. Publish a ready platform manifest by digest without waiting for unrelated platforms.
+7. Publish parent indexes and the requested root reference only after the original root's complete closure is locally available and verified.
 
-The current pull can finish before step 5. Multi-platform indices require all referenced platform objects. Registry Hub preserves artifact bytes, media types, and digests; it does not render charts or interpret signatures and SBOMs.
+The client pull can finish before background transfer or publication. A platform can become available independently, while the root reference waits for every referenced platform. Registry Hub preserves artifact bytes, media types, and digests; it does not render charts or interpret signatures and SBOMs.
+
+Blob intents retain a notification acknowledgement alongside their state. Readiness and completion wake dependent roots immediately; an acknowledgement is saved only after those wakes are persisted. Periodic reconciliation retries unacknowledged notifications after storage failures or restarts. A conditional write prevents an older acknowledgement from overwriting a newer state transition, and notification replay does not extend the idle deadline.
+
+Capacity waits retain their durable FIFO position after wakeup while pending or running. Younger scopes cannot take admission ahead of that request until its admission attempt finishes or it safely leaves the quota queue.
 
 Logical paths such as `docker.io/library/busybox` stay visible to clients. Internal name encoding accommodates Distribution's repository grammar and is removed from client-visible responses. `docker.io` has a built-in transport profile for the official Docker Hub endpoint.
 
@@ -48,7 +53,7 @@ Referrer reads use native support or an OCI fallback index. Durable repair state
 
 ## GC and recovery
 
-GC first drains accepted writes, then closes the backend write gate. It runs official Distribution GC only with exclusive writer confirmation and background Distribution upload purging disabled. Reads may continue when Distribution remains available.
+GC first drains accepted writes, then closes the backend write gate. It is refused while solidification protection sessions or unresolved recovery state remain. It runs official Distribution GC only with exclusive writer confirmation and background Distribution upload purging disabled. Reads may continue when Distribution remains available.
 
 The gate and executor identity are persistent. Failure or uncertainty keeps writes blocked after restart until a protected recovery operation confirms a safe state. Tasks and object coordination also use persistent state so interrupted work can resume.
 

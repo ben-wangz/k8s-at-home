@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -78,6 +79,32 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	}
 	if strings.Contains(fmt.Sprint(task), "_state") || strings.Contains(fmt.Sprint(task), "password") {
 		return fmt.Errorf("task details contain internal or credential material")
+	}
+	response, err = support.AdminRequest(ctx, environment, http.MethodGet, "/api/v1/tasks/"+url.PathEscape(taskID)+"?ownerLimit=101", nil, nil)
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != http.StatusBadRequest {
+		response.Body.Close()
+		return fmt.Errorf("out-of-range task owner page size returned %s", response.Status)
+	}
+	response.Body.Close()
+	response, err = support.AdminRequest(ctx, environment, http.MethodGet, "/openapi.yaml", nil, nil)
+	if err != nil {
+		return err
+	}
+	openAPI, readErr := io.ReadAll(io.LimitReader(response.Body, 8<<20))
+	closeErr := response.Body.Close()
+	if readErr != nil {
+		return readErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	for _, field := range []string{"protectionSessions", "ownerSessionID", "ownersNextToken", "quotaWaitAt", "quotaWaitReason", "quotaWaitBytes", "waiting_capacity"} {
+		if !strings.Contains(string(openAPI), field) {
+			return fmt.Errorf("admin OpenAPI schema does not expose %q", field)
+		}
 	}
 
 	for _, operation := range []string{"retry", "cancel"} {

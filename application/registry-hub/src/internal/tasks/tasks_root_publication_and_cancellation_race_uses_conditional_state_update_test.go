@@ -8,11 +8,12 @@ import (
 	"registry-hub/internal/storage"
 	"registry-hub/internal/storage/filesystem"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
-func TestRootPublicationAndCancellationRaceUsesConditionalStateUpdate(t *testing.T) {
+func TestRootPublicationFenceAndCancellationIntentAreOrdered(t *testing.T) {
 	store, err := filesystem.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -40,19 +41,31 @@ func TestRootPublicationAndCancellationRaceUsesConditionalStateUpdate(t *testing
 		}
 
 		start := make(chan struct{})
-		results := make(chan error, 2)
+		type operationResult struct {
+			begin bool
+			err   error
+		}
+		results := make(chan operationResult, 2)
 		go func() {
 			<-start
 			copy := task
-			results <- manager.BeginRootPublish(ctx, &copy, currentLease)
+			results <- operationResult{begin: true, err: manager.BeginRootPublish(ctx, &copy, currentLease)}
 		}()
 		go func() {
 			<-start
-			_, cancelErr := manager.Cancel(ctx, task.ID)
-			results <- cancelErr
+			_, err := manager.Cancel(ctx, task.ID)
+			results <- operationResult{err: err}
 		}()
 		close(start)
-		firstErr, secondErr := <-results, <-results
+		var beginErr, cancelErr error
+		for range 2 {
+			result := <-results
+			if result.begin {
+				beginErr = result.err
+			} else {
+				cancelErr = result.err
+			}
+		}
 		if releaseErr := manager.Leases().Release(ctx, currentLease); releaseErr != nil {
 			t.Fatal(releaseErr)
 		}
@@ -60,11 +73,17 @@ func TestRootPublicationAndCancellationRaceUsesConditionalStateUpdate(t *testing
 		if err != nil {
 			t.Fatal(err)
 		}
-		if current.CancelRequested && current.RootPublishing || current.CancelRequested && current.RootPublished {
-			t.Fatalf("cancel and root publication both won: first=%v second=%v state=%#v", firstErr, secondErr, current)
+		if !current.CancelRequested {
+			t.Fatalf("cancellation intent was not persisted: begin=%v cancel=%v state=%#v", beginErr, cancelErr, current)
 		}
-		if !current.CancelRequested && !current.RootPublishing {
-			t.Fatalf("neither cancellation nor root publication won: first=%v second=%v state=%#v", firstErr, secondErr, current)
+		if current.RootPublishing && beginErr != nil {
+			t.Fatalf("root publication fence persisted despite a failed begin: %v state=%#v", beginErr, current)
+		}
+		if !current.RootPublishing && !errors.Is(beginErr, ErrCancelled) && !errors.Is(beginErr, storage.ErrConditionFailed) {
+			t.Fatalf("publication proceeded after cancellation won: begin=%v state=%#v", beginErr, current)
+		}
+		if cancelErr != nil {
+			t.Fatalf("cancellation failed: %v", cancelErr)
 		}
 	}
 }
@@ -223,6 +242,52 @@ func TestRetryCountAndCheckpointRecoverAfterManagerRestart(t *testing.T) {
 	}
 	waitForTaskState(t, recovered, task.ID, Solidified)
 	recovered.Close()
+}
+
+func TestYieldIsPersistedAsWaitingAndDoesNotConsumeRetry(t *testing.T) {
+	store, err := filesystem.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	processor := &yieldOnceProcessor{}
+	manager, err := NewManager(store, 1, 10, processor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	task, _, err := manager.Enqueue(ctx, "ghcr.io", "team/image", "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetDiscovered(ctx, &task, "sha256:"+strings.Repeat("a", 64), "application/vnd.oci.image.manifest.v1+json"); err != nil {
+		t.Fatal(err)
+	}
+	manager.Start(ctx)
+	defer manager.Close()
+
+	waitForTaskState(t, manager, task.ID, WaitingCache)
+	waiting := mustGetTask(t, manager, task.ID)
+	if waiting.RetryCount != 0 || !waiting.NextAttemptAt.IsZero() || waiting.WaitReason != "cache_entry_unavailable" {
+		t.Fatalf("yielded task = %#v, want durable wait without retry accounting", waiting)
+	}
+	if _, err := manager.Wake(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	waitForTaskState(t, manager, task.ID, Solidified)
+	if calls := processor.calls.Load(); calls != 2 {
+		t.Fatalf("processor calls = %d, want one wait and one completion", calls)
+	}
+}
+
+type yieldOnceProcessor struct{ calls atomic.Int32 }
+
+func (p *yieldOnceProcessor) Process(context.Context, *Task, lease.Lease) error {
+	if p.calls.Add(1) == 1 {
+		return WaitFor(WaitingCache, "cache_entry_unavailable")
+	}
+	return nil
 }
 
 func waitForTaskState(t *testing.T, manager *Manager, id string, expected State) {

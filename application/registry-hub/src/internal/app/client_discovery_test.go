@@ -43,6 +43,7 @@ func newDiscoveryTestService(t *testing.T, remote *scriptedUpstream) (*Service, 
 	service.store = store
 	service.cache = artifact.NewCache(store)
 	service.tasks = manager
+	service.records = tasks.NewRecords(store)
 	routed, err := route.Parse("/v2/ghcr.io/team/image/manifests/latest")
 	if err != nil {
 		_ = store.Close()
@@ -149,5 +150,42 @@ func TestManifestDiscoveryCombinesAcceptHeaderFields(t *testing.T) {
 	}
 	if len(remote.calls) != 1 || !strings.Contains(remote.calls[0].accept, ociIndexMediaType) {
 		t.Fatalf("upstream calls = %#v, want one request with both Accept lines combined", remote.calls)
+	}
+}
+
+func TestMutableTagRevalidatesWhilePreviousRootIsPending(t *testing.T) {
+	updated := strings.Replace(ociManifestBody, `"layers":[]`, `"layers":[],"annotations":{"revision":"new"}`, 1)
+	remote := &scriptedUpstream{results: []upstreamResult{
+		{status: http.StatusOK, contentType: ociManifestMediaType, body: ociManifestBody},
+		{status: http.StatusOK, contentType: ociManifestMediaType, body: updated},
+	}}
+	service, manager, routed := newDiscoveryTestService(t, remote)
+	first := serveDiscoveryRequest(t, service, routed, ociManifestMediaType)
+	if first.Code != http.StatusOK || first.Body.String() != ociManifestBody {
+		t.Fatalf("first tag response = %d %q", first.Code, first.Body.String())
+	}
+	previous := discoveryTask(t, manager)
+	second := serveDiscoveryRequest(t, service, routed, ociManifestMediaType)
+	if second.Code != http.StatusOK || second.Body.String() != updated {
+		t.Fatalf("second tag response = %d %q, want updated upstream representation", second.Code, second.Body.String())
+	}
+	if got, want := second.Header().Get("Docker-Content-Digest"), artifact.CalculateSHA256([]byte(updated)); got != want {
+		t.Fatalf("second tag digest = %q, want %q", got, want)
+	}
+	if len(remote.calls) != 2 {
+		t.Fatalf("upstream manifest calls = %d, want one resolution per mutable tag GET", len(remote.calls))
+	}
+	current, _, err := manager.List(context.Background(), "", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundUpdated := false
+	for _, task := range current {
+		if task.Reference == routed.Reference && task.RootDigest == artifact.CalculateSHA256([]byte(updated)) && task.ID != previous.ID {
+			foundUpdated = true
+		}
+	}
+	if !foundUpdated {
+		t.Fatal("changed tag resolution did not create or join the updated root snapshot")
 	}
 }

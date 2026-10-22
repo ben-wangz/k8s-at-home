@@ -191,8 +191,10 @@ func fixtureAcceptsForReference(ctx context.Context, environment testkit.CaseCon
 	return accepts, nil
 }
 
+const discoveryConfigBody = "registry-hub-discovery-config"
+
 func discoveryIndexFixture() ([]byte, []byte, error) {
-	config := []byte("{}")
+	config := []byte(discoveryConfigBody)
 	manifest, err := json.Marshal(map[string]any{
 		"schemaVersion": 2,
 		"mediaType":     support.OCIManifestMediaType,

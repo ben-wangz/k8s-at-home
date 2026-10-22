@@ -103,7 +103,7 @@ func solidifiedTask(task map[string]any, taskID, digest string) bool {
 
 func compareObjectSnapshots(before, after map[string]string) error {
 	for key, value := range before {
-		if strings.HasSuffix(key, "/representation-index.json") {
+		if key == backendGCStateKey || strings.HasSuffix(key, "/representation-index.json") {
 			continue
 		}
 		if after[key] != value {

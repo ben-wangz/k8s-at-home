@@ -24,6 +24,24 @@ type quotaState struct {
 	Reservations map[string]quotaReservation `json:"reservations"`
 }
 
+func (m *Manager) Usage(ctx context.Context) (int64, int, error) {
+	current, _, err := m.readQuota(ctx)
+	if errors.Is(err, storage.ErrNotFound) {
+		return 0, 0, nil
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	var reserved int64
+	for _, item := range current.Reservations {
+		if item.Bytes < 0 || item.Bytes > math.MaxInt64-reserved {
+			return 0, 0, storage.ErrCorruptObject
+		}
+		reserved += item.Bytes
+	}
+	return reserved, len(current.Reservations), nil
+}
+
 func (m *Manager) reserve(ctx context.Context, request Request, session string, required int64) error {
 	if required < 0 || required > m.maxReserved {
 		return ErrQuotaExceeded

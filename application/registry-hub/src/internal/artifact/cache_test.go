@@ -40,6 +40,42 @@ func setCacheTestSchemaVersion(t *testing.T, store storage.Store, key string, ve
 	}
 }
 
+func TestGetAnyInvalidatesCorruptPayload(t *testing.T) {
+	ctx := context.Background()
+	store, err := filesystem.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	cache := NewCache(store)
+	authority, repository := "ghcr.io", "team/image"
+	body := []byte("verified payload")
+	digest := CalculateSHA256(body)
+	mediaType := "application/octet-stream"
+	if err := cache.Put(ctx, authority, repository, digest, mediaType, bytes.NewReader(body), int64(len(body))); err != nil {
+		t.Fatal(err)
+	}
+
+	identity := cacheIdentity(authority, repository, digest)
+	dataKey := "cache/objects/" + identity + "/data"
+	entry, err := store.Head(ctx, dataKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrupt := []byte("corrupt payload")
+	if _, err := store.Put(ctx, dataKey, bytes.NewReader(corrupt), int64(len(corrupt)), storage.PutOptions{IfMatch: entry.Version}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := cache.GetAny(ctx, authority, repository, digest); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("GetAny() error = %v, want invalidated cache miss", err)
+	}
+	if _, err := store.Head(ctx, cacheMetadataKey(identity, mediaType)); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("corrupt representation metadata remains active: %v", err)
+	}
+}
+
 func cacheTestSchemaVersion(t *testing.T, store storage.Store, key string) int {
 	t.Helper()
 	object, err := store.Get(context.Background(), key)

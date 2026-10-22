@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -43,6 +44,10 @@ func verifyBackendS3Resume(ctx context.Context, environment testkit.CaseContext,
 	if err != nil || len(blob) != len(expected) || support.Digest(blob) != digest {
 		return nil, fmt.Errorf("S3-resumed blob failed size or digest verification: err=%v size=%d", err, len(blob))
 	}
+	blobTask, err := waitForBlobTask(ctx, environment, digest)
+	if err != nil {
+		return nil, err
+	}
 	after, err := listBackendObjects(ctx, client, bucket)
 	if err != nil {
 		return nil, err
@@ -55,19 +60,75 @@ func verifyBackendS3Resume(ctx context.Context, environment testkit.CaseContext,
 	if _, exists := after[cacheKey]; !exists {
 		return nil, fmt.Errorf("completed S3 blob is missing its full cache object")
 	}
+	cacheObject := after[cacheKey]
+	separator := strings.LastIndexByte(cacheObject, ':')
+	if separator < 0 {
+		return nil, fmt.Errorf("completed S3 cache object metadata is invalid")
+	}
+	multipartETag := strings.Trim(cacheObject[:separator], `"`)
+	storedSize, err := strconv.ParseInt(cacheObject[separator+1:], 10, 64)
+	if err != nil || storedSize != int64(len(blob)) || storedSize <= 5<<20 {
+		return nil, fmt.Errorf("completed S3 cache object size is %d, want %d bytes above 5 MiB", storedSize, len(blob))
+	}
+	multipartParts, isMultipart := testkit.S3MultipartPartCount(multipartETag)
+	if !isMultipart || multipartParts != 2 {
+		return nil, fmt.Errorf("resumed S3 cache object ETag %q identifies %d parts, want 2", multipartETag, multipartParts)
+	}
 	lines, err := resumeFixtureLogs(ctx, environment, started)
 	if err != nil {
 		return nil, err
 	}
 	offsets := resumeRangeOffsets(lines)
-	if len(offsets) != 4 || !sameOffsets(offsets, 1<<20) || countLogStatus(lines, "status=503") != 3 {
+	if len(offsets) != 5 || !sameOffsets(offsets, 1<<20) || countLogStatus(lines, "status=503") != 4 {
 		return nil, fmt.Errorf("S3 retry did not resume the persisted offset: ranges=%v 503s=%d", offsets, countLogStatus(lines, "status=503"))
 	}
 	return map[string]any{
 		"digest": digest, "size": len(blob), "firstAttemptStatus": firstStatus,
+		"blobTaskID": testkit.String(blobTask["id"]), "blobTaskStatus": testkit.String(blobTask["status"]),
 		"stateKey": stateKey, "partialChunkCount": chunks, "temporaryObjectsAfterCompletion": countObjectPrefix(after, prefix),
 		"cacheObjectKey": cacheKey, "rangeOffsets": offsets, "status503": countLogStatus(lines, "status=503"),
+		"multipartObjectSize": storedSize, "multipartETag": multipartETag, "multipartParts": multipartParts,
 	}, nil
+}
+
+func waitForBlobTask(ctx context.Context, environment testkit.CaseContext, digest string) (map[string]any, error) {
+	query := url.Values{
+		"authority":  {"github.com"},
+		"repository": {"registry-hub-test/fixture"},
+		"limit":      {"1000"},
+	}
+	deadline := time.NewTimer(2 * time.Minute)
+	defer deadline.Stop()
+	for {
+		response, err := support.AdminRequest(ctx, environment, http.MethodGet, "/api/v1/tasks?"+query.Encode(), nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		var page map[string]any
+		if _, err := support.DecodeJSON(response, 4<<20, &page); err != nil {
+			return nil, err
+		}
+		for _, item := range testkit.Slice(page["items"]) {
+			task := testkit.Map(item)
+			if testkit.String(task["kind"]) != "blob" || testkit.String(task["blobDigest"]) != digest {
+				continue
+			}
+			status := testkit.String(task["status"])
+			if status == "verified_local" || status == "solidified" {
+				return task, nil
+			}
+			if status == "failed" || status == "cancelled" {
+				return nil, fmt.Errorf("S3-resumed blob task ended in %s (%s)", status, testkit.String(task["errorClass"]))
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-deadline.C:
+			return nil, fmt.Errorf("S3-resumed blob task did not reach verified_local")
+		case <-time.After(time.Second):
+		}
+	}
 }
 
 func resumeStatePrefix(digest string) string {

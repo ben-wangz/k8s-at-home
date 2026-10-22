@@ -87,6 +87,18 @@ func verifyUpstreamStatusMatrix(ctx context.Context, environment testkit.CaseCon
 
 func verifyUpstreamRetryAfter(ctx context.Context, environment testkit.CaseContext, registry *support.RegistryClient, repository, upstreamRepository string) (map[string]any, error) {
 	const reference = "minimal-retry-after"
+	localManifest, _, err := support.ReadManifest(ctx, registry, repository, "minimal-success", support.OCIManifestMediaType)
+	if err != nil {
+		return nil, fmt.Errorf("read previously solidified fixture manifest: %w", err)
+	}
+	var local support.Manifest
+	if err := json.Unmarshal(localManifest, &local); err != nil || local.Config == nil {
+		return nil, fmt.Errorf("previously solidified fixture manifest has no valid config descriptor")
+	}
+	blobRequestsBefore, err := countFixturePath(ctx, environment, "/v2/registry-hub-test/fixture/blobs/"+local.Config.Digest)
+	if err != nil {
+		return nil, err
+	}
 	startedAt := time.Now()
 	body, headers, err := support.ReadManifest(ctx, registry, repository, reference, support.OCIManifestMediaType)
 	if err != nil {
@@ -111,14 +123,22 @@ func verifyUpstreamRetryAfter(ctx context.Context, environment testkit.CaseConte
 	if err != nil {
 		return nil, err
 	}
+	blobRequestsAfter, err := countFixturePath(ctx, environment, "/v2/registry-hub-test/fixture/blobs/"+local.Config.Digest)
+	if err != nil {
+		return nil, err
+	}
+	if blobRequestsBefore != blobRequestsAfter {
+		return nil, fmt.Errorf("Retry-After manifest discovery fetched an already-local config: blob requests changed from %d to %d", blobRequestsBefore, blobRequestsAfter)
+	}
 	if testkit.String(task["rootDigest"]) != support.Digest(body) || task["rootPublished"] != true {
-		return nil, fmt.Errorf("Retry-After recovery did not publish the verified discovery root")
+		return nil, fmt.Errorf("Retry-After recovery did not reuse the verified discovery root")
 	}
 	return map[string]any{
-		"retryAfterStatus":         http.StatusOK,
-		"retryAfterRequests":       requests,
-		"retryAfterElapsedMillis":  elapsed.Milliseconds(),
-		"retryAfterRootSolidified": true,
+		"retryAfterStatus":              http.StatusOK,
+		"retryAfterRequests":            requests,
+		"retryAfterElapsedMillis":       elapsed.Milliseconds(),
+		"retryAfterRootSolidified":      true,
+		"retryAfterConfigRequestsDelta": blobRequestsAfter - blobRequestsBefore,
 	}, nil
 }
 
@@ -135,40 +155,54 @@ func verifyBackgroundRetryRecovery(ctx context.Context, environment testkit.Case
 	if err := json.Unmarshal(manifestBody, &manifest); err != nil || manifest.Config == nil || len(manifest.Layers) != 0 {
 		return nil, fmt.Errorf("background retry fixture manifest has invalid config or layers")
 	}
-	task, err := waitForSolidifiedTask(ctx, environment, "github.com", upstreamRepository, reference)
+	task, err := waitForTaskStatus(ctx, environment, "github.com", upstreamRepository, reference, "waiting_dependencies")
 	if err != nil {
 		return nil, err
-	}
-	if testkit.Int(task["retryCount"]) != 1 || testkit.String(task["errorClass"]) != "" || task["retryable"] == true || task["rootPublished"] != true {
-		return nil, fmt.Errorf("background retry task did not recover cleanly: retryCount=%d errorClass=%q retryable=%v rootPublished=%v", testkit.Int(task["retryCount"]), testkit.String(task["errorClass"]), task["retryable"], task["rootPublished"])
-	}
-	rootDigest := support.Digest(manifestBody)
-	if testkit.String(task["rootDigest"]) != rootDigest || testkit.Map(task["checkpoints"])[manifest.Config.Digest] != "verified" || testkit.Map(task["checkpoints"])[rootDigest] != "verified" {
-		return nil, fmt.Errorf("background retry recovery omitted root or config checkpoint")
-	}
-	blob, err := support.ReadBlob(ctx, registry, repository, manifest.Config.Digest)
-	if err != nil {
-		return nil, fmt.Errorf("background retry config blob is not locally readable: %w", err)
-	}
-	if string(blob) != "upstream-background-retry-config" {
-		return nil, fmt.Errorf("background retry config blob bytes changed")
 	}
 	requests, err := countFixturePath(ctx, environment, "/v2/registry-hub-test/fixture/blobs/"+manifest.Config.Digest)
 	if err != nil {
 		return nil, err
 	}
+	if requests != 0 {
+		return nil, fmt.Errorf("manifest discovery prefetched the config blob %d times", requests)
+	}
+	blob, err := support.ReadBlob(ctx, registry, repository, manifest.Config.Digest)
+	if err != nil {
+		return nil, fmt.Errorf("client-triggered background retry config read failed: %w", err)
+	}
+	if string(blob) != "upstream-background-retry-config" {
+		return nil, fmt.Errorf("background retry config blob bytes changed")
+	}
+	task, err = waitForSolidifiedTask(ctx, environment, "github.com", upstreamRepository, reference)
+	if err != nil {
+		return nil, err
+	}
+	if testkit.Int(task["retryCount"]) != 0 || testkit.String(task["errorClass"]) != "" || task["retryable"] == true || task["rootPublished"] != true {
+		return nil, fmt.Errorf("client-triggered retry task did not complete cleanly: retryCount=%d errorClass=%q retryable=%v rootPublished=%v", testkit.Int(task["retryCount"]), testkit.String(task["errorClass"]), task["retryable"], task["rootPublished"])
+	}
+	rootDigest := support.Digest(manifestBody)
+	if testkit.String(task["rootDigest"]) != rootDigest || testkit.Map(task["checkpoints"])[rootDigest] != "verified" {
+		return nil, fmt.Errorf("background retry recovery omitted the root manifest checkpoint")
+	}
+	if err := verifyGraphNodeMetadata(testkit.Slice(task["graphNodes"]), manifest.Config.Digest, "blob", manifest.Config.MediaType, manifest.Config.Size); err != nil {
+		return nil, fmt.Errorf("background retry recovery omitted the config graph node: %w", err)
+	}
+	requests, err = countFixturePath(ctx, environment, "/v2/registry-hub-test/fixture/blobs/"+manifest.Config.Digest)
+	if err != nil {
+		return nil, err
+	}
 	if requests != 4 {
-		return nil, fmt.Errorf("background retry fixture requests = %d, want three foreground attempts and one background recovery", requests)
+		return nil, fmt.Errorf("client-triggered retry fixture requests = %d, want three retry attempts and one successful attempt", requests)
 	}
 	return map[string]any{
-		"backgroundRetryTaskStatus":     testkit.String(task["status"]),
-		"backgroundRetryTaskRetryCount": testkit.Int(task["retryCount"]),
-		"backgroundRetryErrorCleared":   testkit.String(task["errorClass"]) == "" && task["retryable"] != true,
-		"backgroundRetryRootPublished":  task["rootPublished"],
-		"backgroundRetryRootDigest":     rootDigest,
-		"backgroundRetryBlobDigest":     manifest.Config.Digest,
-		"backgroundRetryBlobBytesMatch": true,
-		"backgroundRetryBlobRequests":   requests,
+		"demandRetryTaskStatus":     testkit.String(task["status"]),
+		"demandRetryTaskRetryCount": testkit.Int(task["retryCount"]),
+		"demandRetryErrorCleared":   testkit.String(task["errorClass"]) == "" && task["retryable"] != true,
+		"demandRetryRootPublished":  task["rootPublished"],
+		"demandRetryRootDigest":     rootDigest,
+		"demandRetryBlobDigest":     manifest.Config.Digest,
+		"demandRetryBlobBytesMatch": true,
+		"demandRetryBlobRequests":   requests,
 	}, nil
 }
 

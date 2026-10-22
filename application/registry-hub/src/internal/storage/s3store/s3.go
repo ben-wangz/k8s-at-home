@@ -2,7 +2,6 @@ package s3store
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -12,9 +11,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"registry-hub/internal/config"
 	"registry-hub/internal/storage"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,6 +26,13 @@ type Store struct {
 	partSize           int64
 	multipartThreshold int64
 	httpClient         *http.Client
+	replayMu           sync.Mutex
+	replay             *replayManager
+	replayClosed       bool
+	multipartMu        sync.Mutex
+	multipartActive    map[string]int
+	multipartCleaning  map[string]bool
+	multipartChanged   chan struct{}
 }
 
 func New(ctx context.Context, cfg config.S3) (*Store, error) {
@@ -63,11 +71,24 @@ func New(ctx context.Context, cfg config.S3) (*Store, error) {
 		return nil, fmt.Errorf("load S3 credentials and configuration: %w", err)
 	}
 	client := s3.NewFromConfig(awsCfg, func(options *s3.Options) {
+		if options.Retryer != nil {
+			options.Retryer = trackingRetryer{delegate: options.Retryer}
+		}
 		options.UsePathStyle = cfg.UsePathStyle
 		if cfg.Endpoint != "" {
 			options.BaseEndpoint = aws.String(strings.TrimSuffix(cfg.Endpoint, "/"))
 		}
 	})
+	replay, err := newReplayManager(replayConfig{
+		perSourceMemory: cfg.ReplayMemoryBytes,
+		maxMemory:       cfg.ReplayMaxMemoryBytes,
+		maxDisk:         cfg.ReplayMaxDiskBytes,
+		directory:       cfg.ReplayDirectory,
+	})
+	if err != nil {
+		transport.CloseIdleConnections()
+		return nil, err
+	}
 	return &Store{
 		client:             client,
 		bucket:             cfg.Bucket,
@@ -75,6 +96,7 @@ func New(ctx context.Context, cfg config.S3) (*Store, error) {
 		partSize:           cfg.PartSize,
 		multipartThreshold: cfg.MultipartThreshold,
 		httpClient:         httpClient,
+		replay:             replay,
 	}, nil
 }
 
@@ -125,6 +147,16 @@ func (s *Store) Head(ctx context.Context, key string) (storage.Entry, error) {
 	return storage.Entry{Key: key, Version: version, Size: aws.ToInt64(result.ContentLength), ModTime: aws.ToTime(result.LastModified).UnixNano()}, nil
 }
 
+func (s *Store) ReplayUsage() (int64, int64, int) {
+	s.replayMu.Lock()
+	replay := s.replay
+	s.replayMu.Unlock()
+	if replay == nil {
+		return 0, 0, 0
+	}
+	return replay.usage()
+}
+
 func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64, options storage.PutOptions) (storage.Entry, error) {
 	if options.IfAbsent && options.IfMatch != "" {
 		return storage.Entry{}, errors.New("conditional create and conditional update are mutually exclusive")
@@ -136,19 +168,38 @@ func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64,
 	if size < 0 {
 		return storage.Entry{}, errors.New("S3 object size cannot be negative")
 	}
-	if size >= s.multipartThreshold && size > 0 {
-		return s.putMultipart(ctx, key, name, body, size, options)
+	replayManager, err := s.ensureReplayManager()
+	if err != nil {
+		return storage.Entry{}, err
 	}
-	return s.putSingle(ctx, key, name, body, size, options)
+	source, err := replayManager.prepare(ctx, body, size)
+	if err != nil {
+		return storage.Entry{}, err
+	}
+	defer source.Close()
+	if size >= s.multipartThreshold && size > 0 {
+		return s.putMultipart(ctx, key, name, source, options)
+	}
+	return s.putSingle(ctx, key, name, source, options)
 }
 
-func (s *Store) putSingle(ctx context.Context, key, name string, body io.Reader, size int64, options storage.PutOptions) (storage.Entry, error) {
-	source := &digestReader{reader: body, hash: sha256.New()}
+func (s *Store) putSingle(ctx context.Context, key, name string, source *replaySource, options storage.PutOptions) (storage.Entry, error) {
+	operationID, err := newOperationID()
+	if err != nil {
+		return storage.Entry{}, err
+	}
+	body, err := source.OpenRange(0, source.size)
+	if err != nil {
+		return storage.Entry{}, err
+	}
+	defer body.Close()
+	ctx, retryObserver := withRetryObserver(ctx)
 	input := &s3.PutObjectInput{
 		Bucket:        aws.String(s.bucket),
 		Key:           aws.String(name),
-		Body:          source,
-		ContentLength: aws.Int64(size),
+		Body:          body,
+		ContentLength: aws.Int64(source.size),
+		Metadata:      map[string]string{"registry-hub-operation": operationID},
 	}
 	applyConditions(&input.IfNoneMatch, &input.IfMatch, options)
 	result, err := s.client.PutObject(ctx, input, func(options *s3.Options) {
@@ -156,30 +207,48 @@ func (s *Store) putSingle(ctx context.Context, key, name string, body io.Reader,
 	})
 	if err != nil {
 		mapped := mapPutError(err, options)
-		if shouldResolve(err) && source.count == size {
-			if entry, ok := s.resolvePut(ctx, key, size, source.hash.Sum(nil)); ok {
+		if errors.Is(mapped, storage.ErrConditionFailed) && !retryObserver.retried.Load() {
+			return storage.Entry{}, mapped
+		}
+		if shouldResolve(err) || retryObserver.retried.Load() {
+			entry, ok, readErr := s.resolvePut(ctx, key, source.size, source.digest[:], operationID)
+			if ok {
 				return entry, nil
 			}
-			return storage.Entry{}, errors.Join(storage.ErrUnknownCommit, mapped)
+			return storage.Entry{}, errors.Join(storage.ErrUnknownCommit, mapped, readErr)
 		}
 		return storage.Entry{}, mapped
 	}
-	hasExtra, extraErr := readerHasExtra(source)
-	if source.count != size || hasExtra || extraErr != nil {
-		if aws.ToString(result.ETag) != "" {
-			_ = s.DeleteIfMatch(ctx, key, aws.ToString(result.ETag))
-		}
-		if extraErr != nil {
-			return storage.Entry{}, fmt.Errorf("S3 PutObject stream could not be verified: %w", extraErr)
-		}
-		return storage.Entry{}, errors.New("S3 PutObject stream length mismatch")
-	}
 	version := aws.ToString(result.ETag)
 	if version == "" {
-		if entry, ok := s.resolvePut(ctx, key, size, source.hash.Sum(nil)); ok {
+		entry, ok, readErr := s.resolvePut(ctx, key, source.size, source.digest[:], operationID)
+		if ok {
 			return entry, nil
 		}
-		return storage.Entry{}, errors.Join(storage.ErrUnknownCommit, errors.New("S3 PutObject response did not provide an ETag"))
+		return storage.Entry{}, errors.Join(storage.ErrUnknownCommit, errors.New("S3 PutObject response did not provide an ETag"), readErr)
 	}
-	return storage.Entry{Key: key, Version: version, Size: size}, nil
+	return storage.Entry{Key: key, Version: version, Size: source.size}, nil
+}
+
+func (s *Store) ensureReplayManager() (*replayManager, error) {
+	s.replayMu.Lock()
+	defer s.replayMu.Unlock()
+	if s.replayClosed {
+		return nil, errors.New("S3 store is closed")
+	}
+	if s.replay != nil {
+		return s.replay, nil
+	}
+	directory, err := os.MkdirTemp("", "registry-hub-s3-replay-")
+	if err != nil {
+		return nil, fmt.Errorf("create private S3 replay directory: %w", err)
+	}
+	replay, err := newReplayManager(replayConfig{directory: directory})
+	if err != nil {
+		_ = os.RemoveAll(directory)
+		return nil, err
+	}
+	replay.removeDir = true
+	s.replay = replay
+	return replay, nil
 }

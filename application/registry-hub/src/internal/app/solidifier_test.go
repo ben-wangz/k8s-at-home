@@ -162,14 +162,18 @@ func TestPermanentSolidificationGraphFailureDoesNotPublishRootOrRetry(t *testing
 		t.Fatal(err)
 	}
 	defer registry.Close()
+	gate, err := newWriteGate(ctx, store)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	cfg := config.Config{Limits: config.Limits{
 		RequestTimeout: 2 * time.Second, ManifestBytes: 1 << 20, ObjectBytes: 1 << 20,
 		MaxDescriptors: 10, DescriptorDataBytes: 1 << 20, ClosureDepth: 10,
 		ClosureObjects: 100, ClosureBytes: 1 << 20,
 	}}
-	service := &Service{solidificationSlots: make(chan struct{}, 1), metrics: newMetrics()}
-	processor := &solidifier{service: service, cfg: cfg, cache: cache, store: store, registry: registry}
+	service := &Service{gate: gate, records: tasks.NewRecords(store), solidificationSlots: make(chan struct{}, 1), metrics: newMetrics()}
+	processor := &solidifier{service: service, cfg: cfg, cache: cache, store: store, registry: registry, gate: gate}
 	manager, err := tasks.NewManager(store, 1, 10, processor)
 	if err != nil {
 		t.Fatal(err)

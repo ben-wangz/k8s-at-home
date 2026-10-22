@@ -11,6 +11,7 @@ import (
 	"registry-hub/internal/artifact"
 	"registry-hub/internal/route"
 	"registry-hub/internal/storage"
+	"registry-hub/internal/tasks"
 	"strconv"
 	"strings"
 	"testing"
@@ -99,8 +100,44 @@ func TestBlobFallsBackOnlyAfterConfirmedInternalNotFound(t *testing.T) {
 	if len(remote.calls) != 1 || remote.calls[0].method != http.MethodGet {
 		t.Fatalf("upstream calls = %#v, want one GET after confirmed local miss", remote.calls)
 	}
-	if got := taskCount(t, manager); got != 0 {
-		t.Fatalf("blob fallback created %d solidification tasks", got)
+	items, _, err := manager.List(context.Background(), "", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Kind != tasks.BlobKind || items[0].BlobDigest != digest {
+		t.Fatalf("cold blob read tasks = %#v, want one intent-backed blob task", items)
+	}
+}
+
+func TestCachedBlobFailsWhenSolidificationIntentStoreIsUnavailable(t *testing.T) {
+	blob := []byte("verified cached blob")
+	digest := artifact.CalculateSHA256(blob)
+	remote := &scriptedUpstream{}
+	service, _, _ := newDiscoveryTestService(t, remote)
+	if _, err := service.cache.PutBytes(context.Background(), "ghcr.io", "team/image", "application/octet-stream", blob); err != nil {
+		t.Fatalf("put verified cache object: %v", err)
+	}
+	service.records = nil
+	service.registry = newLocalRegistry(t, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(writer, `{"errors":[{"code":"BLOB_UNKNOWN"}]}`)
+	}))
+	path := "/v2/ghcr.io/team/image/blobs/" + digest
+	routed, err := route.Parse(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	service.serveRead(recorder, httptest.NewRequest(http.MethodGet, path, nil), routed, make(url.Values), &requestMeta{})
+	if recorder.Code != http.StatusServiceUnavailable || recorder.Header().Get("Retry-After") == "" {
+		t.Fatalf("cache hit response = %d Retry-After=%q, want retryable 503 before serving bytes", recorder.Code, recorder.Header().Get("Retry-After"))
+	}
+	if recorder.Body.String() == string(blob) {
+		t.Fatal("served cache bytes without a durable solidification intent")
+	}
+	if len(remote.calls) != 0 {
+		t.Fatalf("cache hit reached upstream: %#v", remote.calls)
 	}
 }
 

@@ -24,12 +24,9 @@ func verifyInlineAndURLDescriptors(ctx context.Context, environment testkit.Case
 	if inlineHeaders.Get("Docker-Content-Digest") != inlineDigest {
 		return nil, fmt.Errorf("inline descriptor manifest digest header is invalid")
 	}
-	inlineTask, err := waitForSolidifiedTask(ctx, environment, "github.com", upstreamRepository, "minimal-inline-data")
+	inlineTask, err := waitForTaskStatus(ctx, environment, "github.com", upstreamRepository, "minimal-inline-data", "waiting_dependencies")
 	if err != nil {
-		return nil, err
-	}
-	if testkit.String(inlineTask["rootDigest"]) != inlineDigest || testkit.String(inlineTask["status"]) != "solidified" || inlineTask["rootPublished"] != true {
-		return nil, fmt.Errorf("inline descriptor manifest root did not solidify")
+		return nil, fmt.Errorf("inline manifest discovery did not wait for client layer demand: %w", err)
 	}
 	var inlineManifest support.Manifest
 	if err := json.Unmarshal(inlineBody, &inlineManifest); err != nil || inlineManifest.Config == nil || len(inlineManifest.Layers) != 1 {
@@ -43,6 +40,25 @@ func verifyInlineAndURLDescriptors(ctx context.Context, environment testkit.Case
 	}
 	if inlineManifest.Layers[0].Digest != inlineLayerDigest || inlineManifest.Layers[0].Size != len(inlineLayer) || len(inlineManifest.Layers[0].URLs) != 1 || inlineManifest.Layers[0].URLs[0] != inlineURL {
 		return nil, fmt.Errorf("upstream descriptor.urls identity or value changed")
+	}
+	inlineLayerPath := "/v2/registry-hub-test/fixture/blobs/" + inlineLayerDigest
+	inlineLayerRequestsBefore, err := countFixturePath(ctx, environment, inlineLayerPath)
+	if err != nil {
+		return nil, err
+	}
+	if inlineLayerRequestsBefore != 0 {
+		return nil, fmt.Errorf("manifest discovery fetched the unrequested URL-bearing layer %d times", inlineLayerRequestsBefore)
+	}
+	clientLayer, err := support.ReadBlob(ctx, registry, repository, inlineLayerDigest)
+	if err != nil || string(clientLayer) != string(inlineLayer) {
+		return nil, fmt.Errorf("client layer request failed to return the expected bytes: %v", err)
+	}
+	inlineTask, err = waitForSolidifiedTask(ctx, environment, "github.com", upstreamRepository, "minimal-inline-data")
+	if err != nil {
+		return nil, err
+	}
+	if testkit.String(inlineTask["rootDigest"]) != inlineDigest || testkit.String(inlineTask["status"]) != "solidified" || inlineTask["rootPublished"] != true {
+		return nil, fmt.Errorf("inline descriptor manifest root did not solidify after client layer demand")
 	}
 	if inlineManifest.ArtifactType != "application/vnd.registry-hub.test.inline" || inlineManifest.Annotations["org.opencontainers.image.title"] != "inline fixture" || inlineManifest.Subject == nil || inlineManifest.Subject.Digest != inlineSubjectDigest || inlineManifest.Subject.Size != len(inlineSubject) || inlineManifest.Subject.Annotations["org.opencontainers.image.title"] != "unfetched subject" || inlineManifest.Config.Annotations["org.opencontainers.image.title"] != "inline config" || inlineManifest.Layers[0].ArtifactType != "application/vnd.registry-hub.test.layer" || inlineManifest.Layers[0].Annotations["org.opencontainers.image.title"] != "url-bearing layer" {
 		return nil, fmt.Errorf("upstream manifest standard metadata changed")
@@ -58,13 +74,21 @@ func verifyInlineAndURLDescriptors(ctx context.Context, environment testkit.Case
 	}
 	graph := testkit.Map(inlineTask["graph"])
 	checkpoints := testkit.Map(inlineTask["checkpoints"])
-	if len(graph) != 3 || len(checkpoints) != 3 {
-		return nil, fmt.Errorf("inline descriptor graph has %d nodes and %d checkpoints, want 3 each", len(graph), len(checkpoints))
+	graphNodes := testkit.Slice(inlineTask["graphNodes"])
+	if len(graph) != 1 || len(checkpoints) != 1 || len(graphNodes) != 3 {
+		return nil, fmt.Errorf("inline descriptor graph has %d manifest entries, %d persisted nodes, and %d checkpoints, want 1, 3, and 1", len(graph), len(graphNodes), len(checkpoints))
 	}
-	for _, digest := range []string{inlineDigest, inlineConfigDigest, inlineLayerDigest} {
-		if testkit.String(checkpoints[digest]) != "verified" {
-			return nil, fmt.Errorf("inline descriptor graph object %q has no verified checkpoint", digest)
-		}
+	if testkit.String(checkpoints[inlineDigest]) != "verified" {
+		return nil, fmt.Errorf("inline descriptor manifest %q has no verified checkpoint", inlineDigest)
+	}
+	if err := verifyGraphNodeMetadata(graphNodes, inlineDigest, "manifest", support.OCIManifestMediaType, len(inlineBody)); err != nil {
+		return nil, err
+	}
+	if err := verifyGraphNodeMetadata(graphNodes, inlineConfigDigest, "blob", "application/vnd.oci.image.config.v1+json", len(inlineConfig)); err != nil {
+		return nil, err
+	}
+	if err := verifyGraphNodeMetadata(graphNodes, inlineLayerDigest, "blob", inlineManifest.Layers[0].MediaType, len(inlineLayer)); err != nil {
+		return nil, err
 	}
 	localManifest, localHeaders, err := support.ReadManifest(ctx, registry, repository, "minimal-inline-data", support.OCIManifestMediaType)
 	if err != nil || string(localManifest) != string(inlineBody) || localHeaders.Get("Docker-Content-Digest") != inlineDigest {
@@ -86,7 +110,7 @@ func verifyInlineAndURLDescriptors(ctx context.Context, environment testkit.Case
 	if err != nil {
 		return nil, err
 	}
-	inlineLayerRequests, err := countFixturePath(ctx, environment, "/v2/registry-hub-test/fixture/blobs/"+inlineLayerDigest)
+	inlineLayerRequests, err := countFixturePath(ctx, environment, inlineLayerPath)
 	if err != nil {
 		return nil, err
 	}
@@ -115,12 +139,33 @@ func verifyInlineAndURLDescriptors(ctx context.Context, environment testkit.Case
 	if err := json.Unmarshal(missingBody, &missingManifest); err != nil || len(missingManifest.Layers) != 1 || len(missingManifest.Layers[0].URLs) != 1 || missingManifest.Layers[0].URLs[0] != missingURL {
 		return nil, fmt.Errorf("missing standard blob fixture has invalid descriptor.urls")
 	}
-	missingTask, err := waitForFailedTask(ctx, environment, "github.com", upstreamRepository, "minimal-url-missing")
+	missingTask, err := waitForTaskStatus(ctx, environment, "github.com", upstreamRepository, "minimal-url-missing", "waiting_dependencies")
+	if err != nil {
+		return nil, fmt.Errorf("missing-blob discovery did not wait for client demand: %w", err)
+	}
+	if testkit.String(missingTask["rootDigest"]) == "" || missingTask["rootPublished"] == true {
+		return nil, fmt.Errorf("missing standard blob task state is invalid: status=%q root=%q published=%v", testkit.String(missingTask["status"]), testkit.String(missingTask["rootDigest"]), missingTask["rootPublished"])
+	}
+	missingBlobPath := "/v2/registry-hub-test/fixture/blobs/" + missingLayerDigest
+	missingBlobRequestsBefore, err := countFixturePath(ctx, environment, missingBlobPath)
 	if err != nil {
 		return nil, err
 	}
-	if testkit.String(missingTask["status"]) != "failed" || testkit.String(missingTask["rootDigest"]) == "" || missingTask["rootPublished"] == true {
-		return nil, fmt.Errorf("missing standard blob task state is invalid: status=%q root=%q published=%v", testkit.String(missingTask["status"]), testkit.String(missingTask["rootDigest"]), missingTask["rootPublished"])
+	if missingBlobRequestsBefore != 0 {
+		return nil, fmt.Errorf("missing-blob discovery fetched the payload %d times without client demand", missingBlobRequestsBefore)
+	}
+	missingResponse, err := registry.Get(ctx, repository, "/blobs/"+missingLayerDigest, nil)
+	if err != nil {
+		return nil, err
+	}
+	missingStatus := missingResponse.StatusCode
+	missingResponse.Body.Close()
+	if missingStatus != http.StatusNotFound {
+		return nil, fmt.Errorf("client request for missing blob returned %d, want 404", missingStatus)
+	}
+	missingTask, err = waitForTaskStatus(ctx, environment, "github.com", upstreamRepository, "minimal-url-missing", "waiting_dependencies")
+	if err != nil {
+		return nil, fmt.Errorf("missing client blob did not leave the root waiting for dependencies: %w", err)
 	}
 	missingBlobRequests, err := countFixturePath(ctx, environment, "/v2/registry-hub-test/fixture/blobs/"+missingLayerDigest)
 	if err != nil {
@@ -131,7 +176,7 @@ func verifyInlineAndURLDescriptors(ctx context.Context, environment testkit.Case
 		return nil, err
 	}
 	if missingBlobRequests != 1 || missingURLRequests != 0 {
-		return nil, fmt.Errorf("missing descriptor requests: standard blob=%d URL=%d", missingBlobRequests, missingURLRequests)
+		return nil, fmt.Errorf("client missing-blob requests: standard blob=%d URL=%d", missingBlobRequests, missingURLRequests)
 	}
 	return map[string]any{
 		"inlineDataRootDigest":           inlineDigest,
@@ -143,7 +188,7 @@ func verifyInlineAndURLDescriptors(ctx context.Context, environment testkit.Case
 		"inlineSubjectPresentInGraph":    graph[inlineSubjectDigest] != nil,
 		"inlineConfigBlobDigest":         inlineConfigDigest,
 		"inlineLayerBlobDigest":          inlineLayerDigest,
-		"inlineGraphObjects":             len(graph),
+		"inlineGraphObjects":             len(graphNodes),
 		"inlineGraphCheckpoints":         len(checkpoints),
 		"inlineManifestBytesPreserved":   string(inlineBody) == string(localManifest),
 		"inlineConfigBytesMatch":         string(configBlob) == string(inlineConfig),
@@ -185,8 +230,9 @@ func verifyInvalidInlineData(ctx context.Context, environment testkit.CaseContex
 		}
 		graph := testkit.Map(task["graph"])
 		checkpoints := testkit.Map(task["checkpoints"])
-		if testkit.String(task["errorClass"]) != "manifest_invalid" || testkit.String(task["rootDigest"]) != "" || task["rootPublished"] == true || task["retryable"] == true || len(graph) != 0 || len(checkpoints) != 0 {
-			return nil, fmt.Errorf("invalid descriptor.data %q left root or graph state: class=%q root=%q published=%v graph=%d checkpoints=%d", test.reference, testkit.String(task["errorClass"]), testkit.String(task["rootDigest"]), task["rootPublished"], len(graph), len(checkpoints))
+		graphNodes := testkit.Slice(task["graphNodes"])
+		if testkit.String(task["errorClass"]) != "manifest_invalid" || testkit.String(task["rootDigest"]) != "" || task["rootPublished"] == true || task["retryable"] == true || len(graph) != 0 || len(graphNodes) != 0 || len(checkpoints) != 0 {
+			return nil, fmt.Errorf("invalid descriptor.data %q left root or graph state: class=%q root=%q published=%v graph=%d persisted=%d checkpoints=%d", test.reference, testkit.String(task["errorClass"]), testkit.String(task["rootDigest"]), task["rootPublished"], len(graph), len(graphNodes), len(checkpoints))
 		}
 		requests, err := countFixtureRequests(ctx, environment, test.reference)
 		if err != nil {

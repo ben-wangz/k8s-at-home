@@ -37,12 +37,12 @@ func verifyFixtureRequestLogs(ctx context.Context, environment testkit.CaseConte
 			return 0, fmt.Errorf("upstream fixture did not record expected request state %q", marker)
 		}
 	}
-	if strings.Count(text, "path=/v2/library/registry-hub-test/manifests/redirected auth=basic-matched") != 1 ||
-		strings.Count(text, "path=/v2/registry-hub-test/fixture/manifests/redirected auth=absent") != 1 ||
+	if strings.Count(text, "path=/v2/library/registry-hub-test/manifests/redirected auth=basic-matched") != 2 ||
+		strings.Count(text, "path=/v2/registry-hub-test/fixture/manifests/redirected auth=absent") != 2 ||
 		strings.Contains(text, "host=127.0.0.1") ||
 		strings.Contains(text, "path=/v2/registry-hub-test/fixture/manifests/downgraded") ||
 		strings.Contains(text, "host=tls-untrusted.registry-hub.test path=/v2/registry-hub-test/fixture/manifests/untrusted") {
-		return 0, fmt.Errorf("redirect cache, auth isolation, or private-target rejection evidence is invalid")
+		return 0, fmt.Errorf("mutable redirect revalidation, auth isolation, or private-target rejection evidence is invalid")
 	}
 	registryRetryMarker := "method=GET host=registry-1.docker.io path=/v2/library/registry-hub-test/manifests/token-retry auth=basic-matched"
 	tokenRetryMarker := "method=GET host=auth.docker.io path=/token auth=basic-matched scope=repository:library/registry-hub-test:pull service=token-retry"

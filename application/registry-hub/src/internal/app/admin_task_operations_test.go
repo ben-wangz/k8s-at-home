@@ -26,11 +26,15 @@ func TestAdminTaskRetryAndCancelSuccessPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer manager.Close()
+	gate, err := newWriteGate(ctx, store)
+	if err != nil {
+		t.Fatal(err)
+	}
 	service := &Service{
 		cfg: config.Config{AdminAuth: config.Auth{Basic: []config.Credential{{
 			Username: "operator", Password: "secret", Permissions: []string{auth.TaskAdmin},
 		}}}},
-		tasks: manager,
+		tasks: manager, gate: gate,
 	}
 
 	retryTask, _, err := manager.Enqueue(ctx, "ghcr.io", "team/retry", "latest")
@@ -80,6 +84,53 @@ func TestAdminTaskRetryAndCancelSuccessPaths(t *testing.T) {
 	}
 	if persisted.Status != tasks.Cancelled || !persisted.CancelRequested {
 		t.Fatalf("persisted cancelled task = %#v", persisted)
+	}
+
+	completedTask, _, err := manager.Enqueue(ctx, "ghcr.io", "team/completed", "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	completedTask.Status = tasks.Solidified
+	completedTask.TerminalCleanupComplete = true
+	taskLease, err = manager.Leases().Acquire(ctx, "tasks/"+completedTask.ID, "test-worker-completed", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SaveProgress(ctx, &completedTask, taskLease); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Leases().Release(ctx, taskLease); err != nil {
+		t.Fatal(err)
+	}
+	completedResponse := requestAdminTaskOperation(t, service, "/api/v1/tasks/"+completedTask.ID+"/cancel")
+	if completedResponse.Code != http.StatusOK {
+		t.Fatalf("completed task cancellation returned %d: %s", completedResponse.Code, completedResponse.Body.String())
+	}
+
+	pendingCleanupTask, _, err := manager.Enqueue(ctx, "ghcr.io", "team/pending-cleanup", "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingCleanupTask.Status = tasks.Cancelled
+	taskLease, err = manager.Leases().Acquire(ctx, "tasks/"+pendingCleanupTask.ID, "test-worker-pending-cleanup", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SaveProgress(ctx, &pendingCleanupTask, taskLease); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Leases().Release(ctx, taskLease); err != nil {
+		t.Fatal(err)
+	}
+	if err := gate.AdmitProtection(ctx, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "scope-test", pendingCleanupTask.ID, 100, 10, 1<<20); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetProtectionState(ctx, pendingCleanupTask.ID, "scope-test", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 100, true); err != nil {
+		t.Fatal(err)
+	}
+	pendingCleanupResponse := requestAdminTaskOperation(t, service, "/api/v1/tasks/"+pendingCleanupTask.ID+"/cancel")
+	if pendingCleanupResponse.Code != http.StatusAccepted {
+		t.Fatalf("task with pending protection cleanup returned %d: %s", pendingCleanupResponse.Code, pendingCleanupResponse.Body.String())
 	}
 }
 

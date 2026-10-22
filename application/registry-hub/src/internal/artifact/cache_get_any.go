@@ -12,15 +12,22 @@ import (
 	"time"
 )
 
-func (c *Cache) getAny(ctx context.Context, authority, repository, digest string, includeCleanupPending bool) (CachedObject, error) {
+func (c *Cache) getAny(ctx context.Context, authority, repository, digest string, _ bool) (CachedObject, error) {
 	identity := cacheIdentity(authority, repository, digest)
 	index, _, err := c.readRepresentationIndex(ctx, identity, authority, repository, digest)
 	if err != nil {
 		return CachedObject{}, err
 	}
 	for _, mediaType := range index.MediaTypes {
-		metadata, readErr := c.readMetadata(ctx, cacheMetadataKey(identity, mediaType))
+		metadataKey := cacheMetadataKey(identity, mediaType)
+		metadata, metadataVersion, readErr := c.readMetadataEntry(ctx, metadataKey)
 		if errors.Is(readErr, storage.ErrNotFound) {
+			continue
+		}
+		if errors.Is(readErr, storage.ErrCorruptObject) {
+			if invalidateErr := c.invalidateCorruptRepresentation(ctx, authority, repository, digest, mediaType, metadataVersion); invalidateErr != nil {
+				return CachedObject{}, errors.Join(readErr, invalidateErr)
+			}
 			continue
 		}
 		if readErr != nil {
@@ -30,17 +37,18 @@ func (c *Cache) getAny(ctx context.Context, authority, repository, digest string
 			return CachedObject{}, storage.ErrCorruptObject
 		}
 		cleanupPending := metadata.State == "cleanup_pending"
-		if cleanupPending {
-			if !includeCleanupPending || !cacheCleanupDeadline(metadata).After(time.Now()) {
-				continue
-			}
-		}
 		if metadata.State != "complete" && !cleanupPending {
 			return CachedObject{}, storage.ErrCorruptObject
 		}
-		object, getErr := c.get(ctx, authority, repository, digest, mediaType, includeCleanupPending)
+		object, getErr := c.get(ctx, authority, repository, digest, mediaType, true)
 		if errors.Is(getErr, storage.ErrNotFound) {
 			return CachedObject{}, errors.Join(storage.ErrUnavailable, errors.New("cache representation index references an incomplete object"))
+		}
+		if errors.Is(getErr, storage.ErrCorruptObject) {
+			if removeErr := c.Remove(ctx, authority, repository, digest, mediaType); removeErr != nil {
+				return CachedObject{}, errors.Join(getErr, removeErr)
+			}
+			continue
 		}
 		return object, getErr
 	}
@@ -132,7 +140,7 @@ func (c *Cache) RebuildRepresentationIndexes(ctx context.Context) error {
 			if _, err := Hasher(metadata.Digest); err != nil {
 				return errors.Join(storage.ErrCorruptObject, err)
 			}
-			if metadata.State != "complete" {
+			if metadata.State != "complete" && metadata.State != "cleanup_pending" {
 				continue
 			}
 			if err := c.verifyComplete(ctx, identity, metadata); errors.Is(err, storage.ErrNotFound) {

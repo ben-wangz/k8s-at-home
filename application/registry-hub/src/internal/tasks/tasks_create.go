@@ -15,16 +15,83 @@ import (
 )
 
 func (m *Manager) create(ctx context.Context, task *Task) error {
+	if err := m.ensureRootCacheProtectionReference(ctx, task); err != nil {
+		return errors.Join(err, m.cleanupUncommittedCacheProtectionReferences(ctx, task.ID))
+	}
 	data, err := json.Marshal(task)
 	if err != nil {
-		return err
+		return errors.Join(err, m.cleanupUncommittedCacheProtectionReferences(ctx, task.ID))
 	}
 	entry, err := m.store.Put(ctx, taskKey(task.ID), bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfAbsent: true})
 	if err != nil {
-		return err
+		current, readErr := m.Get(ctx, task.ID)
+		if readErr == nil {
+			if sameTaskCreationIdentity(current, *task) {
+				*task = current
+				return nil
+			}
+			return err
+		}
+		if errors.Is(readErr, storage.ErrNotFound) {
+			return errors.Join(err, m.cleanupUncommittedCacheProtectionReferences(ctx, task.ID))
+		}
+		return errors.Join(err, readErr)
 	}
 	task.version = entry.Version
 	return nil
+}
+
+func sameTaskCreationIdentity(current, requested Task) bool {
+	return current.ID == requested.ID && current.Kind == requested.Kind && current.Authority == requested.Authority &&
+		current.Repository == requested.Repository && current.Reference == requested.Reference && current.RootDigest == requested.RootDigest &&
+		current.MediaType == requested.MediaType && current.Generation == requested.Generation
+}
+
+func (m *Manager) discardCreatedTask(ctx context.Context, task Task) error {
+	current, err := m.Get(ctx, task.ID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return m.cleanupUncommittedCacheProtectionReferences(ctx, task.ID)
+	}
+	if err != nil {
+		return err
+	}
+	if current.version != task.version || !sameTaskCreationIdentity(current, task) {
+		return nil
+	}
+	if err := m.store.DeleteIfMatch(context.WithoutCancel(ctx), taskKey(task.ID), current.version); err != nil && !errors.Is(err, storage.ErrNotFound) {
+		if !errors.Is(err, storage.ErrUnknownCommit) && !errors.Is(err, storage.ErrConditionFailed) {
+			return err
+		}
+		_, readErr := m.Get(context.WithoutCancel(ctx), task.ID)
+		if errors.Is(readErr, storage.ErrNotFound) {
+			return m.cleanupUncommittedCacheProtectionReferences(context.WithoutCancel(ctx), task.ID)
+		}
+		if readErr != nil {
+			return errors.Join(err, readErr)
+		}
+		return nil
+	}
+	return m.cleanupUncommittedCacheProtectionReferences(context.WithoutCancel(ctx), task.ID)
+}
+
+func (m *Manager) cleanupUncommittedCacheProtectionReferences(ctx context.Context, taskID string) error {
+	if !validID(taskID) {
+		return errors.New("cache protection task ID is invalid")
+	}
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if _, err := m.Get(cleanupCtx, taskID); err == nil {
+		return nil
+	} else if !errors.Is(err, storage.ErrNotFound) {
+		return err
+	}
+	records := NewRecords(m.store)
+	for {
+		_, done, err := records.DeleteCacheProtectionReferences(cleanupCtx, taskID, 1000)
+		if err != nil || done {
+			return err
+		}
+	}
 }
 
 func (m *Manager) save(ctx context.Context, task *Task) error {
@@ -33,6 +100,12 @@ func (m *Manager) save(ctx context.Context, task *Task) error {
 	}
 	if task.SchemaVersion != taskSchemaCurrent {
 		return errors.New("task state has an unsupported schema")
+	}
+	if err := validateTaskProtectionState(task); err != nil {
+		return err
+	}
+	if err := m.ensureRootCacheProtectionReference(ctx, task); err != nil {
+		return err
 	}
 	data, err := json.Marshal(task)
 	if err != nil {
@@ -44,6 +117,13 @@ func (m *Manager) save(ctx context.Context, task *Task) error {
 	}
 	task.version = entry.Version
 	return nil
+}
+
+func (m *Manager) ensureRootCacheProtectionReference(ctx context.Context, task *Task) error {
+	if task.Kind != RootKind || task.RootDigest == "" {
+		return nil
+	}
+	return NewRecords(m.store).EnsureCacheProtectionReference(ctx, task.ID, task.Authority, task.Repository, task.RootDigest)
 }
 
 func (m *Manager) readTask(ctx context.Context, key string) (Task, error) {
@@ -72,9 +152,24 @@ func (m *Manager) readTask(ctx context.Context, key string) (Task, error) {
 		}
 		switch task.SchemaVersion {
 		case taskSchemaCurrent:
+			if task.Kind == "" {
+				task.Kind = RootKind
+			}
+			if task.Kind != RootKind && task.Kind != BlobKind {
+				return Task{}, errors.New("task state has an unsupported kind")
+			}
 			task.version = object.Version
-		case taskSchemaPrevious:
+		case taskSchemaPrevious, taskSchemaLegacy:
 			task.SchemaVersion = taskSchemaCurrent
+			if task.Kind == "" {
+				task.Kind = RootKind
+			}
+			if task.Kind != RootKind && task.Kind != BlobKind {
+				return Task{}, errors.New("task state has an unsupported kind")
+			}
+			if task.LastProgressAt.IsZero() {
+				task.LastProgressAt = task.UpdatedAt
+			}
 			updated, marshalErr := json.Marshal(task)
 			if marshalErr != nil {
 				return Task{}, marshalErr
@@ -90,15 +185,50 @@ func (m *Manager) readTask(ctx context.Context, key string) (Task, error) {
 		default:
 			return Task{}, errors.New("task state has an unsupported schema or identity")
 		}
+		if task.ExpiresAt.IsZero() {
+			progressAt := task.LastProgressAt
+			if progressAt.IsZero() {
+				progressAt = task.UpdatedAt
+			}
+			if progressAt.IsZero() {
+				progressAt = task.CreatedAt
+			}
+			if !progressAt.IsZero() {
+				task.ExpiresAt = progressAt.Add(m.idleTimeout)
+			}
+		}
 		if task.Checkpoints == nil {
 			task.Checkpoints = make(map[string]string)
 		}
 		if task.Graph == nil {
 			task.Graph = make(map[string]GraphEntry)
 		}
+		if err := validateTaskProtectionState(&task); err != nil {
+			return Task{}, err
+		}
 		return task, nil
 	}
 	return Task{}, storage.ErrUnavailable
+}
+
+func validateTaskProtectionState(task *Task) error {
+	if task.RequestedBytes < 0 || task.ReservedBytes < 0 || task.QuotaWaitBytes < 0 || task.QuotaReplaceableBytes < 0 || task.QuotaReplaceableSlots < 0 || task.QuotaReplaceableSlots > 4096 || task.QuotaWaitReason != "" && !validWaitReason(task.QuotaWaitReason) || len(task.SessionIDs) > 4096 {
+		return errors.New("task protection state is invalid")
+	}
+	seen := make(map[string]struct{}, len(task.SessionIDs))
+	for _, id := range task.SessionIDs {
+		if !validID(id) {
+			return errors.New("task protection state contains an invalid session ID")
+		}
+		if _, exists := seen[id]; exists {
+			return errors.New("task protection state contains a duplicate session ID")
+		}
+		seen[id] = struct{}{}
+	}
+	if task.GCProtected && (task.ScopeID == "" || len(task.SessionIDs) == 0) {
+		return errors.New("protected task is missing its scope or session IDs")
+	}
+	return nil
 }
 
 func (m *Manager) listActive(ctx context.Context) ([]Task, error) {
@@ -114,7 +244,7 @@ func (m *Manager) listActive(ctx context.Context) ([]Task, error) {
 			if readErr != nil {
 				return nil, readErr
 			}
-			if task.Status == Pending || task.Status == Running || task.Status == RetryWait {
+			if isActive(task.Status) {
 				result = append(result, task)
 			}
 		}

@@ -39,7 +39,7 @@ docker pull "$HUB/docker.io/library/busybox:1.36"
 
 Registry Hub checks local content first. It accesses the upstream only after a confirmed local miss. `docker.io` uses the Docker Hub transport profile; other authorities use their own HTTPS endpoint. Private upstream images require separately configured upstream credentials.
 
-A successful pull can precede completion of background solidification. The task must reach `solidified` before the complete artifact is available independently of its upstream. A multi-platform index includes all referenced platforms in this process. Check progress through the [task operations](operations.md#solidification-tasks).
+A successful pull can precede completion of background solidification. A platform manifest can be published by digest once that platform's closure is verified; the requested root tag waits for all referenced platforms and the full original closure. The root task reaches `solidified` after the root reference is published and verified. Check progress through the [task operations](operations.md#solidification-tasks).
 
 Local content remains authoritative after solidification. Later upstream tag changes do not automatically refresh it. Pushes and deletes always affect local content, including repositories with an upstream prefix.
 

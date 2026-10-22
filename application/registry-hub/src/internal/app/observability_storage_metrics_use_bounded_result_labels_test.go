@@ -179,6 +179,10 @@ func TestSolidifierLogsFencingFailureWithoutErrorDetails(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
+	gate, err := newWriteGate(ctx, store)
+	if err != nil {
+		t.Fatal(err)
+	}
 	manager, err := tasks.NewManager(store, 1, 10, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -212,9 +216,9 @@ func TestSolidifierLogsFencingFailureWithoutErrorDetails(t *testing.T) {
 
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
-	service := &Service{store: store, cache: cache, tasks: manager, metrics: newMetrics(), logger: logger, solidificationSlots: make(chan struct{}, 1)}
+	service := &Service{store: store, cache: cache, tasks: manager, records: tasks.NewRecords(store), gate: gate, metrics: newMetrics(), logger: logger, solidificationSlots: make(chan struct{}, 1)}
 	cfg := config.Config{Limits: config.Limits{RequestTimeout: time.Second, ManifestBytes: 1 << 20, MaxDescriptors: 10, DescriptorDataBytes: 1 << 20, ClosureDepth: 10, ClosureObjects: 10, ClosureBytes: 1 << 20}}
-	processor := &solidifier{service: service, cfg: cfg, cache: cache, store: store, tasks: manager}
+	processor := &solidifier{service: service, cfg: cfg, cache: cache, store: store, tasks: manager, gate: gate}
 	err = processor.Process(ctx, &task, staleLease)
 	if !errors.Is(err, lease.ErrLost) {
 		t.Fatalf("Process() error = %v, want lost fencing token", err)

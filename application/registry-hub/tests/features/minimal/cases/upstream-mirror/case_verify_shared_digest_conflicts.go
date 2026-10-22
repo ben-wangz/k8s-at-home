@@ -77,15 +77,23 @@ func verifyPartialUpstreamBlob(ctx context.Context, environment testkit.CaseCont
 	if err := json.Unmarshal(manifestBody, &manifest); err != nil || len(manifest.Layers) != 1 || manifest.Layers[0].Digest != partialDigest || manifest.Layers[0].Size != len(partialBlob) {
 		return nil, fmt.Errorf("partial response fixture manifest has an invalid layer descriptor")
 	}
-	task, err := waitForTaskStatus(ctx, environment, "github.com", upstreamRepository, "minimal-partial-blob", "retry_wait")
+	task, err := waitForTaskStatus(ctx, environment, "github.com", upstreamRepository, "minimal-partial-blob", "waiting_dependencies")
 	if err != nil {
 		return nil, err
 	}
-	if testkit.String(task["errorClass"]) != "upstream" || task["retryable"] != true || testkit.String(task["rootDigest"]) == "" || task["rootPublished"] == true {
-		return nil, fmt.Errorf("partial upstream response task has invalid retry state: class=%q retryable=%v root=%q published=%v", testkit.String(task["errorClass"]), task["retryable"], testkit.String(task["rootDigest"]), task["rootPublished"])
+	rootDigest := support.Digest(manifestBody)
+	if testkit.String(task["errorClass"]) != "" || task["retryable"] == true || testkit.String(task["rootDigest"]) != rootDigest || task["rootPublished"] == true {
+		return nil, fmt.Errorf("partial upstream response task has invalid discovery state: class=%q retryable=%v root=%q published=%v", testkit.String(task["errorClass"]), task["retryable"], testkit.String(task["rootDigest"]), task["rootPublished"])
 	}
 	if testkit.Map(task["checkpoints"])[partialDigest] != nil {
-		return nil, fmt.Errorf("partial upstream blob received a verified checkpoint")
+		return nil, fmt.Errorf("manifest discovery fetched the partial upstream blob")
+	}
+	requestsBefore, err := countFixturePath(ctx, environment, "/v2/registry-hub-test/fixture/blobs/"+partialDigest)
+	if err != nil {
+		return nil, err
+	}
+	if requestsBefore != 0 {
+		return nil, fmt.Errorf("manifest discovery fetched the partial upstream blob %d times", requestsBefore)
 	}
 	partialResponse, err := registry.Request(ctx, http.MethodGet, registry.Endpoint(repository, "/blobs/"+partialDigest), nil, nil)
 	if err != nil {
@@ -112,10 +120,10 @@ func verifyPartialUpstreamBlob(ctx context.Context, environment testkit.CaseCont
 			allRequestsWithoutRange = false
 		}
 	}
-	if requestCount == 0 || !allRequestsWithoutRange {
+	if requestCount != 1 || !allRequestsWithoutRange {
 		return nil, fmt.Errorf("partial upstream blob requests=%d allWithoutRange=%v", requestCount, allRequestsWithoutRange)
 	}
-	updatedTask, err := waitForTaskStatus(ctx, environment, "github.com", upstreamRepository, "minimal-partial-blob", "retry_wait")
+	updatedTask, err := waitForTaskStatus(ctx, environment, "github.com", upstreamRepository, "minimal-partial-blob", "waiting_dependencies")
 	if err != nil {
 		return nil, err
 	}
@@ -124,17 +132,17 @@ func verifyPartialUpstreamBlob(ctx context.Context, environment testkit.CaseCont
 	}
 	return map[string]any{
 		"partialBlobDigest":                         partialDigest,
-		"partialBlobTaskStatus":                     testkit.String(task["status"]),
-		"partialBlobErrorClass":                     testkit.String(task["errorClass"]),
-		"partialBlobRetryable":                      task["retryable"],
-		"partialBlobRootUnpublished":                task["rootPublished"] != true,
-		"partialBlobCheckpoint":                     testkit.Map(task["checkpoints"])[partialDigest],
+		"partialBlobTaskStatus":                     testkit.String(updatedTask["status"]),
+		"partialBlobErrorClass":                     testkit.String(updatedTask["errorClass"]),
+		"partialBlobRetryable":                      updatedTask["retryable"],
+		"partialBlobRootUnpublished":                updatedTask["rootPublished"] != true,
+		"partialBlobCheckpoint":                     testkit.Map(updatedTask["checkpoints"])[partialDigest],
 		"partialBlobUpstreamRequests":               requestCount,
 		"partialBlobRangeAbsent":                    allRequestsWithoutRange,
 		"partialBlobClientStatus":                   partialResponse.StatusCode,
 		"partialBlobClientContentRange":             partialResponse.Header.Get("Content-Range"),
 		"partialBlobClientDidNotReceivePartialBody": string(partialResponseBody) != string(partialBlob[:3]),
-		"partialBlobCheckpointAfterClientRetry":     testkit.Map(updatedTask["checkpoints"])[partialDigest],
+		"partialBlobStillWaitingForClientDemand":    testkit.String(updatedTask["status"]) == "waiting_dependencies",
 	}, nil
 }
 

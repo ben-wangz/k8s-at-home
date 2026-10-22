@@ -47,8 +47,8 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err := validateManifestResponse(dockerBody, dockerHeaders); err != nil {
 		return fmt.Errorf("Docker Hub authority response is invalid: %w", err)
 	}
-	if err := waitForSolidifiedTask(ctx, environment, "docker.io", "library/registry-hub-test", "authorized"); err != nil {
-		return fmt.Errorf("Docker Hub authority pull did not solidify: %w", err)
+	if err := waitForDiscoveredTask(ctx, environment, "docker.io", "library/registry-hub-test", "authorized"); err != nil {
+		return fmt.Errorf("Docker Hub authority manifest discovery did not settle: %w", err)
 	}
 	challengeBody, challengeHeaders, err := support.ReadManifest(ctx, registry, dockerRepo, "challenge", support.OCIManifestMediaType)
 	if err != nil {
@@ -57,8 +57,8 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err := validateManifestResponse(challengeBody, challengeHeaders); err != nil {
 		return fmt.Errorf("Docker Hub challenge response is invalid: %w", err)
 	}
-	if err := waitForSolidifiedTask(ctx, environment, "docker.io", "library/registry-hub-test", "challenge"); err != nil {
-		return fmt.Errorf("Docker Hub Bearer challenge pull did not solidify: %w", err)
+	if err := waitForDiscoveredTask(ctx, environment, "docker.io", "library/registry-hub-test", "challenge"); err != nil {
+		return fmt.Errorf("Docker Hub Bearer challenge discovery did not settle: %w", err)
 	}
 	tokenRetryBody, tokenRetryHeaders, err := support.ReadManifest(ctx, registry, dockerRepo, "token-retry", support.OCIManifestMediaType)
 	if err != nil {
@@ -67,8 +67,8 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err := validateManifestResponse(tokenRetryBody, tokenRetryHeaders); err != nil {
 		return fmt.Errorf("token endpoint retry response is invalid: %w", err)
 	}
-	if err := waitForSolidifiedTask(ctx, environment, "docker.io", "library/registry-hub-test", "token-retry"); err != nil {
-		return fmt.Errorf("token endpoint retry pull did not solidify: %w", err)
+	if err := waitForDiscoveredTask(ctx, environment, "docker.io", "library/registry-hub-test", "token-retry"); err != nil {
+		return fmt.Errorf("token endpoint retry discovery did not settle: %w", err)
 	}
 
 	githubRepo := "github.com/registry-hub-test/fixture"
@@ -79,8 +79,8 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err := validateManifestResponse(githubBody, githubHeaders); err != nil {
 		return fmt.Errorf("second authority response is invalid: %w", err)
 	}
-	if err := waitForSolidifiedTask(ctx, environment, "github.com", "registry-hub-test/fixture", "isolated"); err != nil {
-		return fmt.Errorf("second authority pull did not solidify: %w", err)
+	if err := waitForDiscoveredTask(ctx, environment, "github.com", "registry-hub-test/fixture", "isolated"); err != nil {
+		return fmt.Errorf("second authority discovery did not settle: %w", err)
 	}
 	privateResponse, err := registry.Get(ctx, githubRepo, "/manifests/private", map[string]string{"Accept": support.OCIManifestMediaType})
 	if err != nil {
@@ -111,8 +111,8 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err := validateManifestResponse(ghcrBody, ghcrHeaders); err != nil {
 		return fmt.Errorf("GHCR Bearer authority response is invalid: %w", err)
 	}
-	if err := waitForSolidifiedTask(ctx, environment, "ghcr.io", "registry-hub-test/fixture", "bearer"); err != nil {
-		return fmt.Errorf("GHCR Bearer pull did not solidify: %w", err)
+	if err := waitForDiscoveredTask(ctx, environment, "ghcr.io", "registry-hub-test/fixture", "bearer"); err != nil {
+		return fmt.Errorf("GHCR Bearer discovery did not settle: %w", err)
 	}
 	if !strings.EqualFold(support.Digest(dockerBody), support.Digest(ghcrBody)) {
 		return fmt.Errorf("controlled authorities returned different manifest bytes")
@@ -125,8 +125,8 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err := validateManifestResponse(tlsBody, tlsHeaders); err != nil {
 		return fmt.Errorf("custom-CA HTTPS response is invalid: %w", err)
 	}
-	if err := waitForSolidifiedTask(ctx, environment, "tls.registry-hub.test", "registry-hub-test/fixture", "trusted"); err != nil {
-		return fmt.Errorf("custom-CA HTTPS pull did not solidify: %w", err)
+	if err := waitForDiscoveredTask(ctx, environment, "tls.registry-hub.test", "registry-hub-test/fixture", "trusted"); err != nil {
+		return fmt.Errorf("custom-CA HTTPS discovery did not settle: %w", err)
 	}
 	untrustedRepository := "tls-untrusted.registry-hub.test/registry-hub-test/fixture"
 	if _, _, err := support.ReadManifest(ctx, registry, untrustedRepository, "untrusted", support.OCIManifestMediaType); err == nil || !strings.Contains(err.Error(), "502 Bad Gateway") {
@@ -139,8 +139,8 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err := validateManifestResponse(redirectBody, redirectHeaders); err != nil {
 		return fmt.Errorf("cross-authority redirect response is invalid: %w", err)
 	}
-	if err := waitForSolidifiedTask(ctx, environment, "docker.io", "library/registry-hub-test", "redirected"); err != nil {
-		return fmt.Errorf("cross-authority redirect did not solidify before the cache check: %w", err)
+	if err := waitForDiscoveredTask(ctx, environment, "docker.io", "library/registry-hub-test", "redirected"); err != nil {
+		return fmt.Errorf("cross-authority redirect discovery did not settle before the cache check: %w", err)
 	}
 	cachedBody, _, err := support.ReadManifest(ctx, registry, dockerRepo, "redirected", support.OCIManifestMediaType)
 	if err != nil || string(cachedBody) != string(redirectBody) {
@@ -175,34 +175,34 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	}
 	digest := support.Digest(dockerBody)
 	return support.WriteResult(environment, map[string]any{
-		"secretName":             secretName,
-		"secretKeySHA256":        fingerprint,
-		"dockerAuthority":        "registry-1.docker.io",
-		"dockerManifestDigest":   digest,
-		"dockerChallengeDigest":  support.Digest(challengeBody),
-		"tokenServiceScope":      "repository:library/registry-hub-test:pull",
-		"secondAuthority":        "github.com",
-		"crossAuthorityAuth":     "absent",
-		"bearerAuthority":        "ghcr.io",
-		"bearerManifestDigest":   support.Digest(ghcrBody),
-		"redirectManifestDigest": support.Digest(redirectBody),
-		"tlsManifestDigest":      support.Digest(tlsBody),
-		"redirectCacheRequests":  1,
-		"privateRedirectStatus":  http.StatusBadGateway,
-		"privateImageStatus":     privateStatus,
-		"privateImageErrorClass": testkit.String(privateTask["errorClass"]),
-		"untrustedTLSStatus":     http.StatusBadGateway,
-		"downgradeStatus":        http.StatusBadGateway,
-		"publicAuthorityIP":      publicAuthorityIP,
-		"proxyEvidence":          "controlled fixture logs record request state and the real NJU mirror CONNECT relay",
-		"proxyRelay":             proxyRelayEvidence,
-		"tokenDeadline":          tokenDeadlineResults,
-		"tokenRetryRequests":     tokenRetryRequests,
-		"tokenRetryDigest":       support.Digest(tokenRetryBody),
+		"secretName":               secretName,
+		"secretKeySHA256":          fingerprint,
+		"dockerAuthority":          "registry-1.docker.io",
+		"dockerManifestDigest":     digest,
+		"dockerChallengeDigest":    support.Digest(challengeBody),
+		"tokenServiceScope":        "repository:library/registry-hub-test:pull",
+		"secondAuthority":          "github.com",
+		"crossAuthorityAuth":       "absent",
+		"bearerAuthority":          "ghcr.io",
+		"bearerManifestDigest":     support.Digest(ghcrBody),
+		"redirectManifestDigest":   support.Digest(redirectBody),
+		"tlsManifestDigest":        support.Digest(tlsBody),
+		"redirectUpstreamRequests": 2,
+		"privateRedirectStatus":    http.StatusBadGateway,
+		"privateImageStatus":       privateStatus,
+		"privateImageErrorClass":   testkit.String(privateTask["errorClass"]),
+		"untrustedTLSStatus":       http.StatusBadGateway,
+		"downgradeStatus":          http.StatusBadGateway,
+		"publicAuthorityIP":        publicAuthorityIP,
+		"proxyEvidence":            "controlled fixture logs record request state and the real NJU mirror CONNECT relay",
+		"proxyRelay":               proxyRelayEvidence,
+		"tokenDeadline":            tokenDeadlineResults,
+		"tokenRetryRequests":       tokenRetryRequests,
+		"tokenRetryDigest":         support.Digest(tokenRetryBody),
 	})
 }
 
-func waitForSolidifiedTask(ctx context.Context, environment testkit.CaseContext, authority, repository, reference string) error {
-	_, err := waitForTaskStatus(ctx, environment, authority, repository, reference, "solidified")
+func waitForDiscoveredTask(ctx context.Context, environment testkit.CaseContext, authority, repository, reference string) error {
+	_, err := waitForTaskStatus(ctx, environment, authority, repository, reference, "waiting_dependencies")
 	return err
 }

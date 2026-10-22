@@ -8,6 +8,12 @@ import (
 )
 
 func (g *writeGate) persistLocked(ctx context.Context) error {
+	g.state.SchemaVersion = gateSchemaCurrent
+	g.state.ProtectionSessionCount = len(g.state.SessionIDs)
+	if g.state.ProtectedCacheReservations == nil {
+		g.state.ProtectedCacheReservations = make(map[string]int64)
+	}
+	g.state.ProtectedCacheReservationCount = len(g.state.ProtectedCacheReservations)
 	data, err := json.Marshal(g.state)
 	if err != nil {
 		return err

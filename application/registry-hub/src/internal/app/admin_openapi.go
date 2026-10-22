@@ -15,8 +15,23 @@ import (
 )
 
 type adminTaskListResponse struct {
-	Items     []tasks.Task `json:"items"`
-	NextToken string       `json:"nextToken"`
+	Items     []adminTaskView `json:"items"`
+	NextToken string          `json:"nextToken"`
+}
+
+type adminTaskView struct {
+	tasks.Task
+	Graph                map[string]tasks.GraphEntry `json:"graph,omitempty"`
+	Checkpoints          map[string]string           `json:"checkpoints,omitempty"`
+	GraphNodes           []tasks.GraphNode           `json:"graphNodes,omitempty"`
+	GraphNextToken       string                      `json:"graphNextToken,omitempty"`
+	GraphNodesNextToken  string                      `json:"graphNodesNextToken,omitempty"`
+	CheckpointsNextToken string                      `json:"checkpointsNextToken,omitempty"`
+	GCProtectionActive   bool                        `json:"gcProtectionActive"`
+	ProtectionSessions   []protectionSessionStatus   `json:"protectionSessions,omitempty"`
+	OwnerSessionID       string                      `json:"ownerSessionID,omitempty"`
+	Owners               []string                    `json:"owners,omitempty"`
+	OwnersNextToken      string                      `json:"ownersNextToken,omitempty"`
 }
 
 type adminTaskCleanupResponse struct {
@@ -28,8 +43,20 @@ type adminTaskCleanupResponse struct {
 }
 
 type adminGCStatusResponse struct {
-	Gate gateRecord `json:"gate"`
-	Run  gcRun      `json:"run"`
+	Gate            gateRecord                `json:"gate"`
+	Run             gcRun                     `json:"run"`
+	Sessions        []protectionSessionStatus `json:"sessions"`
+	NextToken       string                    `json:"nextToken"`
+	OwnerSessionID  string                    `json:"ownerSessionID,omitempty"`
+	Owners          []string                  `json:"owners,omitempty"`
+	OwnersNextToken string                    `json:"ownersNextToken,omitempty"`
+}
+
+type adminGCConflictDetail struct {
+	Gate        *gateRecord               `json:"gate,omitempty"`
+	Blockers    []protectionSessionStatus `json:"blockers,omitempty"`
+	NextToken   string                    `json:"nextToken,omitempty"`
+	Unavailable bool                      `json:"unavailable,omitempty"`
 }
 
 type adminGCConfirmationRequest struct {

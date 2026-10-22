@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"registry-hub/internal/artifact"
+	"registry-hub/internal/auth"
 	"registry-hub/internal/config"
 	"registry-hub/internal/distribution"
 	"registry-hub/internal/lease"
@@ -144,10 +146,19 @@ func TestCancelIsFencedAndFallbackPublicationRetriesConcurrentIndexConflict(t *t
 		t.Fatal(err)
 	}
 	service := &Service{
-		cfg:   config.Config{Limits: config.Limits{ManifestBytes: 1 << 20, MaxDescriptors: 10, DescriptorDataBytes: 1 << 20}},
-		store: store, registry: registry, tasks: manager, gate: gate, metrics: newMetrics(),
+		ctx: ctx,
+		cfg: config.Config{
+			GCMode: "local",
+			AdminAuth: config.Auth{Basic: []config.Credential{{
+				Username: "operator", Password: "secret", Permissions: []string{auth.TaskAdmin, auth.GCAdmin},
+			}}},
+			Limits: config.Limits{ManifestBytes: 1 << 20, MaxDescriptors: 10, DescriptorDataBytes: 1 << 20},
+		},
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		store:  store, registry: registry, tasks: manager, records: tasks.NewRecords(store), gate: gate, metrics: newMetrics(),
 	}
-	processor := &solidifier{service: service, cfg: service.cfg, tasks: manager}
+	processor := &solidifier{service: service, cfg: service.cfg, tasks: manager, gate: gate}
+	service.gc = &gcController{service: service}
 
 	configData := []byte("{}")
 	configDigest := artifact.CalculateSHA256(configData)
@@ -170,11 +181,32 @@ func TestCancelIsFencedAndFallbackPublicationRetriesConcurrentIndexConflict(t *t
 	if err := manager.SetDiscovered(ctx, &task, rootDigest, ociManifestMediaType); err != nil {
 		t.Fatal(err)
 	}
+	scopeID, err := protectionScopeID(task.Authority, task.Repository, rootDigest, task.Generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID := strings.Repeat("c", 32)
+	if err := gate.AdmitProtection(ctx, sessionID, scopeID, task.ID, 100, 10, 1<<20); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetProtectionState(ctx, task.ID, scopeID, sessionID, 100, true); err != nil {
+		t.Fatal(err)
+	}
+	task, err = manager.Get(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	taskLease, err := manager.Leases().Acquire(ctx, "tasks/"+task.ID, "test-worker", time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer manager.Leases().Release(ctx, taskLease)
+	task.Status = tasks.Running
+	if err := manager.SaveProgress(ctx, &task, taskLease); err != nil {
+		t.Fatal(err)
+	}
+	// The per-manifest session is temporary task context and is not persisted on root tasks.
+	task.ProtectionSessionID = sessionID
 
 	result := make(chan error, 1)
 	go func() {
@@ -193,8 +225,29 @@ func TestCancelIsFencedAndFallbackPublicationRetriesConcurrentIndexConflict(t *t
 	if !persisted.RootPublishing || persisted.RootPublished {
 		t.Fatalf("fallback publication fence state = %#v", persisted)
 	}
-	if _, err := manager.Cancel(ctx, task.ID); !errors.Is(err, tasks.ErrRootPublishing) {
-		t.Fatalf("Cancel() during fallback index publication error = %v, want conflict", err)
+	cancelRequest := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/"+task.ID+"/cancel", nil)
+	cancelRequest.SetBasicAuth("operator", "secret")
+	cancelResponse := httptest.NewRecorder()
+	service.handleAdmin(cancelResponse, cancelRequest)
+	if cancelResponse.Code != http.StatusAccepted {
+		t.Fatalf("cancel during fallback index publication returned %d: %s", cancelResponse.Code, cancelResponse.Body.String())
+	}
+	var cancelView adminTaskView
+	if err := json.Unmarshal(cancelResponse.Body.Bytes(), &cancelView); err != nil {
+		t.Fatal(err)
+	}
+	if cancelView.ID != task.ID || cancelView.Status != tasks.Running || !cancelView.CancelRequested || !cancelView.GCProtectionActive {
+		t.Fatalf("cancel response did not retain the running protection state: %#v", cancelView)
+	}
+	gcRequest := httptest.NewRequest(http.MethodPost, "/api/v1/gc", nil)
+	gcRequest.SetBasicAuth("operator", "secret")
+	gcResponse := httptest.NewRecorder()
+	service.handleAdmin(gcResponse, gcRequest)
+	if gcResponse.Code != http.StatusConflict || !strings.Contains(gcResponse.Body.String(), `"code":"GC_BLOCKED"`) {
+		t.Fatalf("GC after accepted non-quiescent cancellation returned %d: %s", gcResponse.Code, gcResponse.Body.String())
+	}
+	if gate.State().State != "open" || gate.State().ProtectionSessionCount != 1 {
+		t.Fatalf("accepted cancellation changed the GC gate before quiescence: %#v", gate.State())
 	}
 
 	releaseOnce.Do(func() { close(releaseFallbackRead) })
@@ -213,8 +266,15 @@ func TestCancelIsFencedAndFallbackPublicationRetriesConcurrentIndexConflict(t *t
 	if persisted.RootPublishing || persisted.RootPublished {
 		t.Fatalf("completed non-root publication retained its fence: %#v", persisted)
 	}
-	if _, err := manager.Cancel(ctx, task.ID); err != nil {
-		t.Fatalf("Cancel() after fallback index publication error = %v", err)
+	persisted.Status = tasks.Cancelled
+	if err := manager.SaveProgress(ctx, &persisted, taskLease); err != nil {
+		t.Fatalf("save task quiescence after publication = %v", err)
+	}
+	if err := processor.TaskTerminal(ctx, &persisted); err != nil {
+		t.Fatalf("release protection after task quiescence = %v", err)
+	}
+	if !persisted.TerminalCleanupComplete || persisted.GCProtected || gate.State().ProtectionSessionCount != 0 {
+		t.Fatalf("quiescent task retained GC protection: task=%#v gate=%#v", persisted, gate.State())
 	}
 	assertConcurrentFallbackIndex(t, &objectMu, fallbackIndex, fallbackGets, fallbackPuts, leaseProbeFailures, manifestDigest, concurrentDigest)
 }

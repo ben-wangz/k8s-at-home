@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 	"registry-hub/internal/route"
 	"registry-hub/internal/storage"
 	"strings"
-	"time"
 )
 
 func (s *Service) serveUpstreamReferrers(writer http.ResponseWriter, request *http.Request, routed route.Route, query url.Values, meta *requestMeta) {
@@ -140,25 +138,6 @@ func (s *Service) createUpload(writer http.ResponseWriter, request *http.Request
 	}
 	meta.cacheSource = "local"
 	s.writeRegistryResponse(writer, request, routed, response, false)
-}
-
-func (s *Service) abortInternalUpload(location, internalRepository string) {
-	path, query, err := s.registry.ParseLocation(location, internalRepository)
-	if err != nil {
-		s.logger.Warn("internal upload cleanup could not parse Location", "error_class", "distribution")
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	response, err := s.registry.Do(ctx, http.MethodDelete, path, query, make(http.Header), nil, 0)
-	if err != nil {
-		s.logger.Warn("internal upload cleanup failed", "error_class", "distribution")
-		return
-	}
-	_ = response.Body.Close()
-	if response.StatusCode != http.StatusNoContent && response.StatusCode != http.StatusNotFound {
-		s.logger.Warn("internal upload cleanup was not confirmed", "error_class", "distribution")
-	}
 }
 
 func (s *Service) proxyUpload(writer http.ResponseWriter, request *http.Request, routed route.Route, query url.Values, meta *requestMeta) {

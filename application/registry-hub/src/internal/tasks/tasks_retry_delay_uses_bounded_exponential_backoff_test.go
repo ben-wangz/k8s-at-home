@@ -151,21 +151,22 @@ func TestRootPublicationFencesTaskCancellation(t *testing.T) {
 	if err := manager.BeginRootPublish(ctx, &task, currentLease); err != nil {
 		t.Fatalf("BeginRootPublish() error = %v", err)
 	}
-	if _, err := manager.Cancel(ctx, task.ID); !errors.Is(err, ErrRootPublishing) {
-		t.Fatalf("Cancel() error = %v, want root publication conflict", err)
+	cancelled, err := manager.Cancel(ctx, task.ID)
+	if err != nil || !cancelled.CancelRequested {
+		t.Fatalf("Cancel() = %#v, %v; want durable cancellation intent", cancelled, err)
 	}
 	persisted := mustGetTask(t, manager, task.ID)
-	if !persisted.RootPublishing || persisted.CancelRequested {
+	if !persisted.RootPublishing || !persisted.CancelRequested {
 		t.Fatalf("root publish barrier state = %#v", persisted)
 	}
 	if err := manager.MarkRootPublished(ctx, &task, currentLease); err != nil {
 		t.Fatalf("MarkRootPublished() error = %v", err)
 	}
-	if _, err := manager.Cancel(ctx, task.ID); !errors.Is(err, ErrRootPublishing) {
-		t.Fatalf("Cancel() after publication error = %v, want root publication conflict", err)
+	if _, err := manager.Cancel(ctx, task.ID); err != nil {
+		t.Fatalf("Cancel() after publication error = %v", err)
 	}
 	persisted = mustGetTask(t, manager, task.ID)
-	if persisted.RootPublishing || !persisted.RootPublished || persisted.CancelRequested {
+	if persisted.RootPublishing || !persisted.RootPublished || !persisted.CancelRequested {
 		t.Fatalf("published task state = %#v", persisted)
 	}
 }

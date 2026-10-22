@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
-	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -13,12 +12,31 @@ import (
 	"io"
 	"net/http"
 	"registry-hub/internal/storage"
+	"time"
 )
 
-func (s *Store) putMultipart(ctx context.Context, key, name string, body io.Reader, size int64, options storage.PutOptions) (storage.Entry, error) {
+func (s *Store) putMultipart(ctx context.Context, key, name string, source *replaySource, options storage.PutOptions) (storage.Entry, error) {
+	partSizeLimit := s.partSize
+	if partSizeLimit <= 0 {
+		partSizeLimit = 16 << 20
+	}
+	partCount := (source.size-1)/partSizeLimit + 1
+	if partCount > 10000 || partCount > int64(maxInt()) {
+		return storage.Entry{}, errors.New("S3 multipart upload exceeds the supported part count")
+	}
+	operationID, err := newOperationID()
+	if err != nil {
+		return storage.Entry{}, err
+	}
+	releaseOwnership, err := s.beginMultipart(ctx, name)
+	if err != nil {
+		return storage.Entry{}, err
+	}
+	defer releaseOwnership()
 	created, err := s.client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(name),
+		Bucket:   aws.String(s.bucket),
+		Key:      aws.String(name),
+		Metadata: map[string]string{"registry-hub-operation": operationID},
 	})
 	if err != nil {
 		return storage.Entry{}, mapError(err)
@@ -28,29 +46,36 @@ func (s *Store) putMultipart(ctx context.Context, key, name string, body io.Read
 		return storage.Entry{}, errors.New("S3 multipart upload did not return an upload ID")
 	}
 	abort := func() error {
-		_, abortErr := s.client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, abortErr := s.client.AbortMultipartUpload(cleanupCtx, &s3.AbortMultipartUploadInput{
 			Bucket: aws.String(s.bucket), Key: aws.String(name), UploadId: aws.String(uploadID),
 		})
 		return abortErr
 	}
-	source := &digestReader{reader: body, hash: sha256.New()}
-	parts := make([]types.CompletedPart, 0, int((size+s.partSize-1)/s.partSize))
-	remaining := size
+	parts := make([]types.CompletedPart, 0, int(partCount))
+	remaining := source.size
+	var offset int64
 	for partNumber := int32(1); remaining > 0; partNumber++ {
 		if partNumber > 10000 {
 			_ = abort()
 			return storage.Entry{}, errors.New("S3 multipart upload exceeds 10000 parts")
 		}
-		partSize := s.partSize
+		partSize := partSizeLimit
 		if remaining < partSize {
 			partSize = remaining
 		}
+		partBody, openErr := source.OpenRange(offset, partSize)
+		if openErr != nil {
+			return storage.Entry{}, errors.Join(openErr, abort())
+		}
 		uploaded, uploadErr := s.client.UploadPart(ctx, &s3.UploadPartInput{
 			Bucket: aws.String(s.bucket), Key: aws.String(name), UploadId: aws.String(uploadID),
-			PartNumber: aws.Int32(partNumber), Body: io.LimitReader(source, partSize), ContentLength: aws.Int64(partSize),
+			PartNumber: aws.Int32(partNumber), Body: partBody, ContentLength: aws.Int64(partSize),
 		}, func(options *s3.Options) {
 			options.APIOptions = append(options.APIOptions, v4.SwapComputePayloadSHA256ForUnsignedPayloadMiddleware)
 		})
+		_ = partBody.Close()
 		if uploadErr != nil {
 			return storage.Entry{}, errors.Join(mapError(uploadErr), abort())
 		}
@@ -59,40 +84,38 @@ func (s *Store) putMultipart(ctx context.Context, key, name string, body io.Read
 		}
 		parts = append(parts, types.CompletedPart{ETag: uploaded.ETag, PartNumber: aws.Int32(partNumber)})
 		remaining -= partSize
-	}
-	if source.count != size {
-		return storage.Entry{}, errors.Join(errors.New("S3 multipart stream length mismatch"), abort())
-	}
-	if extra, extraErr := readerHasExtra(source); extra || extraErr != nil {
-		if extraErr != nil {
-			return storage.Entry{}, errors.Join(fmt.Errorf("S3 multipart stream could not be verified: %w", extraErr), abort())
-		}
-		return storage.Entry{}, errors.Join(errors.New("S3 multipart stream length mismatch"), abort())
+		offset += partSize
 	}
 	complete := &s3.CompleteMultipartUploadInput{
 		Bucket: aws.String(s.bucket), Key: aws.String(name), UploadId: aws.String(uploadID),
 		MultipartUpload: &types.CompletedMultipartUpload{Parts: parts},
 	}
 	applyConditions(&complete.IfNoneMatch, &complete.IfMatch, options)
+	ctx, retryObserver := withRetryObserver(ctx)
 	result, err := s.client.CompleteMultipartUpload(ctx, complete)
 	if err != nil {
 		mapped := mapPutError(err, options)
-		if shouldResolve(err) {
-			if entry, ok := s.resolvePut(ctx, key, size, source.hash.Sum(nil)); ok {
+		if errors.Is(mapped, storage.ErrConditionFailed) && !retryObserver.retried.Load() {
+			return storage.Entry{}, errors.Join(mapped, abort())
+		}
+		if shouldResolve(err) || retryObserver.retried.Load() {
+			entry, ok, readErr := s.resolvePut(ctx, key, source.size, source.digest[:], operationID)
+			if ok {
 				return entry, nil
 			}
-			return storage.Entry{}, errors.Join(storage.ErrUnknownCommit, mapped, abort())
+			return storage.Entry{}, errors.Join(storage.ErrUnknownCommit, mapped, readErr)
 		}
 		return storage.Entry{}, errors.Join(mapped, abort())
 	}
 	version := aws.ToString(result.ETag)
 	if version == "" {
-		if entry, ok := s.resolvePut(ctx, key, size, source.hash.Sum(nil)); ok {
+		entry, ok, readErr := s.resolvePut(ctx, key, source.size, source.digest[:], operationID)
+		if ok {
 			return entry, nil
 		}
-		return storage.Entry{}, errors.Join(storage.ErrUnknownCommit, errors.New("S3 CompleteMultipartUpload response did not provide an ETag"))
+		return storage.Entry{}, errors.Join(storage.ErrUnknownCommit, errors.New("S3 CompleteMultipartUpload response did not provide an ETag"), readErr)
 	}
-	return storage.Entry{Key: key, Version: version, Size: size}, nil
+	return storage.Entry{Key: key, Version: version, Size: source.size}, nil
 }
 
 func applyConditions(ifNoneMatch, ifMatch **string, options storage.PutOptions) {
@@ -112,25 +135,46 @@ func mapPutError(err error, options storage.PutOptions) error {
 	return mapped
 }
 
-func (s *Store) resolvePut(ctx context.Context, key string, size int64, expected []byte) (storage.Entry, bool) {
-	entry, err := s.Head(ctx, key)
-	if err != nil || entry.Size != size {
-		return storage.Entry{}, false
-	}
-	object, err := s.Get(ctx, key)
+func (s *Store) resolvePut(ctx context.Context, key string, size int64, expected []byte, operationID string) (storage.Entry, bool, error) {
+	name, err := s.objectKey(key)
 	if err != nil {
-		return storage.Entry{}, false
+		return storage.Entry{}, false, err
+	}
+	head, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(name)})
+	if err != nil {
+		return storage.Entry{}, false, mapError(err)
+	}
+	if aws.ToInt64(head.ContentLength) != size || head.Metadata["registry-hub-operation"] != operationID || aws.ToString(head.ETag) == "" {
+		return storage.Entry{}, false, nil
+	}
+	object, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket), Key: aws.String(name), IfMatch: head.ETag, VersionId: head.VersionId,
+	})
+	if err != nil {
+		return storage.Entry{}, false, mapError(err)
+	}
+	if object.Metadata["registry-hub-operation"] != operationID || aws.ToString(object.ETag) != aws.ToString(head.ETag) ||
+		aws.ToString(object.VersionId) != aws.ToString(head.VersionId) || aws.ToInt64(object.ContentLength) != size {
+		if closeErr := object.Body.Close(); closeErr != nil {
+			return storage.Entry{}, false, mapError(closeErr)
+		}
+		return storage.Entry{}, false, nil
 	}
 	hash := sha256.New()
-	_, copyErr := io.Copy(hash, object.Body)
+	reader := io.Reader(object.Body)
+	if size < int64(^uint64(0)>>1) {
+		reader = io.LimitReader(object.Body, size+1)
+	}
+	count, copyErr := io.Copy(hash, reader)
 	closeErr := object.Body.Close()
 	if copyErr != nil || closeErr != nil {
-		return storage.Entry{}, false
+		return storage.Entry{}, false, errors.Join(mapError(copyErr), mapError(closeErr))
 	}
-	if !bytes.Equal(hash.Sum(nil), expected) {
-		return storage.Entry{}, false
+	if count != size || !bytes.Equal(hash.Sum(nil), expected) {
+		return storage.Entry{}, false, nil
 	}
-	return entry, true
+	entry := storage.Entry{Key: key, Version: aws.ToString(head.ETag), Size: size}
+	return entry, true, nil
 }
 
 func (s *Store) Delete(ctx context.Context, key string) error {
@@ -213,8 +257,18 @@ func (s *Store) List(ctx context.Context, prefix, token string, limit int) ([]st
 }
 
 func (s *Store) Close() error {
-	if transport, ok := s.httpClient.Transport.(*http.Transport); ok {
-		transport.CloseIdleConnections()
+	s.replayMu.Lock()
+	s.replayClosed = true
+	replay := s.replay
+	s.replayMu.Unlock()
+	var replayErr error
+	if replay != nil {
+		replayErr = replay.Close()
 	}
-	return nil
+	if s.httpClient != nil {
+		if transport, ok := s.httpClient.Transport.(*http.Transport); ok {
+			transport.CloseIdleConnections()
+		}
+	}
+	return replayErr
 }

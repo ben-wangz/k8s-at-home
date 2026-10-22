@@ -69,9 +69,10 @@ func serveIdleFullBlob(writer http.ResponseWriter, request *http.Request, fixtur
 	writer.WriteHeader(http.StatusOK)
 	_, _ = writer.Write(data[:1<<20])
 	flushResponse(writer)
+	idleStarted := time.Now()
 	log.Printf("resume_fixture reference=%s mode=%s sent=%d complete=false stage=idle", fixture.reference, fixture.mode, 1<<20)
 	<-request.Context().Done()
-	log.Printf("resume_fixture reference=%s mode=%s cancelled=true", fixture.reference, fixture.mode)
+	log.Printf("resume_fixture reference=%s mode=%s cancelled=true idleMillis=%d", fixture.reference, fixture.mode, time.Since(idleStarted).Milliseconds())
 }
 
 func serveConcurrentFullBlob(writer http.ResponseWriter, request *http.Request, fixture *resumeFixture, data []byte) {

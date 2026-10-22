@@ -11,33 +11,65 @@ import (
 )
 
 type metrics struct {
-	registry          *prometheus.Registry
-	requests          *prometheus.CounterVec
-	requestLatency    *prometheus.HistogramVec
-	upstream          *prometheus.CounterVec
-	tasks             *prometheus.GaugeVec
-	taskAuthorities   *prometheus.GaugeVec
-	taskErrors        *prometheus.GaugeVec
-	gate              *prometheus.GaugeVec
-	concurrency       *prometheus.GaugeVec
-	rejections        *prometheus.CounterVec
-	events            *prometheus.CounterVec
-	gcRuns            *prometheus.CounterVec
-	gcDuration        prometheus.Histogram
-	storageOps        *prometheus.CounterVec
-	storageLatency    *prometheus.HistogramVec
-	storageWarnings   *prometheus.CounterVec
-	objectLeases      *prometheus.GaugeVec
-	cacheObjects      prometheus.Gauge
-	cacheBytes        prometheus.Gauge
-	cacheStaging      prometheus.Gauge
-	cacheOrphans      prometheus.Gauge
-	cacheCleanup      prometheus.Gauge
-	distributionErr   *prometheus.CounterVec
-	distributionVal   *prometheus.CounterVec
-	referrerSources   *prometheus.CounterVec
-	referrerRepair    prometheus.Gauge
-	referrerReconcile *prometheus.CounterVec
+	registry               *prometheus.Registry
+	requests               *prometheus.CounterVec
+	requestLatency         *prometheus.HistogramVec
+	upstream               *prometheus.CounterVec
+	tasks                  *prometheus.GaugeVec
+	taskKinds              *prometheus.GaugeVec
+	taskAuthorities        *prometheus.GaugeVec
+	taskErrors             *prometheus.GaugeVec
+	taskWaitReasons        *prometheus.GaugeVec
+	taskRetries            *prometheus.GaugeVec
+	taskCancelPhases       *prometheus.GaugeVec
+	blobIntents            *prometheus.GaugeVec
+	blobIntentLimit        prometheus.Gauge
+	taskRunnable           prometheus.Gauge
+	taskWaiting            prometheus.Gauge
+	recoveryUnknown        prometheus.Gauge
+	gcBlockers             *prometheus.GaugeVec
+	gate                   *prometheus.GaugeVec
+	concurrency            *prometheus.GaugeVec
+	rejections             *prometheus.CounterVec
+	events                 *prometheus.CounterVec
+	gcRuns                 *prometheus.CounterVec
+	gcDuration             prometheus.Histogram
+	storageOps             *prometheus.CounterVec
+	storageLatency         *prometheus.HistogramVec
+	storageWarnings        *prometheus.CounterVec
+	objectLeases           *prometheus.GaugeVec
+	cacheObjects           prometheus.Gauge
+	cacheBytes             prometheus.Gauge
+	cacheStaging           prometheus.Gauge
+	cacheOrphans           prometheus.Gauge
+	cacheCleanup           prometheus.Gauge
+	distributionErr        *prometheus.CounterVec
+	distributionVal        *prometheus.CounterVec
+	referrerSources        *prometheus.CounterVec
+	referrerRepair         prometheus.Gauge
+	referrerReconcile      *prometheus.CounterVec
+	protectionSessions     *prometheus.GaugeVec
+	protectionReserved     *prometheus.GaugeVec
+	protectionLimit        prometheus.Gauge
+	protectedCacheReserved prometheus.Gauge
+	protectedCacheLimit    prometheus.Gauge
+	recoveryBarrier        prometheus.Gauge
+	partialReserved        prometheus.Gauge
+	partialSessions        prometheus.Gauge
+	partialLimit           prometheus.Gauge
+	s3ReplayMemory         prometheus.Gauge
+	s3ReplayDisk           prometheus.Gauge
+	s3ReplayActive         prometheus.Gauge
+}
+
+var taskWaitReasonLabels = []string{
+	"awaiting_manifest_anchor", "awaiting_manifest_demand", "cache_entry_unavailable", "dependencies_unavailable",
+	"distribution_quota", "gc_admission", "manifest_scope_admission", "protected_cache_capacity",
+	"protection_transfer", "remote_operations_pending", "other",
+}
+
+var blobIntentMetricStates = []string{
+	"waiting_cache", "waiting_capacity", "ready", "running", "retry_wait", "verified_local", "anchored", "failed", "cancelled", "other",
 }
 
 func newMetrics() *metrics {
@@ -56,12 +88,42 @@ func newMetrics() *metrics {
 		tasks: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "registry_hub_tasks", Help: "Persisted solidification tasks by state.",
 		}, []string{"state"}),
+		taskKinds: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "registry_hub_tasks_by_kind_state", Help: "Persisted solidification tasks by bounded kind and state.",
+		}, []string{"kind", "state"}),
 		taskAuthorities: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "registry_hub_tasks_by_authority_class", Help: "Persisted solidification tasks by state and authority class.",
 		}, []string{"state", "authority_class"}),
 		taskErrors: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "registry_hub_task_errors", Help: "Persisted solidification tasks by stable error class.",
 		}, []string{"class"}),
+		taskWaitReasons: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "registry_hub_task_waiting", Help: "Waiting solidification tasks by bounded wait reason.",
+		}, []string{"reason"}),
+		taskRetries: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "registry_hub_task_retry_attempts", Help: "Persisted task retry attempts by bounded kind and state.",
+		}, []string{"kind", "state"}),
+		taskCancelPhases: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "registry_hub_task_cancellations", Help: "Tasks with cancellation intent by bounded phase.",
+		}, []string{"phase"}),
+		blobIntents: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "registry_hub_blob_intents", Help: "Persisted blob intents by bounded state.",
+		}, []string{"state"}),
+		blobIntentLimit: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "registry_hub_blob_intent_limit", Help: "Configured maximum count of active blob intents.",
+		}),
+		taskRunnable: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "registry_hub_tasks_runnable", Help: "Tasks eligible for a solidification worker.",
+		}),
+		taskWaiting: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "registry_hub_tasks_waiting", Help: "Tasks waiting for cache, dependencies, or capacity.",
+		}),
+		recoveryUnknown: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "registry_hub_solidification_recovery_unknown", Help: "Tasks retained with unresolved protection recovery state.",
+		}),
+		gcBlockers: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "registry_hub_gc_blockers", Help: "Solidification sessions blocking GC by bounded reason.",
+		}, []string{"reason"}),
 		gate: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "registry_hub_gc_gate", Help: "Whether the GC write gate is in a named state.",
 		}, []string{"state"}),
@@ -124,11 +186,79 @@ func newMetrics() *metrics {
 		referrerReconcile: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "registry_hub_referrer_reconcile_total", Help: "Referrer reconciliation outcomes.",
 		}, []string{"result"}),
+		protectionSessions: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "registry_hub_solidification_protection_sessions", Help: "Persistent Distribution protection sessions by bounded state.",
+		}, []string{"state"}),
+		protectionReserved: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "registry_hub_solidification_distribution_reserved_bytes", Help: "Distribution reservation bytes by reservation class.",
+		}, []string{"class"}),
+		protectionLimit: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "registry_hub_solidification_distribution_reservation_limit_bytes", Help: "Configured limit for new unanchored Distribution reservations.",
+		}),
+		protectedCacheReserved: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "registry_hub_solidification_protected_cache_reserved_bytes", Help: "Cache bytes reserved as inputs for active blob solidification.",
+		}),
+		protectedCacheLimit: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "registry_hub_solidification_protected_cache_limit_bytes", Help: "Configured limit for active blob solidification cache inputs.",
+		}),
+		recoveryBarrier: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "registry_hub_solidification_recovery_barrier", Help: "Whether solidification recovery blocks new Registry writes.",
+		}),
+		partialReserved: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "registry_hub_download_partial_reserved_bytes", Help: "Reserved bytes for active resumable upstream downloads.",
+		}),
+		partialSessions: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "registry_hub_download_partial_sessions", Help: "Active resumable upstream download sessions.",
+		}),
+		partialLimit: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "registry_hub_download_partial_limit_bytes", Help: "Configured aggregate resumable download reservation limit.",
+		}),
+		s3ReplayMemory: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "registry_hub_s3_replay_memory_bytes", Help: "Backend S3 request replay memory in use.",
+		}),
+		s3ReplayDisk: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "registry_hub_s3_replay_disk_bytes", Help: "Backend S3 request replay temporary disk in use.",
+		}),
+		s3ReplayActive: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "registry_hub_s3_replay_active_sources", Help: "Active Backend S3 request replay sources.",
+		}),
 	}
-	result.registry.MustRegister(result.requests, result.requestLatency, result.upstream, result.tasks, result.taskAuthorities, result.taskErrors, result.gate, result.concurrency, result.rejections, result.events, result.gcRuns, result.gcDuration, result.storageOps, result.storageLatency, result.storageWarnings, result.objectLeases, result.cacheObjects, result.cacheBytes, result.cacheStaging, result.cacheOrphans, result.cacheCleanup, result.distributionErr, result.distributionVal, result.referrerSources, result.referrerRepair, result.referrerReconcile)
+	result.registry.MustRegister(result.requests, result.requestLatency, result.upstream, result.tasks, result.taskKinds, result.taskAuthorities, result.taskErrors, result.taskWaitReasons, result.taskRetries, result.taskCancelPhases, result.blobIntents, result.blobIntentLimit, result.taskRunnable, result.taskWaiting, result.recoveryUnknown, result.gcBlockers, result.gate, result.concurrency, result.rejections, result.events, result.gcRuns, result.gcDuration, result.storageOps, result.storageLatency, result.storageWarnings, result.objectLeases, result.cacheObjects, result.cacheBytes, result.cacheStaging, result.cacheOrphans, result.cacheCleanup, result.distributionErr, result.distributionVal, result.referrerSources, result.referrerRepair, result.referrerReconcile, result.protectionSessions, result.protectionReserved, result.protectionLimit, result.protectedCacheReserved, result.protectedCacheLimit, result.recoveryBarrier, result.partialReserved, result.partialSessions, result.partialLimit, result.s3ReplayMemory, result.s3ReplayDisk, result.s3ReplayActive)
 	result.objectLeases.WithLabelValues("active").Set(0)
 	result.objectLeases.WithLabelValues("waiting").Set(0)
 	result.referrerRepair.Set(0)
+	for _, state := range []string{"protected", "anchoring", "stop_requested", "quiescing", "quiesced", "anchored", "recovery_required", "other"} {
+		result.protectionSessions.WithLabelValues(state).Set(0)
+	}
+	for _, class := range []string{"new", "legacy"} {
+		result.protectionReserved.WithLabelValues(class).Set(0)
+	}
+	result.protectionLimit.Set(0)
+	result.protectedCacheReserved.Set(0)
+	result.protectedCacheLimit.Set(0)
+	result.recoveryBarrier.Set(0)
+	result.taskRunnable.Set(0)
+	result.taskWaiting.Set(0)
+	result.recoveryUnknown.Set(0)
+	result.partialReserved.Set(0)
+	result.partialSessions.Set(0)
+	result.partialLimit.Set(0)
+	result.s3ReplayMemory.Set(0)
+	result.s3ReplayDisk.Set(0)
+	result.s3ReplayActive.Set(0)
+	for _, reason := range taskWaitReasonLabels {
+		result.taskWaitReasons.WithLabelValues(reason).Set(0)
+	}
+	for _, phase := range []string{"stop_requested", "quiesced", "other"} {
+		result.taskCancelPhases.WithLabelValues(phase).Set(0)
+	}
+	for _, state := range blobIntentMetricStates {
+		result.blobIntents.WithLabelValues(state).Set(0)
+	}
+	result.blobIntentLimit.Set(0)
+	for _, reason := range []string{"executing", "unanchored", "cancellation", "unknown", "anchored", "other"} {
+		result.gcBlockers.WithLabelValues(reason).Set(0)
+	}
 	for _, class := range []string{"headers", "manifest", "list", "referrers", "upload", "other"} {
 		result.distributionVal.WithLabelValues(class).Add(0)
 	}
@@ -191,6 +321,14 @@ type observedStore struct {
 
 func newObservedStore(store storage.Store, metrics *metrics, logger *slog.Logger) *observedStore {
 	return &observedStore{Store: store, metrics: metrics, logger: logger}
+}
+
+func (s *observedStore) ReplayUsage() (int64, int64, int) {
+	provider, ok := s.Store.(interface{ ReplayUsage() (int64, int64, int) })
+	if !ok {
+		return 0, 0, 0
+	}
+	return provider.ReplayUsage()
 }
 
 func (s *observedStore) Get(ctx context.Context, key string) (storage.Object, error) {

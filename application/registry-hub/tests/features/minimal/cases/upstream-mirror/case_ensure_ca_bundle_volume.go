@@ -105,7 +105,19 @@ func waitForTaskStatus(ctx context.Context, environment testkit.CaseContext, aut
 			}
 			status := testkit.String(task["status"])
 			if status == expectedStatus {
-				return task, nil
+				id := testkit.String(task["id"])
+				if id == "" {
+					return nil, fmt.Errorf("upstream import task %q has no ID", reference)
+				}
+				detailResponse, err := support.AdminRequest(ctx, environment, http.MethodGet, "/api/v1/tasks/"+url.PathEscape(id), nil, nil)
+				if err != nil {
+					return nil, err
+				}
+				var detail map[string]any
+				if _, err := support.DecodeJSON(detailResponse, 4<<20, &detail); err != nil {
+					return nil, err
+				}
+				return detail, nil
 			}
 			if status == "failed" || status == "cancelled" || status == "solidified" {
 				return nil, fmt.Errorf("upstream import task ended in %s, want %s (%s)", status, expectedStatus, testkit.String(task["errorClass"]))
