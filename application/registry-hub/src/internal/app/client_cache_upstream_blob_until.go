@@ -89,17 +89,21 @@ func (s *Service) downloadSharedBlob(ctx context.Context, routed route.Route, ob
 	if transferTimeout <= 0 {
 		transferTimeout = 24 * time.Hour
 	}
+	finalizeTimeout := s.cfg.Limits.DownloadFinalizeTimeout
+	if finalizeTimeout <= 0 {
+		finalizeTimeout = 300 * time.Second
+	}
 	transferCtx, transferCancel := context.WithTimeout(leaseCtx, transferTimeout)
 	defer transferCancel()
 	manager := s.downloadManager()
 	downloadResult, err := manager.Fetch(transferCtx, download.Request{
 		Identity: identity, Digest: routed.Reference, ExpectedSize: -1, MaxBytes: maxBytes,
 		OwnerFence: objectLease.FencingToken, AttemptLimit: requestTimeout,
-		IdleTimeout: idleTimeout,
-		Guard:       func(ctx context.Context) error { return s.tasks.Leases().Validate(ctx, objectLease) },
-		Retryable:   upstream.Retryable,
-		WaitRetry:   s.downloadRetryWaiter(),
-		Observe:     s.metrics.recordEvent,
+		IdleTimeout: idleTimeout, FinalizeTimeout: finalizeTimeout, LifecycleContext: s.ctx,
+		Guard:     func(ctx context.Context) error { return s.tasks.Leases().Validate(ctx, objectLease) },
+		Retryable: upstream.Retryable,
+		WaitRetry: s.downloadRetryWaiter(),
+		Observe:   s.metrics.recordEvent,
 		Source: func(ctx context.Context, start, end int64, etag string) (*http.Response, context.CancelFunc, error) {
 			attemptCtx, attemptCancel := context.WithCancel(ctx)
 			headers := requestHeaders(nil)
@@ -118,6 +122,11 @@ func (s *Service) downloadSharedBlob(ctx context.Context, routed route.Route, ob
 		},
 	})
 	if err != nil {
+		var persistenceErr *download.PersistenceError
+		var guardErr *download.GuardError
+		if errors.As(err, &persistenceErr) || errors.As(err, &guardErr) || errors.Is(err, download.ErrQuotaExceeded) {
+			return err
+		}
 		var statusErr *download.StatusError
 		if errors.As(err, &statusErr) {
 			return &upstreamBlobFetchError{status: statusErr.Code, retryAfter: statusErr.RetryAfter, err: err}

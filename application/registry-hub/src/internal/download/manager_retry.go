@@ -39,7 +39,17 @@ func (m *Manager) waitRetry(ctx context.Context, request Request, retryAfter str
 	return request.WaitRetry(ctx, retryAfter, attempt)
 }
 
-func (m *Manager) retryable(request Request, err error) bool {
+func terminalDownloadError(err error) bool {
+	var persistence *PersistenceError
+	var guard *GuardError
+	return errors.Is(err, errProgressCommit) || errors.Is(err, ErrQuotaExceeded) ||
+		errors.As(err, &persistence) || errors.As(err, &guard)
+}
+
+func (m *Manager) retryable(ctx context.Context, request Request, err error) bool {
+	if ctx.Err() != nil || terminalDownloadError(err) {
+		return false
+	}
 	if retryable(err) {
 		return true
 	}

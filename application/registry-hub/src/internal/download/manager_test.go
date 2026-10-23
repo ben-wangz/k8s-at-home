@@ -207,7 +207,11 @@ func testManager(store storage.Store) *Manager {
 }
 
 func testRequest(content []byte, digest string, ownerFence uint64, source func(context.Context, int64, int64, string) (*http.Response, context.CancelFunc, error)) Request {
-	return Request{Identity: "registry/repository", Digest: digest, ExpectedSize: int64(len(content)), MaxBytes: 1 << 20, OwnerFence: ownerFence, Source: source}
+	return Request{
+		Identity: "registry/repository", Digest: digest, ExpectedSize: int64(len(content)), MaxBytes: 1 << 20,
+		OwnerFence: ownerFence, Source: source, LifecycleContext: context.Background(),
+		Guard: func(ctx context.Context) error { return ctx.Err() },
+	}
 }
 
 func testResponse(status int, content []byte, length int64, body io.ReadCloser) *http.Response {

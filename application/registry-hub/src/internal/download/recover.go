@@ -31,7 +31,7 @@ func (m *Manager) recoverChunks(ctx context.Context, loaded *stateVersion, reque
 				return ctx.Err()
 			}
 			if !errors.Is(err, storage.ErrCorruptObject) && !errors.Is(err, storage.ErrNotFound) {
-				return err
+				return persistenceError("chunk_recovery", err)
 			}
 			break
 		}
@@ -41,22 +41,25 @@ func (m *Manager) recoverChunks(ctx context.Context, loaded *stateVersion, reque
 	if len(valid) == len(items) {
 		return nil
 	}
-	root, err := m.writeIndex(ctx, loaded.Value, valid)
+	root, err := m.writeIndex(ctx, loaded.Value, valid, request)
 	if err != nil {
 		return err
 	}
-	loaded.Value.Index = root
-	loaded.Value.Offset = offset
-	if err := m.saveState(ctx, loaded, request); err != nil {
-		return err
+	candidate := cloneState(loaded.Value)
+	candidate.Index = root
+	candidate.Offset = offset
+	updated, err := m.commitState(ctx, *loaded, candidate, request)
+	if err != nil {
+		return persistenceError("state_recovery", err)
 	}
+	*loaded = updated
 	if request.Observe != nil {
 		request.Observe("download_recovered_corrupt_chunk")
 	}
 	return nil
 }
 
-func (m *Manager) writeIndex(ctx context.Context, value state, items []chunk) (string, error) {
+func (m *Manager) writeIndex(ctx context.Context, value state, items []chunk, request Request) (string, error) {
 	var previous string
 	for offset := 0; offset < len(items); offset += indexPageLimit {
 		end := offset + indexPageLimit
@@ -73,7 +76,12 @@ func (m *Manager) writeIndex(ctx context.Context, value state, items []chunk) (s
 			return "", err
 		}
 		key := indexPrefix(value.Identity, value.Digest, value.Session) + id + ".json"
-		if _, err := m.putImmutable(ctx, key, data); err != nil {
+		if request.Guard != nil {
+			if err := request.Guard(ctx); err != nil {
+				return "", guardError(err)
+			}
+		}
+		if _, err := m.putImmutable(ctx, key, data, "index_write"); err != nil {
 			return "", err
 		}
 		previous = key

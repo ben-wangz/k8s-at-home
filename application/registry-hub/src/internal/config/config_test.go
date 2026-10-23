@@ -16,8 +16,8 @@ func TestLoadUsesDefaultClosureLimits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load default configuration: %v", err)
 	}
-	if loaded.Limits.ObjectBytes != 100<<30 || loaded.Limits.ClosureObjects != 10000 || loaded.Limits.ClosureBytes != 1<<40 || loaded.Limits.ClosureDepth != 64 || loaded.Limits.RequestTimeout != 300*time.Second || loaded.Limits.BlobTransferTimeout != 24*time.Hour || loaded.Limits.UpstreamBodyIdleTimeout != 60*time.Second || loaded.Limits.DownloadPartialTTL != 24*time.Hour || loaded.Limits.DownloadMaxBytes != 200<<30 {
-		t.Fatalf("default limits = object_bytes:%d objects:%d bytes:%d depth:%d request_timeout:%s blob_timeout:%s idle_timeout:%s partial_ttl:%s download_bytes:%d", loaded.Limits.ObjectBytes, loaded.Limits.ClosureObjects, loaded.Limits.ClosureBytes, loaded.Limits.ClosureDepth, loaded.Limits.RequestTimeout, loaded.Limits.BlobTransferTimeout, loaded.Limits.UpstreamBodyIdleTimeout, loaded.Limits.DownloadPartialTTL, loaded.Limits.DownloadMaxBytes)
+	if loaded.Limits.ObjectBytes != 100<<30 || loaded.Limits.ClosureObjects != 10000 || loaded.Limits.ClosureBytes != 1<<40 || loaded.Limits.ClosureDepth != 64 || loaded.Limits.RequestTimeout != 300*time.Second || loaded.Limits.BlobTransferTimeout != 24*time.Hour || loaded.Limits.UpstreamBodyIdleTimeout != 60*time.Second || loaded.Limits.DownloadFinalizeTimeout != 300*time.Second || loaded.Limits.DownloadPartialTTL != 24*time.Hour || loaded.Limits.DownloadMaxBytes != 200<<30 {
+		t.Fatalf("default limits = object_bytes:%d objects:%d bytes:%d depth:%d request_timeout:%s blob_timeout:%s idle_timeout:%s finalize_timeout:%s partial_ttl:%s download_bytes:%d", loaded.Limits.ObjectBytes, loaded.Limits.ClosureObjects, loaded.Limits.ClosureBytes, loaded.Limits.ClosureDepth, loaded.Limits.RequestTimeout, loaded.Limits.BlobTransferTimeout, loaded.Limits.UpstreamBodyIdleTimeout, loaded.Limits.DownloadFinalizeTimeout, loaded.Limits.DownloadPartialTTL, loaded.Limits.DownloadMaxBytes)
 	}
 	if loaded.S3.Timeout != 300*time.Second || loaded.S3.ReplayMemoryBytes != 16<<20 || loaded.S3.ReplayMaxMemoryBytes != 64<<20 || loaded.S3.ReplayMaxDiskBytes != loaded.Limits.DownloadMaxBytes || loaded.S3.ReplayDirectory != "/tmp/registry-hub-s3-replay" {
 		t.Fatalf("default S3 replay config = timeout:%s memory:%d max_memory:%d max_disk:%d directory:%q", loaded.S3.Timeout, loaded.S3.ReplayMemoryBytes, loaded.S3.ReplayMaxMemoryBytes, loaded.S3.ReplayMaxDiskBytes, loaded.S3.ReplayDirectory)
@@ -44,6 +44,21 @@ func TestLoadUsesConfiguredSolidificationLimits(t *testing.T) {
 	}
 	if loaded.Solidification.IdleTimeout != time.Hour || loaded.Solidification.MaxWaitingRoots != 32 || loaded.Solidification.MaxBlobIntents != 512 || loaded.Solidification.MaxProtectionSessions != 64 || loaded.Solidification.MaxProtectedCacheBytes != 8192 || loaded.Solidification.MaxUnanchoredDistributionBytes != 16384 {
 		t.Fatalf("configured solidification limits = %#v", loaded.Solidification)
+	}
+}
+
+func TestLoadUsesConfiguredDownloadFinalizeTimeout(t *testing.T) {
+	clearRegistryHubEnvironment(t)
+	t.Setenv("REGISTRY_HUB_ADMIN_AUTH_CONFIG", `{"basic":[{"username":"admin","password":"secret","permissions":["task-admin"]}]}`)
+	t.Setenv("REGISTRY_HUB_DISTRIBUTION_AUTH_CONFIG", `{"username":"registry","password":"secret"}`)
+	t.Setenv("REGISTRY_HUB_DOWNLOAD_FINALIZE_TIMEOUT_SECONDS", "45")
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("load configured download finalization timeout: %v", err)
+	}
+	if loaded.Limits.DownloadFinalizeTimeout != 45*time.Second {
+		t.Fatalf("download finalization timeout = %s, want 45s", loaded.Limits.DownloadFinalizeTimeout)
 	}
 }
 
@@ -100,6 +115,7 @@ func TestLoadRejectsDownloadLimitAndTimeoutOverflow(t *testing.T) {
 		{name: "default quota multiplication", key: "REGISTRY_HUB_LIMIT_OBJECT_BYTES", value: "9223372036854775807"},
 		{name: "blob timeout duration", key: "REGISTRY_HUB_BLOB_TRANSFER_TIMEOUT_SECONDS", value: "9223372037"},
 		{name: "idle timeout duration", key: "REGISTRY_HUB_UPSTREAM_BODY_IDLE_TIMEOUT_SECONDS", value: "9223372037"},
+		{name: "download finalization duration", key: "REGISTRY_HUB_DOWNLOAD_FINALIZE_TIMEOUT_SECONDS", value: "9223372037"},
 		{name: "partial TTL duration", key: "REGISTRY_HUB_DOWNLOAD_PARTIAL_TTL_SECONDS", value: "9223372037"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

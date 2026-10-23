@@ -92,6 +92,7 @@ func Load() (Config, error) {
 		RequestTimeout:          time.Duration(intValue("REGISTRY_HUB_REQUEST_TIMEOUT_SECONDS", 300)) * time.Second,
 		BlobTransferTimeout:     secondsValue("REGISTRY_HUB_BLOB_TRANSFER_TIMEOUT_SECONDS", 24*60*60),
 		UpstreamBodyIdleTimeout: secondsValue("REGISTRY_HUB_UPSTREAM_BODY_IDLE_TIMEOUT_SECONDS", 60),
+		DownloadFinalizeTimeout: secondsValue("REGISTRY_HUB_DOWNLOAD_FINALIZE_TIMEOUT_SECONDS", 300),
 		DownloadPartialTTL:      secondsValue("REGISTRY_HUB_DOWNLOAD_PARTIAL_TTL_SECONDS", 24*60*60),
 		DownloadMaxBytes:        downloadMaxBytes,
 	}

@@ -9,6 +9,7 @@ import (
 	"registry-hub/internal/artifact"
 	"registry-hub/internal/config"
 	"registry-hub/internal/distribution"
+	"registry-hub/internal/download"
 	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
@@ -106,6 +107,10 @@ func (s *solidifier) Process(ctx context.Context, task *tasks.Task, taskLease le
 		var stage *solidificationFailureStage
 		if errors.As(result, &failure) && errors.As(failure.Err, &stage) {
 			fields = append(fields, "failure_stage", stage.name)
+		}
+		var downloadErr *download.PersistenceError
+		if errors.As(result, &downloadErr) {
+			fields = append(fields, "download_stage", downloadErr.Stage)
 		}
 		s.service.logger.Warn("solidification failed", fields...)
 	}()

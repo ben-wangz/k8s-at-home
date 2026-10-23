@@ -87,6 +87,7 @@ type Limits struct {
 	RequestTimeout          time.Duration
 	BlobTransferTimeout     time.Duration
 	UpstreamBodyIdleTimeout time.Duration
+	DownloadFinalizeTimeout time.Duration
 	DownloadPartialTTL      time.Duration
 	DownloadMaxBytes        int64
 }

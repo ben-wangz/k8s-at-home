@@ -33,9 +33,13 @@ func (m *Manager) acceptResponse(ctx context.Context, loaded *stateVersion, resp
 		if digest := response.Header.Get("Docker-Content-Digest"); digest != "" && digest != request.Digest {
 			return 0, errors.New("upstream blob digest header does not match the requested digest")
 		}
-		loaded.Value.TotalSize = total
-		loaded.Value.ETag = strongETag(response.Header.Get("ETag"))
-		return total, m.saveState(ctx, loaded, request)
+		candidate := cloneState(loaded.Value)
+		candidate.TotalSize = total
+		candidate.ETag = strongETag(response.Header.Get("ETag"))
+		if err := m.updateState(ctx, loaded, candidate, request); err != nil {
+			return 0, err
+		}
+		return total, nil
 	}
 	if response.StatusCode != http.StatusPartialContent || start <= 0 {
 		if response.StatusCode == http.StatusPartialContent {
@@ -67,11 +71,15 @@ func (m *Manager) acceptResponse(ctx context.Context, loaded *stateVersion, resp
 			return 0, errUpstreamValidatorChanged
 		}
 	}
-	loaded.Value.TotalSize = total
+	candidate := cloneState(loaded.Value)
+	candidate.TotalSize = total
 	if current := strongETag(response.Header.Get("ETag")); current != "" {
-		loaded.Value.ETag = current
+		candidate.ETag = current
 	}
-	return last - first + 1, m.saveState(ctx, loaded, request)
+	if err := m.updateState(ctx, loaded, candidate, request); err != nil {
+		return 0, err
+	}
+	return last - first + 1, nil
 }
 
 func parseContentRange(value string) (int64, int64, int64, error) {
@@ -107,7 +115,11 @@ func (m *Manager) copyResponse(ctx context.Context, body io.Reader, cancelBody c
 				size = len(buffered)
 			}
 			if err := m.appendChunk(flushCtx, loaded, request, loaded.Value.Offset, buffered[:size]); err != nil {
-				return errors.Join(errProgressCommit, err)
+				var guardErr *GuardError
+				if errors.As(err, &guardErr) || errors.Is(err, ErrQuotaExceeded) {
+					return errors.Join(errProgressCommit, err)
+				}
+				return errors.Join(errProgressCommit, persistenceError("chunk_commit", err))
 			}
 			buffered = buffered[size:]
 		}
@@ -131,9 +143,25 @@ func (m *Manager) copyResponse(ctx context.Context, body io.Reader, cancelBody c
 			}
 		}
 		if readErr != nil {
-			flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			flushCtx := ctx
+			finish := func() {}
+			needsFinalState := errors.Is(readErr, io.EOF) && loaded.Value.TotalSize < 0
+			if ctx.Err() != nil && (len(buffered) > 0 || needsFinalState) {
+				finalCtx, finalize, finalizeErr, allowed := m.salvageContext(ctx, request)
+				if finalizeErr != nil {
+					return errors.Join(readErr, finalizeErr)
+				}
+				if !allowed {
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					return readErr
+				}
+				flushCtx = finalCtx
+				finish = finalize
+			}
 			flushErr := flush(flushCtx, true)
-			cancel()
+			defer finish()
 			if flushErr != nil {
 				return errors.Join(readErr, flushErr)
 			}
@@ -142,19 +170,53 @@ func (m *Manager) copyResponse(ctx context.Context, body io.Reader, cancelBody c
 					return errors.New("upstream body ended before its declared content length")
 				}
 				if loaded.Value.TotalSize < 0 {
-					loaded.Value.TotalSize = loaded.Value.Offset
-					if err := m.saveState(ctx, loaded, request); err != nil {
+					candidate := cloneState(loaded.Value)
+					candidate.TotalSize = loaded.Value.Offset
+					if err := m.updateState(flushCtx, loaded, candidate, request); err != nil {
 						return err
 					}
 				}
 				if loaded.Value.Offset != loaded.Value.TotalSize || request.ExpectedSize >= 0 && loaded.Value.Offset != request.ExpectedSize {
 					return io.ErrUnexpectedEOF
 				}
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				return nil
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
 			}
 			return readErr
 		}
 	}
+}
+
+func (m *Manager) salvageContext(ctx context.Context, request Request) (context.Context, func(), error, bool) {
+	if request.LifecycleContext == nil || request.Guard == nil || request.LifecycleContext.Err() != nil {
+		return nil, nil, nil, false
+	}
+	timeout := request.FinalizeTimeout
+	if timeout <= 0 {
+		timeout = defaultFinalizeTimeout
+	}
+	finalCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	stopLifecycle := context.AfterFunc(request.LifecycleContext, cancel)
+	if request.LifecycleContext.Err() != nil {
+		stopLifecycle()
+		cancel()
+		return nil, nil, nil, false
+	}
+	if err := request.Guard(finalCtx); err != nil {
+		stopLifecycle()
+		cancel()
+		return nil, nil, guardError(err), false
+	}
+	finish := func() {
+		stopLifecycle()
+		cancel()
+	}
+	return finalCtx, finish, nil, true
 }
 
 func (m *Manager) readChunk(ctx context.Context, body io.Reader, cancelBody context.CancelFunc, buffer []byte, idleTimeout time.Duration) (int, error) {

@@ -10,11 +10,12 @@ import (
 )
 
 const (
-	stateSchemaVersion   = 1
-	indexPageLimit       = 256
-	defaultChunkSize     = 8 << 20
-	maxNoProgressRetries = 3
-	partialPrefix        = "downloads/v1/"
+	stateSchemaVersion     = 1
+	indexPageLimit         = 256
+	defaultChunkSize       = 8 << 20
+	defaultFinalizeTimeout = 300 * time.Second
+	maxNoProgressRetries   = 3
+	partialPrefix          = "downloads/v1/"
 )
 
 type chunk struct {
@@ -60,22 +61,25 @@ type Manager struct {
 	chunkSize   int64
 	maxReserved int64
 	now         func() time.Time
+	quotaWait   func(context.Context, int) error
 }
 
 type Request struct {
-	Identity     string
-	Digest       string
-	ExpectedSize int64
-	MaxBytes     int64
-	OwnerFence   uint64
-	Guard        func(context.Context) error
-	AttemptLimit time.Duration
-	IdleTimeout  time.Duration
-	TotalTimeout time.Duration
-	Source       func(context.Context, int64, int64, string) (*http.Response, context.CancelFunc, error)
-	WaitRetry    func(context.Context, string, int) error
-	Retryable    func(error) bool
-	Observe      func(string)
+	Identity         string
+	Digest           string
+	ExpectedSize     int64
+	MaxBytes         int64
+	OwnerFence       uint64
+	Guard            func(context.Context) error
+	AttemptLimit     time.Duration
+	IdleTimeout      time.Duration
+	TotalTimeout     time.Duration
+	FinalizeTimeout  time.Duration
+	LifecycleContext context.Context
+	Source           func(context.Context, int64, int64, string) (*http.Response, context.CancelFunc, error)
+	WaitRetry        func(context.Context, string, int) error
+	Retryable        func(error) bool
+	Observe          func(string)
 }
 
 type Result struct {
@@ -89,7 +93,7 @@ func New(store storage.Store, maxReserved int64) *Manager {
 	if maxReserved <= 0 {
 		maxReserved = 200 << 30
 	}
-	return &Manager{store: store, chunkSize: defaultChunkSize, maxReserved: maxReserved, now: time.Now}
+	return &Manager{store: store, chunkSize: defaultChunkSize, maxReserved: maxReserved, now: time.Now, quotaWait: waitQuotaConflict}
 }
 
 func (m *Manager) Fetch(ctx context.Context, request Request) (Result, error) {
@@ -134,7 +138,7 @@ func (m *Manager) Fetch(ctx context.Context, request Request) (Result, error) {
 		}
 		response, cancel, requestErr := request.Source(ctx, start, end, loaded.Value.ETag)
 		if requestErr != nil {
-			if !m.retryable(request, requestErr) || noProgressAttempts >= maxNoProgressRetries {
+			if !m.retryable(ctx, request, requestErr) || noProgressAttempts >= maxNoProgressRetries {
 				return Result{}, requestErr
 			}
 			noProgressAttempts++
@@ -158,9 +162,15 @@ func (m *Manager) Fetch(ctx context.Context, request Request) (Result, error) {
 			_ = response.Body.Close()
 			cancel()
 			if loaded.Value.ExpectedSize == start || loaded.Value.TotalSize == start {
-				loaded.Value.TotalSize = start
+				candidate := loaded.Value
+				candidate.TotalSize = start
 				result.Size = start
-				return result, m.saveState(ctx, &loaded, request)
+				updated, commitErr := m.commitState(ctx, loaded, candidate, request)
+				if commitErr != nil {
+					return Result{}, commitErr
+				}
+				loaded = updated
+				return result, nil
 			}
 			if loaded.Value.Fallbacks > 0 {
 				return Result{}, errors.New("upstream repeatedly rejected a resumable range")
@@ -223,7 +233,7 @@ func (m *Manager) Fetch(ctx context.Context, request Request) (Result, error) {
 		_ = response.Body.Close()
 		cancel()
 		if readErr != nil {
-			if !m.retryable(request, readErr) {
+			if !m.retryable(ctx, request, readErr) {
 				return Result{}, readErr
 			}
 			if loaded.Value.Offset > start {

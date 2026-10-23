@@ -7,6 +7,8 @@ import (
 	"errors"
 	"io"
 	"math"
+	"math/rand/v2"
+	"time"
 
 	"registry-hub/internal/storage"
 )
@@ -56,25 +58,31 @@ func (m *Manager) reserve(ctx context.Context, request Request, session string, 
 			current.Reservations = make(map[string]quotaReservation)
 		}
 		old, exists := current.Reservations[key]
-		used := int64(0)
-		for reservationKey, reservation := range current.Reservations {
-			if reservationKey != key {
-				if reservation.Bytes > math.MaxInt64-used {
-					return ErrQuotaExceeded
-				}
-				used += reservation.Bytes
-			}
-		}
-		if !exists && len(current.Reservations) >= maxActiveSessions || required > m.maxReserved-used {
-			return ErrQuotaExceeded
+		if exists && (old.Session == "" || old.Bytes < 0) {
+			return persistenceError("quota_validate", storage.ErrCorruptObject)
 		}
 		if exists && required < old.Bytes {
 			required = old.Bytes
 		}
+		used := int64(0)
+		for reservationKey, reservation := range current.Reservations {
+			if reservationKey != key {
+				if reservation.Session == "" || reservation.Bytes < 0 || reservation.Bytes > math.MaxInt64-used {
+					return persistenceError("quota_validate", storage.ErrCorruptObject)
+				}
+				used += reservation.Bytes
+			}
+		}
+		if !exists && len(current.Reservations) >= maxActiveSessions || used > m.maxReserved || required > m.maxReserved-used {
+			return ErrQuotaExceeded
+		}
 		if request.Guard != nil {
 			if err := request.Guard(ctx); err != nil {
-				return err
+				return guardError(err)
 			}
+		}
+		if exists && old.Session == session && old.Bytes >= required {
+			return nil
 		}
 		current.Reservations[key] = quotaReservation{Session: session, Bytes: required}
 		data, err := json.Marshal(current)
@@ -87,6 +95,12 @@ func (m *Manager) reserve(ctx context.Context, request Request, session string, 
 			options.IfAbsent = false
 		}
 		if _, err := m.store.Put(ctx, quotaKey, bytes.NewReader(data), int64(len(data)), options); errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrAlreadyExists) {
+			if attempt == 15 {
+				return persistenceError("quota_reserve", storage.ErrConditionFailed)
+			}
+			if err := m.waitQuota(ctx, attempt); err != nil {
+				return guardError(err)
+			}
 			continue
 		} else if errors.Is(err, storage.ErrUnknownCommit) {
 			latest, _, readErr := m.readQuota(ctx)
@@ -95,26 +109,68 @@ func (m *Manager) reserve(ctx context.Context, request Request, session string, 
 				if committed.Session == session && committed.Bytes >= required {
 					return nil
 				}
-				continue
 			}
-			return errors.Join(err, readErr)
+			return persistenceError("quota_reserve_confirm", errors.Join(err, readErr))
 		} else if err != nil {
-			return err
+			return persistenceError("quota_reserve", err)
 		}
 		return nil
 	}
-	return storage.ErrConditionFailed
+	return persistenceError("quota_reserve", storage.ErrConditionFailed)
+}
+
+func (m *Manager) waitQuota(ctx context.Context, conflict int) error {
+	if m.quotaWait == nil {
+		return waitQuotaConflict(ctx, conflict)
+	}
+	return m.quotaWait(ctx, conflict)
+}
+
+func waitQuotaConflict(ctx context.Context, conflict int) error {
+	limit := quotaBackoffLimit(conflict)
+	delay := time.Duration(rand.Int64N(int64(limit) + 1))
+	if delay == 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func quotaBackoffLimit(conflict int) time.Duration {
+	const maximum = 250 * time.Millisecond
+	if conflict < 0 {
+		conflict = 0
+	}
+	if conflict >= 5 {
+		return maximum
+	}
+	limit := 10 * time.Millisecond * time.Duration(1<<conflict)
+	if limit > maximum {
+		return maximum
+	}
+	return limit
 }
 
 func (m *Manager) readQuota(ctx context.Context) (quotaState, string, error) {
 	object, err := m.store.Get(ctx, quotaKey)
 	if err != nil {
-		return quotaState{}, "", err
+		return quotaState{}, "", persistenceError("quota_read", err)
 	}
 	defer object.Body.Close()
 	var result quotaState
 	if err := json.NewDecoder(io.LimitReader(object.Body, 4<<20)).Decode(&result); err != nil || result.Reservations == nil {
-		return quotaState{}, "", storage.ErrCorruptObject
+		return quotaState{}, "", persistenceError("quota_decode", storage.ErrCorruptObject)
+	}
+	for _, reservation := range result.Reservations {
+		if reservation.Session == "" || reservation.Bytes < 0 {
+			return quotaState{}, "", persistenceError("quota_validate", storage.ErrCorruptObject)
+		}
 	}
 	return result, object.Version, nil
 }
@@ -139,23 +195,29 @@ func (m *Manager) release(ctx context.Context, identity, digest, session string)
 			return err
 		}
 		if _, err := m.store.Put(ctx, quotaKey, bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfMatch: version}); errors.Is(err, storage.ErrConditionFailed) {
+			if attempt == 15 {
+				return persistenceError("quota_release", storage.ErrConditionFailed)
+			}
+			if waitErr := m.waitQuota(ctx, attempt); waitErr != nil {
+				return persistenceError("quota_release", waitErr)
+			}
 			continue
 		} else if errors.Is(err, storage.ErrUnknownCommit) {
 			latest, _, readErr := m.readQuota(ctx)
-			if readErr == nil {
-				committed, exists := latest.Reservations[key]
-				if !exists || committed.Session != session {
-					return nil
-				}
-				continue
+			if readErr != nil {
+				return persistenceError("quota_release_confirm", errors.Join(err, readErr))
 			}
-			return errors.Join(err, readErr)
+			committed, exists := latest.Reservations[key]
+			if !exists || committed.Session != session {
+				return nil
+			}
+			return persistenceError("quota_release_confirm", storage.ErrUnknownCommit)
 		} else if err != nil {
-			return err
+			return persistenceError("quota_release", err)
 		}
 		return nil
 	}
-	return storage.ErrConditionFailed
+	return persistenceError("quota_release", storage.ErrConditionFailed)
 }
 
 func (m *Manager) cleanupOrphanReservations(ctx context.Context) error {
@@ -168,12 +230,14 @@ func (m *Manager) cleanupOrphanReservations(ctx context.Context) error {
 			return err
 		}
 		changed := false
+		removed := make([]string, 0)
 		for key := range current.Reservations {
 			if _, err := m.store.Head(ctx, key); errors.Is(err, storage.ErrNotFound) {
 				delete(current.Reservations, key)
+				removed = append(removed, key)
 				changed = true
 			} else if err != nil {
-				return err
+				return persistenceError("quota_cleanup_head", err)
 			}
 		}
 		if !changed {
@@ -184,15 +248,30 @@ func (m *Manager) cleanupOrphanReservations(ctx context.Context) error {
 			return err
 		}
 		if _, err := m.store.Put(ctx, quotaKey, bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfMatch: version}); errors.Is(err, storage.ErrConditionFailed) {
+			if attempt == 15 {
+				return persistenceError("quota_cleanup", storage.ErrConditionFailed)
+			}
+			if waitErr := m.waitQuota(ctx, attempt); waitErr != nil {
+				return persistenceError("quota_cleanup", waitErr)
+			}
 			continue
 		} else if errors.Is(err, storage.ErrUnknownCommit) {
-			continue
+			latest, _, readErr := m.readQuota(ctx)
+			if readErr != nil {
+				return persistenceError("quota_cleanup_confirm", errors.Join(err, readErr))
+			}
+			for _, key := range removed {
+				if _, exists := latest.Reservations[key]; exists {
+					return persistenceError("quota_cleanup_confirm", storage.ErrUnknownCommit)
+				}
+			}
+			return nil
 		} else if err != nil {
-			return err
+			return persistenceError("quota_cleanup", err)
 		}
 		return nil
 	}
-	return storage.ErrConditionFailed
+	return persistenceError("quota_cleanup", storage.ErrConditionFailed)
 }
 
 func initialReservation(size, chunkSize, maxBytes int64) (int64, error) {

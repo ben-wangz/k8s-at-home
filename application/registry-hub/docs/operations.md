@@ -56,7 +56,7 @@ If startup recovery keeps the GC barrier active, inspect `gate.recoveryReason`, 
 
 Blob data is downloaded to temporary persistent chunks and becomes readable only after the full size and digest have been verified. If a connection, transfer attempt, or Backend Pod stops, the next attempt resumes from the last committed byte. Upstreams that ignore Range are fetched again from byte zero. Registry clients and ingress controllers can impose shorter request deadlines than the Backend.
 
-The defaults are a 24-hour total Blob transfer budget, a 300-second per-Range attempt limit, a 60-second wait without upstream data, a 24-hour partial-download retention period, and a 200 GiB aggregate partial-download limit. Set these optional Backend environment variables through `backend.extraEnvVars`:
+The defaults are a 24-hour total Blob transfer budget, a 300-second per-Range attempt limit, a 60-second wait without upstream data, a 300-second maximum salvage budget for interrupted transfers, a 24-hour partial-download retention period, and a 200 GiB aggregate partial-download limit. Normal EOF persistence continues under the active transfer context and does not use the salvage timeout. Salvage is attempted only while the service is running and a fresh ownership check succeeds. Set these optional Backend environment variables through `backend.extraEnvVars`:
 
 ```yaml
 backend:
@@ -67,6 +67,8 @@ backend:
       value: "300"
     - name: REGISTRY_HUB_UPSTREAM_BODY_IDLE_TIMEOUT_SECONDS
       value: "60"
+    - name: REGISTRY_HUB_DOWNLOAD_FINALIZE_TIMEOUT_SECONDS
+      value: "300"
     - name: REGISTRY_HUB_DOWNLOAD_PARTIAL_TTL_SECONDS
       value: "86400"
     - name: REGISTRY_HUB_DOWNLOAD_MAX_BYTES

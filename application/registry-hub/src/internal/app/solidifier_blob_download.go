@@ -33,6 +33,10 @@ func (s *solidifier) downloadBlobObject(ctx context.Context, task *tasks.Task, t
 	if idleTimeout <= 0 {
 		idleTimeout = 60 * time.Second
 	}
+	finalizeTimeout := s.cfg.Limits.DownloadFinalizeTimeout
+	if finalizeTimeout <= 0 {
+		finalizeTimeout = 300 * time.Second
+	}
 	transferCtx, cancelTransfer := context.WithTimeout(ctx, transferTimeout)
 	defer cancelTransfer()
 	identity := objectLeaseKey(task.Authority, task.Repository, ref.digest)
@@ -41,10 +45,10 @@ func (s *solidifier) downloadBlobObject(ctx context.Context, task *tasks.Task, t
 	result, err := manager.Fetch(transferCtx, download.Request{
 		Identity: identity, Digest: ref.digest, ExpectedSize: ref.size, MaxBytes: maxBytes,
 		OwnerFence: objectLease.FencingToken, AttemptLimit: requestTimeout,
-		IdleTimeout: idleTimeout,
-		Retryable:   upstream.Retryable,
-		WaitRetry:   s.service.downloadRetryWaiter(),
-		Observe:     s.service.metrics.recordEvent,
+		IdleTimeout: idleTimeout, FinalizeTimeout: finalizeTimeout, LifecycleContext: s.service.ctx,
+		Retryable: upstream.Retryable,
+		WaitRetry: s.service.downloadRetryWaiter(),
+		Observe:   s.service.metrics.recordEvent,
 		Guard: func(guardCtx context.Context) error {
 			if err := s.tasks.Leases().Validate(guardCtx, objectLease); err != nil {
 				return err
@@ -69,6 +73,14 @@ func (s *solidifier) downloadBlobObject(ctx context.Context, task *tasks.Task, t
 		},
 	})
 	if err != nil {
+		if errors.Is(err, tasks.ErrCancelled) || errors.Is(err, lease.ErrLost) || errors.Is(err, storage.ErrLeaseLost) || errors.Is(err, context.Canceled) {
+			return err
+		}
+		var persistenceErr *download.PersistenceError
+		var guardErr *download.GuardError
+		if errors.As(err, &persistenceErr) || errors.As(err, &guardErr) || errors.Is(err, download.ErrQuotaExceeded) || isStorageFailure(err) {
+			return temporary("storage", err)
+		}
 		var statusErr *download.StatusError
 		if errors.As(err, &statusErr) && statusErr.Code == http.StatusNotFound {
 			return permanent("upstream_not_found", err)
