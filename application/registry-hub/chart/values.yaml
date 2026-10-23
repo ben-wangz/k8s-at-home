@@ -12,7 +12,7 @@ backend:
   image:
     registry: ghcr.io
     repository: ben-wangz/k8s-at-home-registry-hub-backend
-    tag: 0.2.1
+    tag: 0.2.2
     digest: ""
     pullPolicy: IfNotPresent
   serviceAccount:
