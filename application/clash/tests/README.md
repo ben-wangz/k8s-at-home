@@ -38,6 +38,10 @@ go -C "$CLASH_APP/tests" test ./...
 
 Mock mode does not prove real Mihomo or ingress compatibility. The independent-checkout case copies only Clash source into a temporary checkout, then builds, lists, plans, and checks the runner there.
 
+## Continuous integration
+
+The shared lint workflow discovers and runs each `application/*/tests/ci.sh` entry point. Keep application-specific CI commands in that script instead of adding an application-specific workflow.
+
 ## Plan and select cases
 
 ```bash

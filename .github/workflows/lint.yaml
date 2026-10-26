@@ -119,6 +119,65 @@ jobs:
               "$package"
           done <<< "$main_packages"
 
+  application_tests:
+    needs: discover_go
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      XDG_STATE_HOME: ${{ runner.temp }}/application-test-state
+    steps:
+      - name: checkout
+        uses: actions/checkout@v7
+
+      - name: setup-node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: setup-go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ needs.discover_go.outputs.gofmt_version }}
+          cache: false
+
+      - name: setup-helm
+        uses: azure/setup-helm@v5
+
+      - name: run-application-test-suites
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          test_scripts=()
+          while IFS= read -r -d '' test_script; do
+            test_scripts+=("$test_script")
+          done < <(
+            find "$GITHUB_WORKSPACE/application" \
+              -type f -path '*/tests/ci.sh' -print0 | sort -z
+          )
+
+          if ((${#test_scripts[@]} == 0)); then
+            echo "No application test suites found"
+            exit 0
+          fi
+
+          for test_script in "${test_scripts[@]}"; do
+            relative_script="${test_script#"$GITHUB_WORKSPACE"/}"
+            echo "::group::${relative_script}"
+            bash "$test_script"
+            echo "::endgroup::"
+          done
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: application-test-evidence
+          path: |
+            ${{ runner.temp }}/application-test-state/
+            !${{ runner.temp }}/application-test-state/**/controller-secret
+          if-no-files-found: ignore
+          retention-days: 7
+
   lint:
     needs: discover_go
     runs-on: ubuntu-latest
