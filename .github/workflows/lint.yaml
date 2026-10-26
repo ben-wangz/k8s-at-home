@@ -123,8 +123,6 @@ jobs:
     needs: discover_go
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      XDG_STATE_HOME: ${{ runner.temp }}/application-test-state
     steps:
       - name: checkout
         uses: actions/checkout@v7
@@ -145,6 +143,8 @@ jobs:
 
       - name: run-application-test-suites
         shell: bash
+        env:
+          XDG_STATE_HOME: ${{ runner.temp }}/application-test-state
         run: |
           set -Eeuo pipefail
 
