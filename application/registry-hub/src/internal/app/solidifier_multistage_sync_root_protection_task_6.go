@@ -62,15 +62,49 @@ func (s *solidifier) syncRootProtectionTask(ctx context.Context, task *tasks.Tas
 }
 
 func (s *solidifier) recordStagedManifestObservation(ctx context.Context, task *tasks.Task, manifest contentRef) error {
-	operationID := fmt.Sprintf("%s-%s-%d", task.ID, objectLeaseKey(task.Authority, task.Repository, manifest.digest), s.gate.State().Epoch)
+	epoch, available := s.stagedManifestObservationEpoch()
+	if !available {
+		return temporary("protection_state", errors.New("Distribution observation is unavailable while garbage collection is active"))
+	}
+	return s.recordStagedManifestObservationAtEpoch(ctx, task, manifest, epoch)
+}
+
+func (s *solidifier) recordStagedManifestObservationAtEpoch(ctx context.Context, task *tasks.Task, manifest contentRef, epoch uint64) error {
+	generation, err := s.service.generation(ctx, task.Authority, task.Repository, manifest.digest)
+	if err != nil {
+		return withSolidificationFailureStage(temporary("generation", err), "task_progress_read")
+	}
+	if _, err := s.service.records.FindLocalObservation(ctx, task.Authority, task.Repository, tasks.GraphManifest, manifest.digest, manifest.size, generation.Generation, epoch); err == nil {
+		return nil
+	} else if !errors.Is(err, storage.ErrNotFound) {
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_read")
+	}
+	operationID := fmt.Sprintf("%s-%s-%d-%d", task.ID, objectLeaseKey(task.Authority, task.Repository, manifest.digest), generation.Generation, epoch)
 	if err := s.service.records.RecordLocalObservation(ctx, tasks.LocalObservation{
 		Authority: task.Authority, Repository: task.Repository, Role: tasks.GraphManifest,
-		Digest: manifest.digest, ActualSize: manifest.size, Generation: task.Generation,
-		GCEpoch: s.gate.State().Epoch, OperationID: operationID, VerificationBasis: "distribution_readback",
+		Digest: manifest.digest, ActualSize: manifest.size, Generation: generation.Generation,
+		GCEpoch: epoch, OperationID: operationID, VerificationBasis: "distribution_readback",
 	}); err != nil {
 		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 	}
 	return nil
+}
+
+func (s *solidifier) recordStagedManifestPresence(ctx context.Context, task *tasks.Task, manifest contentRef, epoch uint64) error {
+	if err := s.recordStagedManifestObservationAtEpoch(ctx, task, manifest, epoch); err != nil {
+		return err
+	}
+	return s.saveManifestGraphNode(ctx, task, manifest, true, "verified_present")
+}
+
+func (s *solidifier) stagedManifestObservationEpoch() (uint64, bool) {
+	state := s.gate.State()
+	return state.Epoch, state.State == "open" && !state.Exclusive && !state.RecoveryBarrier
+}
+
+func (s *solidifier) stagedManifestObservationEpochIsCurrent(epoch uint64) bool {
+	current, available := s.stagedManifestObservationEpoch()
+	return available && current == epoch
 }
 
 func (s *solidifier) markStagedManifestPublished(ctx context.Context, task *tasks.Task, manifest *stagedManifest) error {
@@ -167,10 +201,16 @@ func (s *solidifier) markManifestBlobIntentsAnchored(ctx context.Context, task *
 			}
 			return nil, temporary("task_state", err)
 		}
-		if _, err := s.service.records.SetBlobIntentState(ctx, intent.ID, tasks.IntentAnchored, "", ""); err != nil {
+		anchored, err := s.service.records.SetBlobIntentState(ctx, intent.ID, tasks.IntentAnchored, "", "")
+		if err != nil {
 			return nil, temporary("task_state", err)
 		}
-		s.service.wakeBlobDemandRoots(ctx, intent.ID)
+		if err := s.saveBlobGraphNodeState(ctx, task, blob, "anchored"); err != nil {
+			return nil, err
+		}
+		if !anchored.WakeAcknowledged {
+			s.service.wakeBlobDemandRootsExcept(ctx, intent.ID, task.ID)
+		}
 		intentIDs = append(intentIDs, intent.ID)
 	}
 	return intentIDs, nil

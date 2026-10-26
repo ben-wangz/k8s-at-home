@@ -7,11 +7,27 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
 )
 
 var errAdminTaskOwnerSession = errors.New("owner session does not belong to task")
+
+const adminProtectionReadAttempts = 3
+
+type adminProtectionSessionNotFound struct {
+	sessionID string
+}
+
+func (e *adminProtectionSessionNotFound) Error() string {
+	return "protection session disappeared while reading task state"
+}
+
+func (e *adminProtectionSessionNotFound) Unwrap() error {
+	return storage.ErrNotFound
+}
 
 type adminTaskDetailOptions struct {
 	limit            int
@@ -57,66 +73,143 @@ func validAdminPageToken(token string, max int) bool {
 }
 
 func (s *Service) taskDetailView(ctx context.Context, task tasks.Task, options adminTaskDetailOptions) (adminTaskView, error) {
-	view, err := s.taskAdminView(ctx, task)
-	if err != nil {
-		return adminTaskView{}, err
-	}
-	view.Graph, view.GraphNextToken = pageAdminMap(task.Graph, options.graphToken, options.limit)
-	view.Checkpoints, view.CheckpointsNextToken = pageAdminMap(task.Checkpoints, options.checkpointsToken, options.limit)
-	nodes, next, err := s.records.ListGraphNodes(ctx, task.ID, options.graphNodesToken, options.limit)
-	if err != nil {
-		return adminTaskView{}, err
-	}
-	view.GraphNodes = nodes
-	view.GraphNodesNextToken = next
-	ownerSessionID := options.ownerSessionID
-	if ownerSessionID == "" && len(view.ProtectionSessions) > 0 {
-		ownerSessionID = view.ProtectionSessions[0].ID
-	}
-	if ownerSessionID != "" {
-		found := false
-		for _, session := range view.ProtectionSessions {
-			if session.ID == ownerSessionID {
-				found = true
-				break
-			}
+	originalTask := task
+	for attempt := 0; attempt < adminProtectionReadAttempts; attempt++ {
+		view, err := s.taskAdminView(ctx, task)
+		if err != nil {
+			return adminTaskView{}, err
 		}
-		if !found {
+		task = view.Task
+		view.Graph, view.GraphNextToken = pageAdminMap(task.Graph, options.graphToken, options.limit)
+		view.Checkpoints, view.CheckpointsNextToken = pageAdminMap(task.Checkpoints, options.checkpointsToken, options.limit)
+		nodes, next, err := s.records.ListGraphNodes(ctx, task.ID, options.graphNodesToken, options.limit)
+		if err != nil {
+			return adminTaskView{}, err
+		}
+		view.GraphNodes = nodes
+		view.GraphNodesNextToken = next
+		ownerSessionID := options.ownerSessionID
+		if ownerSessionID == "" && len(view.ProtectionSessions) > 0 {
+			ownerSessionID = view.ProtectionSessions[0].ID
+		}
+		if ownerSessionID == "" {
+			return view, nil
+		}
+		if !adminViewHasProtectionSession(view, ownerSessionID) {
+			if options.ownerSessionID == ownerSessionID && adminTaskReferencesSession(originalTask, ownerSessionID) {
+				options.ownerSessionID = ""
+				options.ownerToken = ""
+				task, err = s.tasks.Get(ctx, task.ID)
+				if err != nil {
+					return adminTaskView{}, err
+				}
+				continue
+			}
 			return adminTaskView{}, errAdminTaskOwnerSession
 		}
 		view.Owners, view.OwnersNextToken, err = s.gate.ListProtectionSessionOwners(ctx, ownerSessionID, options.ownerToken, options.ownerLimit)
+		if errors.Is(err, storage.ErrNotFound) {
+			task, err = s.tasks.Get(ctx, task.ID)
+			if err != nil {
+				return adminTaskView{}, err
+			}
+			if !adminTaskReferencesSession(task, ownerSessionID) {
+				if options.ownerSessionID == ownerSessionID {
+					options.ownerSessionID = ""
+					options.ownerToken = ""
+				}
+				continue
+			}
+			if err := waitAdminProtectionRetry(ctx, attempt); err != nil {
+				return adminTaskView{}, err
+			}
+			continue
+		}
 		if err != nil {
 			return adminTaskView{}, err
 		}
 		view.OwnerSessionID = ownerSessionID
+		return view, nil
 	}
-	return view, nil
+	return adminTaskView{}, &adminProtectionSessionNotFound{sessionID: options.ownerSessionID}
 }
 
 func (s *Service) taskAdminView(ctx context.Context, task tasks.Task) (adminTaskView, error) {
-	view := taskAdminView(task)
-	if s.gate == nil {
-		if len(task.SessionIDs) > 0 || task.ProtectionSessionID != "" {
-			return adminTaskView{}, errors.New("task protection state is unavailable")
+	for attempt := 0; attempt < adminProtectionReadAttempts; attempt++ {
+		view := taskAdminView(task)
+		if s.gate == nil {
+			if len(task.SessionIDs) > 0 || task.ProtectionSessionID != "" {
+				return adminTaskView{}, errors.New("task protection state is unavailable")
+			}
+			return view, nil
 		}
-		return view, nil
-	}
-	ids := append([]string(nil), task.SessionIDs...)
-	if task.ProtectionSessionID != "" {
-		ids = append(ids, task.ProtectionSessionID)
-	}
-	ids = uniqueSessionIDs(ids)
-	for _, id := range ids {
-		status, err := s.gate.ProtectionSessionStatus(ctx, id)
+		ids := append([]string(nil), task.SessionIDs...)
+		if task.ProtectionSessionID != "" {
+			ids = append(ids, task.ProtectionSessionID)
+		}
+		ids = uniqueSessionIDs(ids)
+		var missingSession string
+		for _, id := range ids {
+			status, err := s.gate.ProtectionSessionStatus(ctx, id)
+			if errors.Is(err, storage.ErrNotFound) {
+				missingSession = id
+				break
+			}
+			if err != nil {
+				return adminTaskView{}, err
+			}
+			view.ProtectionSessions = append(view.ProtectionSessions, status)
+		}
+		if missingSession == "" {
+			sort.Slice(view.ProtectionSessions, func(i, j int) bool {
+				return view.ProtectionSessions[i].ID < view.ProtectionSessions[j].ID
+			})
+			return view, nil
+		}
+		latest, err := s.tasks.Get(ctx, task.ID)
 		if err != nil {
 			return adminTaskView{}, err
 		}
-		view.ProtectionSessions = append(view.ProtectionSessions, status)
+		task = latest
+		if adminTaskReferencesSession(latest, missingSession) {
+			if err := waitAdminProtectionRetry(ctx, attempt); err != nil {
+				return adminTaskView{}, err
+			}
+		}
 	}
-	sort.Slice(view.ProtectionSessions, func(i, j int) bool {
-		return view.ProtectionSessions[i].ID < view.ProtectionSessions[j].ID
-	})
-	return view, nil
+	return adminTaskView{}, &adminProtectionSessionNotFound{}
+}
+
+func adminTaskReferencesSession(task tasks.Task, sessionID string) bool {
+	if task.ProtectionSessionID == sessionID {
+		return true
+	}
+	for _, id := range task.SessionIDs {
+		if id == sessionID {
+			return true
+		}
+	}
+	return false
+}
+
+func adminViewHasProtectionSession(view adminTaskView, sessionID string) bool {
+	for _, session := range view.ProtectionSessions {
+		if session.ID == sessionID {
+			return true
+		}
+	}
+	return false
+}
+
+func waitAdminProtectionRetry(ctx context.Context, attempt int) error {
+	timer := time.NewTimer(time.Duration(attempt+1) * 10 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func pageAdminMap[T any](source map[string]T, after string, limit int) (map[string]T, string) {

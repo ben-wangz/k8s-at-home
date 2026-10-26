@@ -9,12 +9,20 @@ import (
 )
 
 func (s *Service) wakeBlobDemandRoots(ctx context.Context, intentID string) {
-	if err := s.notifyBlobDemandRoots(ctx, intentID); err != nil && s.logger != nil {
+	s.wakeBlobDemandRootsExcept(ctx, intentID, "")
+}
+
+func (s *Service) wakeBlobDemandRootsExcept(ctx context.Context, intentID, excludedRootID string) {
+	if err := s.notifyBlobDemandRootsExcept(ctx, intentID, excludedRootID); err != nil && s.logger != nil {
 		s.logger.Warn("blob dependency notification deferred", "intent_id", intentID, "error_class", "storage")
 	}
 }
 
 func (s *Service) notifyBlobDemandRoots(ctx context.Context, intentID string) error {
+	return s.notifyBlobDemandRootsExcept(ctx, intentID, "")
+}
+
+func (s *Service) notifyBlobDemandRootsExcept(ctx context.Context, intentID, excludedRootID string) error {
 	intent, err := s.records.GetBlobIntent(ctx, intentID)
 	if err != nil {
 		return err
@@ -26,7 +34,7 @@ func (s *Service) notifyBlobDemandRoots(ctx context.Context, intentID string) er
 			return err
 		}
 		for _, demand := range demands {
-			if demand.RootTaskID != "" {
+			if demand.RootTaskID != "" && demand.RootTaskID != excludedRootID {
 				if err := s.wakeBlobDemandRoot(ctx, demand.RootTaskID); err != nil {
 					return err
 				}
@@ -44,7 +52,7 @@ func (s *Service) notifyBlobDemandRoots(ctx context.Context, intentID string) er
 			return err
 		}
 		for _, reference := range references {
-			if reference.Authority == intent.Identity.Authority && reference.Repository == intent.Identity.Repository {
+			if reference.TaskID != excludedRootID && reference.Authority == intent.Identity.Authority && reference.Repository == intent.Identity.Repository {
 				if err := s.wakeBlobDemandRoot(ctx, reference.TaskID); err != nil {
 					return err
 				}

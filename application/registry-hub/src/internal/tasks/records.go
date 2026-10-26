@@ -79,6 +79,7 @@ type GraphNode struct {
 	DiscoveryComplete bool      `json:"discoveryComplete,omitempty"`
 	LocalState        string    `json:"localState,omitempty"`
 	Generation        uint64    `json:"generation"`
+	ContentGeneration *uint64   `json:"contentGeneration,omitempty"`
 	GCEpoch           uint64    `json:"gcEpoch"`
 	version           string
 }

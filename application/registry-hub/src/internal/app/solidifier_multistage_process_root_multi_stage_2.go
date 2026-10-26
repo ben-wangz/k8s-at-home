@@ -79,7 +79,13 @@ func (s *solidifier) processRootMultiStage(ctx context.Context, task *tasks.Task
 			return withSolidificationFailureStage(err, "manifest_scope_admission")
 		}
 		if !admitted {
+			observationEpoch, canObserve := s.stagedManifestObservationEpoch()
 			if _, _, err := s.readDistributionManifest(ctx, task, manifest.ref); err == nil {
+				if canObserve && s.stagedManifestObservationEpochIsCurrent(observationEpoch) {
+					if err := s.recordStagedManifestPresence(ctx, task, manifest.ref, observationEpoch); err != nil {
+						return err
+					}
+				}
 				if err := s.finalizeAnchoredManifestBlobs(ctx, task, manifest); err != nil {
 					return err
 				}
@@ -93,11 +99,17 @@ func (s *solidifier) processRootMultiStage(ctx context.Context, task *tasks.Task
 				return withSolidificationFailureStage(err, "manifest_scope_recovery")
 			}
 			if !admitted {
+				observationEpoch, canObserve := s.stagedManifestObservationEpoch()
 				if _, _, err := s.readDistributionManifest(ctx, task, manifest.ref); err != nil {
 					if errors.Is(err, storage.ErrNotFound) {
 						return temporary("protection_state", errors.New("anchored manifest remained missing after protection recovery"))
 					}
 					return err
+				}
+				if canObserve && s.stagedManifestObservationEpochIsCurrent(observationEpoch) {
+					if err := s.recordStagedManifestPresence(ctx, task, manifest.ref, observationEpoch); err != nil {
+						return err
+					}
 				}
 				if err := s.finalizeAnchoredManifestBlobs(ctx, task, manifest); err != nil {
 					return err

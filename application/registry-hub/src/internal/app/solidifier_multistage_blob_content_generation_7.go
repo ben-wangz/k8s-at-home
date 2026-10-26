@@ -9,7 +9,11 @@ import (
 )
 
 func (s *solidifier) blobContentGeneration(ctx context.Context, task *tasks.Task, digest string) (uint64, error) {
-	current, err := s.service.generation(ctx, task.Authority, task.Repository, digest)
+	return s.contentGeneration(ctx, task.Authority, task.Repository, digest)
+}
+
+func (s *solidifier) contentGeneration(ctx context.Context, authority, repository, digest string) (uint64, error) {
+	current, err := s.service.generation(ctx, authority, repository, digest)
 	if err != nil {
 		return 0, err
 	}

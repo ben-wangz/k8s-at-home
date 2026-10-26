@@ -32,8 +32,13 @@ func (s *solidifier) discoverStagedManifest(ctx context.Context, task *tasks.Tas
 		return nil, permanent("manifest_invalid", err)
 	}
 	data, actual, err := s.readManifest(ctx, task.Authority, task.Repository, reference)
+	distributionObserved := false
+	var observationEpoch uint64
 	if errors.Is(err, storage.ErrNotFound) {
+		var canObserve bool
+		observationEpoch, canObserve = s.stagedManifestObservationEpoch()
 		data, actual, err = s.readDistributionManifest(ctx, task, reference)
+		distributionObserved = err == nil && canObserve && s.stagedManifestObservationEpochIsCurrent(observationEpoch)
 		if errors.Is(err, storage.ErrNotFound) {
 			if fetchErr := s.fetchObject(ctx, task, taskLease, reference, true); fetchErr != nil {
 				return nil, fetchErr
@@ -61,10 +66,19 @@ func (s *solidifier) discoverStagedManifest(ctx context.Context, task *tasks.Tas
 	if err != nil {
 		return nil, permanent("manifest_invalid", err)
 	}
+	if distributionObserved {
+		if err := s.recordStagedManifestObservationAtEpoch(ctx, task, actual, observationEpoch); err != nil {
+			return nil, err
+		}
+	}
 	node := &stagedManifest{ref: actual}
 	graph.active[reference.digest] = true
 	graph.byManifest[reference.digest] = node
-	if err := s.saveManifestGraphNode(ctx, task, actual, false, "discovering"); err != nil {
+	localState := "discovering"
+	if distributionObserved {
+		localState = "verified_present"
+	}
+	if err := s.saveManifestGraphNode(ctx, task, actual, false, localState); err != nil {
 		return nil, err
 	}
 	order := 0

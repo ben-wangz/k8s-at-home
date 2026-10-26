@@ -58,6 +58,22 @@ func (s *Service) protectCacheObject(ctx context.Context, authority, repository,
 				if node.LocalState != "anchored" {
 					return true, nil
 				}
+				if s.store == nil || s.gate == nil {
+					continue
+				}
+				generation, err := s.generation(ctx, authority, repository, digest)
+				if err != nil {
+					return false, err
+				}
+				epoch := s.gate.State().Epoch
+				if node.ContentGeneration == nil || *node.ContentGeneration != generation.Generation || node.GCEpoch != epoch {
+					return true, nil
+				}
+				if _, err := s.records.FindLocalObservation(ctx, authority, repository, tasks.GraphManifest, digest, node.ActualSize, generation.Generation, epoch); errors.Is(err, storage.ErrNotFound) {
+					return true, nil
+				} else if err != nil {
+					return false, err
+				}
 				continue
 			} else if !errors.Is(nodeErr, storage.ErrNotFound) {
 				return false, nodeErr

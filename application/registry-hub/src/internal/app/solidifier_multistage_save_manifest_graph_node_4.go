@@ -12,51 +12,11 @@ import (
 )
 
 func (s *solidifier) saveManifestGraphNode(ctx context.Context, task *tasks.Task, reference contentRef, complete bool, state string) error {
-	node := tasks.GraphNode{RootTaskID: task.ID, Role: tasks.GraphManifest, Digest: reference.digest, MediaType: reference.mediaType, DeclaredSize: reference.size, ActualSize: reference.size, DiscoveryComplete: complete, LocalState: state, Generation: task.Generation, GCEpoch: s.gate.State().Epoch}
-	if existing, err := s.service.records.GetGraphNode(ctx, task.ID, tasks.GraphManifest, reference.digest); err == nil {
-		node = existing
-		node.MediaType = reference.mediaType
-		node.DeclaredSize = reference.size
-		node.ActualSize = reference.size
-		node.DiscoveryComplete = complete
-		node.LocalState = state
-		node.Generation = task.Generation
-		node.GCEpoch = s.gate.State().Epoch
-	} else if !errors.Is(err, storage.ErrNotFound) {
-		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_read")
-	}
-	if err := s.service.records.EnsureCacheProtectionReference(ctx, task.ID, task.Authority, task.Repository, reference.digest); err != nil {
-		return withSolidificationFailureStage(temporary("task_state", err), "protection_reconcile")
-	}
-	if err := s.service.records.SaveGraphNode(ctx, &node); err != nil {
-		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
-	}
-	return nil
+	return s.saveGraphNodeState(ctx, task, reference, tasks.GraphManifest, complete, state)
 }
 
 func (s *solidifier) saveBlobGraphNode(ctx context.Context, task *tasks.Task, reference contentRef) error {
-	node := tasks.GraphNode{RootTaskID: task.ID, Role: tasks.GraphBlob, Digest: reference.digest, MediaType: reference.mediaType, DeclaredSize: reference.size, ActualSize: reference.size, DiscoveryComplete: true, LocalState: "discovered", Generation: task.Generation, GCEpoch: s.gate.State().Epoch}
-	if existing, err := s.service.records.GetGraphNode(ctx, task.ID, tasks.GraphBlob, reference.digest); err == nil {
-		node = existing
-		node.MediaType = reference.mediaType
-		node.DeclaredSize = reference.size
-		node.ActualSize = reference.size
-		node.DiscoveryComplete = true
-		if node.LocalState == "" {
-			node.LocalState = "discovered"
-		}
-		node.Generation = task.Generation
-		node.GCEpoch = s.gate.State().Epoch
-	} else if !errors.Is(err, storage.ErrNotFound) {
-		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_read")
-	}
-	if err := s.service.records.EnsureCacheProtectionReference(ctx, task.ID, task.Authority, task.Repository, reference.digest); err != nil {
-		return withSolidificationFailureStage(temporary("task_state", err), "protection_reconcile")
-	}
-	if err := s.service.records.SaveGraphNode(ctx, &node); err != nil {
-		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
-	}
-	return nil
+	return s.saveBlobGraphNodeState(ctx, task, reference, "discovered")
 }
 
 func (s *solidifier) saveStagedEdge(ctx context.Context, rootTaskID string, parentRole tasks.GraphRole, parentDigest string, order int, childRole tasks.GraphRole, descriptor artifact.Descriptor) error {
@@ -102,7 +62,7 @@ func (s *solidifier) assignStagedBlobScopes(ctx context.Context, task *tasks.Tas
 			if err != nil {
 				return temporary("task_state", err)
 			}
-			generation, err := s.blobContentGeneration(ctx, task, blob.digest)
+			generation, err := s.contentGeneration(ctx, task.Authority, task.Repository, blob.digest)
 			if err != nil {
 				return temporary("generation", err)
 			}
@@ -145,6 +105,9 @@ func (s *solidifier) distributionBlobPresent(ctx context.Context, task *tasks.Ta
 		}
 	}
 	if err := s.verifyOrReuseLocalBlob(ctx, task, blob, sessionID, path); err != nil {
+		return false, err
+	}
+	if err := s.saveBlobGraphNodeState(ctx, task, blob, "verified_present"); err != nil {
 		return false, err
 	}
 	return true, nil
