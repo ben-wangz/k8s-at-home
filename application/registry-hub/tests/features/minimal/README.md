@@ -85,7 +85,7 @@ See the [environment guide](environment/README.md) for prerequisites and environ
 
 | ID | Coverage | Dependencies |
 | --- | --- | --- |
-| default-render | Deterministic empty-values rendering and paired external-auth validation | None |
+| default-render | Deterministic empty-values rendering, paired external-auth validation, and admin/client Service readiness routing | None |
 | installation | Initialization Job, default PVCs, Deployment, backend digest, and client Service | default-render |
 | initialization-secrets | Internal Registry authentication, TLS, and initialization records | installation |
 | initializer-faults | Production initialization command concurrency, errors, certificate checks, and recovery in an isolated Kubernetes API simulator | installation |

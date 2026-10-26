@@ -30,6 +30,7 @@ metadata:
   {{- end }}
 spec:
   type: ClusterIP
+  publishNotReadyAddresses: true
   selector:
     {{- include "registry-hub.backendSelector" . | nindent 4 }}
   ports:

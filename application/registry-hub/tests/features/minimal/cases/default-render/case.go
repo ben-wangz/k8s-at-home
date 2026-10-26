@@ -41,6 +41,9 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 			return fmt.Errorf("default Helm rendering is missing %q", expected)
 		}
 	}
+	if err := assertServiceReadinessRouting(text); err != nil {
+		return err
+	}
 	for _, name := range []string{"REGISTRY_HUB_LIMIT_CLOSURE_OBJECTS", "REGISTRY_HUB_LIMIT_CLOSURE_BYTES"} {
 		if strings.Contains(text, "- name: "+name) {
 			return fmt.Errorf("default Helm rendering overrides application default %s", name)
@@ -87,10 +90,38 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	}
 	digest := sha256.Sum256(first)
 	return support.WriteResult(environment, map[string]any{
-		"renderSHA256":                hex.EncodeToString(digest[:]),
-		"externalCombinations":        "verified",
-		"closureLimitOverridesAbsent": true,
+		"renderSHA256":                 hex.EncodeToString(digest[:]),
+		"externalCombinations":         "verified",
+		"closureLimitOverridesAbsent":  true,
+		"adminServiceReadinessRouting": true,
 	})
+}
+
+func assertServiceReadinessRouting(rendered string) error {
+	adminService, ok := renderedServiceWithPort(rendered, "admin")
+	if !ok {
+		return fmt.Errorf("default Helm rendering is missing the admin Service")
+	}
+	if !strings.Contains(adminService, "\n  publishNotReadyAddresses: true\n") {
+		return fmt.Errorf("admin Service does not publish not-ready backend endpoints")
+	}
+	clientService, ok := renderedServiceWithPort(rendered, "registry")
+	if !ok {
+		return fmt.Errorf("default Helm rendering is missing the client Service")
+	}
+	if strings.Contains(clientService, "\n  publishNotReadyAddresses: true\n") {
+		return fmt.Errorf("client Service publishes not-ready backend endpoints")
+	}
+	return nil
+}
+
+func renderedServiceWithPort(rendered, portName string) (string, bool) {
+	for _, document := range strings.Split(rendered, "\n---\n") {
+		if strings.Contains(document, "kind: Service\n") && strings.Contains(document, "    - name: "+portName+"\n") {
+			return document, true
+		}
+	}
+	return "", false
 }
 
 func render(ctx context.Context, environment testkit.CaseContext) ([]byte, error) {
