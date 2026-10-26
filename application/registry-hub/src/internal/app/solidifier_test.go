@@ -172,7 +172,7 @@ func TestPermanentSolidificationGraphFailureDoesNotPublishRootOrRetry(t *testing
 		MaxDescriptors: 10, DescriptorDataBytes: 1 << 20, ClosureDepth: 10,
 		ClosureObjects: 100, ClosureBytes: 1 << 20,
 	}}
-	service := &Service{gate: gate, records: tasks.NewRecords(store), solidificationSlots: make(chan struct{}, 1), metrics: newMetrics()}
+	service := &Service{store: store, gate: gate, records: tasks.NewRecords(store), solidificationSlots: make(chan struct{}, 1), metrics: newMetrics()}
 	processor := &solidifier{service: service, cfg: cfg, cache: cache, store: store, registry: registry, gate: gate}
 	manager, err := tasks.NewManager(store, 1, 10, processor)
 	if err != nil {
