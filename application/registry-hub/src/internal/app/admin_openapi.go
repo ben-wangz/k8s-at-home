@@ -56,6 +56,7 @@ type adminGCConflictDetail struct {
 	Gate        *gateRecord               `json:"gate,omitempty"`
 	Blockers    []protectionSessionStatus `json:"blockers,omitempty"`
 	NextToken   string                    `json:"nextToken,omitempty"`
+	Reason      string                    `json:"reason,omitempty"`
 	Unavailable bool                      `json:"unavailable,omitempty"`
 }
 

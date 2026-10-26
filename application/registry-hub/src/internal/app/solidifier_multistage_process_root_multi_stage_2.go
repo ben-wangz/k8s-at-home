@@ -37,7 +37,7 @@ func (s *solidifier) processRootMultiStage(ctx context.Context, task *tasks.Task
 	if progressed {
 		task.GraphVersion++
 		if err := s.tasks.SaveProgress(ctx, task, taskLease); err != nil {
-			return temporary("task_state", err)
+			return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 		}
 	}
 	if err := s.assignStagedBlobScopes(ctx, task, graph); err != nil {

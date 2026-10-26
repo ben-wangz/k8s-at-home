@@ -13,7 +13,7 @@ import (
 func (s *solidifier) syncRootProtectionTask(ctx context.Context, task *tasks.Task, taskLease lease.Lease, sessionID string, requestedBytes int64) error {
 	latest, err := s.tasks.Get(ctx, task.ID)
 	if err != nil {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_read")
 	}
 	if latest.CancelRequested || latest.FencingToken != taskLease.FencingToken {
 		return tasks.ErrCancelled
@@ -37,12 +37,12 @@ func (s *solidifier) syncRootProtectionTask(ctx context.Context, task *tasks.Tas
 		seen[id] = true
 		session, active, err := s.gate.protectionSession(ctx, id)
 		if err != nil {
-			return temporary("protection_state", err)
+			return withSolidificationFailureStage(temporary("protection_state", err), "protection_reconcile")
 		}
 		if active {
 			sessionBytes, err := taskProtectionReservationBytes(&latest, id, session)
 			if err != nil {
-				return temporary("protection_state", err)
+				return withSolidificationFailureStage(temporary("protection_state", err), "protection_reconcile")
 			}
 			if sessionBytes > math.MaxInt64-reserved {
 				return temporary("protection_state", errors.New("task protection reservation overflows"))
@@ -55,7 +55,7 @@ func (s *solidifier) syncRootProtectionTask(ctx context.Context, task *tasks.Tas
 	latest.ReservedBytes = reserved
 	latest.GCProtected = len(latest.SessionIDs) > 0
 	if err := s.tasks.SaveProgress(ctx, &latest, taskLease); err != nil {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 	}
 	*task = latest
 	return nil
@@ -68,7 +68,7 @@ func (s *solidifier) recordStagedManifestObservation(ctx context.Context, task *
 		Digest: manifest.digest, ActualSize: manifest.size, Generation: task.Generation,
 		GCEpoch: s.gate.State().Epoch, OperationID: operationID, VerificationBasis: "distribution_readback",
 	}); err != nil {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 	}
 	return nil
 }

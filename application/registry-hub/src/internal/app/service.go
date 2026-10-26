@@ -59,6 +59,8 @@ type Service struct {
 	upstreamPerKey       [256]chan struct{}
 	limiter              *requestLimiter
 	gc                   *gcController
+	storageHealthy       atomic.Bool
+	registryHealthy      atomic.Bool
 	nativeMu             sync.Mutex
 	nativeCache          map[string]nativeReferrerCapability
 	closeOnce            sync.Once
@@ -142,6 +144,8 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	}
 	service.records.SetMaxBlobIntents(cfg.Solidification.MaxBlobIntents)
 	service.records.SetIdleTimeout(cfg.Solidification.IdleTimeout)
+	service.storageHealthy.Store(true)
+	service.registryHealthy.Store(true)
 	recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	err = service.cache.RebuildRepresentationIndexes(recoveryCtx)
 	recoveryCancel()
@@ -188,7 +192,11 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	service.uploads = newUploadSessions(store, registry, service.tasks.Leases(), cfg.Limits.UploadIdleTimeout, cfg.Limits.UploadMaxLifetime)
 	service.cache.SetOrphanProtection(service.protectCacheObject)
 	service.tasks.Start(ctx)
-	service.background.Add(4)
+	service.background.Add(5)
+	go func() {
+		defer service.background.Done()
+		service.watchReadiness(ctx)
+	}()
 	go func() {
 		defer service.background.Done()
 		service.refreshMetrics(ctx)
@@ -206,6 +214,6 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 		service.runBlobIntentReconciliation(ctx)
 	}()
 	service.metrics.setGateState(gate.State().State)
-	service.ready.Store(!gate.State().RecoveryBarrier)
+	service.refreshReadiness()
 	return service, nil
 }

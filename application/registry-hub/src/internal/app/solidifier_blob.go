@@ -14,7 +14,7 @@ func (s *solidifier) processBlob(ctx context.Context, task *tasks.Task, taskLeas
 	}
 	intent, err := s.service.records.GetBlobIntent(ctx, task.ID)
 	if err != nil {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_read")
 	}
 	if intent.Identity.Authority != task.Authority || intent.Identity.Repository != task.Repository || intent.Identity.Digest != task.BlobDigest || intent.CacheVersion != task.CacheVersion || intent.ActualSize != task.BlobSize {
 		return permanent("task_state", errors.New("blob task does not match its durable intent"))
@@ -49,13 +49,13 @@ func (s *solidifier) processBlob(ctx context.Context, task *tasks.Task, taskLeas
 		task.ProtectedCacheBytes = 0
 	}
 	if err := s.tasks.SaveProgress(ctx, task, taskLease); err != nil {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 	}
 	if err := s.service.records.SetBlobIntentProtectionSession(ctx, task.ID, protection.sessionID); err != nil {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 	}
 	if _, err := s.service.records.SetBlobIntentState(ctx, task.ID, tasks.IntentRunning, "", ""); err != nil {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 	}
 	blob := contentRef{digest: task.BlobDigest, mediaType: task.MediaType, size: task.BlobSize}
 	if err := s.ensureBlob(ctx, task, taskLease, blob); err != nil {
@@ -90,7 +90,7 @@ func (s *solidifier) processBlob(ctx context.Context, task *tasks.Task, taskLeas
 		return err
 	}
 	if _, err := s.service.records.SetBlobIntentState(ctx, task.ID, tasks.IntentVerified, "", ""); err != nil {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 	}
 	if err := s.releaseProtectedCacheReservation(ctx, task); err != nil {
 		return temporary("protection_state", err)

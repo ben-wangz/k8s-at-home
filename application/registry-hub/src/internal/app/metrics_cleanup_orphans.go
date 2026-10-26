@@ -16,19 +16,30 @@ func (s *observedStore) CleanupOrphans(ctx context.Context, olderThan time.Durat
 	})
 	if !ok {
 		err := errors.New("storage backend does not support orphan cleanup")
-		s.record("cleanup_orphans", err, time.Now())
+		s.record(ctx, "cleanup_orphans", err, time.Now())
 		return 0, err
 	}
 	started := time.Now()
 	removed, err := cleaner.CleanupOrphans(ctx, olderThan, limit)
-	s.record("cleanup_orphans", err, started)
+	s.record(ctx, "cleanup_orphans", err, started)
 	return removed, err
 }
 
-func (s *observedStore) record(operation string, err error, started time.Time) {
+func (s *observedStore) record(ctx context.Context, operation string, err error, started time.Time) {
 	result := s.metrics.recordStorage(operation, err, time.Since(started))
 	if err != nil && !expectedStorageError(err) && s.logger != nil {
-		s.logger.Warn("storage operation failed", "operation", operation, "error_class", result)
+		fields := []any{"operation", operation, "error_class", result}
+		if meta, ok := ctx.Value(requestMetaKey{}).(*requestMeta); ok && meta.requestID != "" {
+			fields = append(fields, "request_id", meta.requestID)
+		}
+		if operationID, ok := ctx.Value(storageOperationIDKey{}).(string); ok && operationID != "" {
+			fields = append(fields, "operation_id", operationID)
+		}
+		var requestID interface{ S3RequestID() string }
+		if errors.As(err, &requestID) && requestID.S3RequestID() != "" {
+			fields = append(fields, "s3_request_id", requestID.S3RequestID())
+		}
+		s.logger.Warn("storage operation failed", fields...)
 	}
 }
 

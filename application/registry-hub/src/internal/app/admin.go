@@ -170,6 +170,8 @@ func (s *Service) handleAdmin(writer http.ResponseWriter, request *http.Request)
 		}
 		status.Run = run
 		writeJSON(writer, http.StatusOK, status)
+	case request.URL.Path == "/api/v1/gc/reconcile" && request.Method == http.MethodPost:
+		s.reconcileGCNoRun(writer, request, ctx, principal)
 	case request.URL.Path == "/api/v1/referrers/reconcile":
 		s.reconcileReferrers(writer, request, ctx)
 	default:

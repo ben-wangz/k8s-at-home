@@ -152,6 +152,18 @@ func mapError(err error) error {
 	if err == nil {
 		return nil
 	}
+	mapped := mapErrorClassification(err)
+	var responseError *smithyhttp.ResponseError
+	if errors.As(err, &responseError) && responseError.HTTPResponse() != nil && responseError.HTTPResponse().Response != nil {
+		requestID := responseError.HTTPResponse().Header.Get("x-amz-request-id")
+		if requestID != "" {
+			return &s3RequestError{requestID: requestID, cause: mapped}
+		}
+	}
+	return mapped
+}
+
+func mapErrorClassification(err error) error {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return errors.Join(storage.ErrTimeout, err)
 	}

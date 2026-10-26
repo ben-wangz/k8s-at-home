@@ -7,9 +7,9 @@ Both backend listeners expose unauthenticated health endpoints:
 | Endpoint | Meaning |
 | --- | --- |
 | `/healthz` | The process can serve HTTP. Upstream failures do not make this fail. |
-| `/readyz` | Startup completed and the backend is ready to serve, with storage and internal Distribution checks passing. Shutdown makes this return `503`. |
+| `/readyz` | The backend can accept Registry work: startup completed, storage and internal Distribution checks pass, and the GC gate is open with no recovery barrier or exclusive operation. Shutdown makes this return `503`. |
 
-Storage and Distribution health are rechecked periodically, currently every 60 seconds. Readiness is not a per-request guarantee. An unavailable public upstream does not by itself make the backend unready. A closed GC gate can block writes while reads and readiness remain available.
+Storage and Distribution health are rechecked periodically, currently every 60 seconds. Gate transitions update readiness immediately. Readiness is not a per-request guarantee. An unavailable public upstream does not by itself make the backend unready. A closed GC gate can leave reads available while `/readyz` returns `503` because Registry writes and solidification are blocked.
 
 For the default release:
 
@@ -28,6 +28,8 @@ Use a reachable Service DNS address or ClusterIP. An HTTP `200` with an empty bo
 ## Logs
 
 The backend writes structured JSON logs to stderr. Read them through Kubernetes:
+
+Storage failure records include a bounded operation and error class. When available, `request_id` identifies the Hub request, `operation_id` identifies the solidification task, and `s3_request_id` is the object store's request ID for matching RustFS logs. Credentials, request bodies, and object keys are not logged.
 
 ```sh
 kubectl -n "$NAMESPACE" logs \

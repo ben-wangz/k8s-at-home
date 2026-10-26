@@ -46,6 +46,34 @@ func (s *Service) downloadManager() *download.Manager {
 
 func (s *Service) SetReady(ready bool) { s.ready.Store(ready) }
 
+func (s *Service) refreshReadiness() {
+	if s.gate == nil {
+		s.ready.Store(false)
+		return
+	}
+	s.setReadinessForGate(s.gate.State())
+}
+
+func (s *Service) watchReadiness(ctx context.Context) {
+	for {
+		changed, state := s.gate.readinessSnapshot()
+		s.setReadinessForGate(state)
+		select {
+		case <-ctx.Done():
+			return
+		case <-changed:
+		}
+	}
+}
+
+func (s *Service) setReadinessForGate(gate gateRecord) {
+	if s.ctx != nil && s.ctx.Err() != nil {
+		s.ready.Store(false)
+		return
+	}
+	s.ready.Store(s.storageHealthy.Load() && s.registryHealthy.Load() && gate.State == "open" && !gate.RecoveryBarrier && !gate.Exclusive)
+}
+
 // BeginShutdown stops background admission while the HTTP servers drain active requests.
 func (s *Service) BeginShutdown() {
 	s.ready.Store(false)

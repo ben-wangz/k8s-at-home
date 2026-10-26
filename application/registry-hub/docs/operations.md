@@ -111,6 +111,8 @@ Poll status until the run is `succeeded` and the gate is `open`. A `failed` or `
 
 For Kubernetes, use `/api/v1/gc/retry` for a verified failed Job and `/api/v1/gc/recover` for a verified completed Job. Missing Jobs, altered executor configuration, and uncertain completion can cause refusal; preserve the evidence and closed gate until the execution state is established.
 
+When GC is disabled and the gate is `failed_unknown` but there is no durable GC run record, use `POST /api/v1/gc/reconcile` only after independently confirming that no GC process or Job is active. The request body is `{"confirmedNoExecutor":true}` and requires `gc-admin`. The endpoint probes storage, reloads the durable gate, validates protection sessions and reservation totals, and reopens it with a conditional write. It does not remove protection records. A `409` includes a safe reason; a storage error returns `503` and leaves the gate closed. The endpoint cannot inspect external processes when GC is disabled, so the explicit confirmation must be based on operator review. Do not use it when a run record, executor identity, active protection, recovery barrier, or inconsistent ledger exists.
+
 Do not reopen the gate by editing persistent state or deleting the Job. [Standalone GC](standalone.md#local-gc) uses an explicitly configured executable instead of Kubernetes Jobs.
 
 ## Upgrades

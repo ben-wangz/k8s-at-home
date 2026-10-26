@@ -23,13 +23,13 @@ func (s *solidifier) saveManifestGraphNode(ctx context.Context, task *tasks.Task
 		node.Generation = task.Generation
 		node.GCEpoch = s.gate.State().Epoch
 	} else if !errors.Is(err, storage.ErrNotFound) {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_read")
 	}
 	if err := s.service.records.EnsureCacheProtectionReference(ctx, task.ID, task.Authority, task.Repository, reference.digest); err != nil {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "protection_reconcile")
 	}
 	if err := s.service.records.SaveGraphNode(ctx, &node); err != nil {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 	}
 	return nil
 }
@@ -48,13 +48,13 @@ func (s *solidifier) saveBlobGraphNode(ctx context.Context, task *tasks.Task, re
 		node.Generation = task.Generation
 		node.GCEpoch = s.gate.State().Epoch
 	} else if !errors.Is(err, storage.ErrNotFound) {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_read")
 	}
 	if err := s.service.records.EnsureCacheProtectionReference(ctx, task.ID, task.Authority, task.Repository, reference.digest); err != nil {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "protection_reconcile")
 	}
 	if err := s.service.records.SaveGraphNode(ctx, &node); err != nil {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 	}
 	return nil
 }
@@ -63,7 +63,7 @@ func (s *solidifier) saveStagedEdge(ctx context.Context, rootTaskID string, pare
 	entry := graphEntryDescriptor(descriptor)
 	edge := tasks.DependencyEdge{RootTaskID: rootTaskID, ParentRole: parentRole, ParentDigest: parentDigest, Order: order, ChildRole: childRole, ChildDigest: descriptor.Digest, Descriptor: entry}
 	if err := s.service.records.SaveDependencyEdge(ctx, edge); err != nil {
-		return temporary("task_state", err)
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 	}
 	return nil
 }

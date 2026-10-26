@@ -74,6 +74,9 @@ func (g *writeGate) reloadLocked(ctx context.Context) error {
 	if latest.ProtectedCacheReservationCount != len(latest.ProtectedCacheReservations) {
 		return errors.New("GC coordinator protected cache reservation count is invalid")
 	}
+	if latest.ProtectionSessionCount != len(latest.SessionIDs) {
+		return &gcReconciliationConflict{reason: "GC coordinator protection session count does not match its session list"}
+	}
 	latest.ProtectedCacheReservationCount = len(latest.ProtectedCacheReservations)
 	g.state = latest
 	g.version = object.Version

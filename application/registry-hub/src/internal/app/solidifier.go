@@ -38,7 +38,7 @@ func (e *solidificationFailureStage) Unwrap() error { return e.cause }
 
 func withSolidificationFailureStage(err error, stage string) error {
 	var failure *tasks.Failure
-	if !errors.As(err, &failure) || failure.Class != "protection_state" {
+	if !errors.As(err, &failure) {
 		return err
 	}
 	copy := *failure
@@ -76,6 +76,7 @@ func manifestReadHeaders() http.Header {
 }
 
 func (s *solidifier) Process(ctx context.Context, task *tasks.Task, taskLease lease.Lease) (result error) {
+	ctx = context.WithValue(ctx, storageOperationIDKey{}, task.ID)
 	if s.gate.State().RecoveryBarrier {
 		return tasks.WaitFor(tasks.WaitingDeps, "gc_admission")
 	}

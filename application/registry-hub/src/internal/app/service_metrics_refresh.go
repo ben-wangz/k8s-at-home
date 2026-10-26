@@ -115,15 +115,15 @@ func (s *Service) refreshMetrics(ctx context.Context) {
 			storageErr := storage.Probe(probeCtx, s.store)
 			registryErr := s.registry.Ping(probeCtx)
 			cancel()
+			s.storageHealthy.Store(storageErr == nil)
+			s.registryHealthy.Store(registryErr == nil)
 			if storageErr != nil {
-				s.ready.Store(false)
 				s.logger.Warn("storage health probe failed", "error_class", "storage")
-			} else if registryErr != nil {
-				s.ready.Store(false)
-				s.logger.Warn("internal Registry health probe failed", "error_class", "distribution")
-			} else {
-				s.ready.Store(!s.gate.State().RecoveryBarrier)
 			}
+			if registryErr != nil {
+				s.logger.Warn("internal Registry health probe failed", "error_class", "distribution")
+			}
+			s.refreshReadiness()
 		}
 	}
 }

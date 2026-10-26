@@ -38,6 +38,8 @@ func adminOpenAPIOperations(api huma.API) []huma.Operation {
 			adminResponses(api, map[string]*huma.Response{"202": gcRunResponse}, http.StatusBadRequest, http.StatusConflict, http.StatusServiceUnavailable), nil, confirmationBody),
 		adminOperation(api, http.MethodPost, "/api/v1/gc/recover", "recoverGC", "Recover garbage collection state", auth.GCAdmin,
 			adminResponses(api, map[string]*huma.Response{"200": gcResponse}, http.StatusBadRequest, http.StatusConflict, http.StatusServiceUnavailable), nil, confirmationBody),
+		adminOperation(api, http.MethodPost, "/api/v1/gc/reconcile", "reconcileGCWithoutRun", "Reconcile an unknown GC gate when no run record exists", auth.GCAdmin,
+			adminResponses(api, map[string]*huma.Response{"200": gcResponse}, http.StatusBadRequest, http.StatusConflict, http.StatusServiceUnavailable), nil, confirmationBody),
 		adminOperation(api, http.MethodGet, "/api/v1/referrers/reconcile", "getReferrerReconciliation", "Read referrer indexes and repair state", auth.ReferrerPrune,
 			adminResponses(api, map[string]*huma.Response{"200": referrerResponse}, http.StatusBadRequest, http.StatusBadGateway, http.StatusServiceUnavailable), adminReferrerQueryParams()),
 		adminOperation(api, http.MethodPost, "/api/v1/referrers/reconcile", "reconcileReferrers", "Update or repair referrer indexes", auth.ReferrerPrune,

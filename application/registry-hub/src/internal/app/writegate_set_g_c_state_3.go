@@ -41,6 +41,7 @@ func (g *writeGate) Open(ctx context.Context) error {
 	if err := g.persistLocked(ctx); err != nil {
 		g.state.State = "failed_unknown"
 		g.state.ErrorClass = "storage"
+		g.signalLocked()
 		return err
 	}
 	g.signalLocked()

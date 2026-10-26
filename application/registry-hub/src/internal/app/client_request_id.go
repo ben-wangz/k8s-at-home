@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+type storageOperationIDKey struct{}
+
 func requestID() string {
 	var value [12]byte
 	if _, err := rand.Read(value[:]); err != nil {

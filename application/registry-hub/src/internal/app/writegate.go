@@ -165,3 +165,11 @@ func (g *writeGate) State() gateRecord {
 	state.ProtectedCacheReservations = nil
 	return state
 }
+
+func (g *writeGate) readinessSnapshot() (<-chan struct{}, gateRecord) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	state := g.state
+	state.Exclusive = g.exclusive
+	return g.changed, state
+}

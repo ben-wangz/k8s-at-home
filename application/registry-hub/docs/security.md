@@ -81,7 +81,7 @@ Each credential must declare permissions. Use only the entries and permissions n
 | `delete` | Delete local Registry content. |
 | `task-admin` | Query and operate tasks, clean temporary state, and read metrics. |
 | `referrer-prune` | Query and reconcile Referrers. |
-| `gc-admin` | Query, trigger, retry, and recover GC. |
+| `gc-admin` | Query, trigger, retry, recover, and reconcile GC state. |
 
 API documentation accepts any of the three admin permissions. Metrics require `task-admin`, which also grants task operations.
 
