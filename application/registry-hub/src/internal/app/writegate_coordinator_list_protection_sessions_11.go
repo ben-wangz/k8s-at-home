@@ -42,7 +42,14 @@ func (g *writeGate) ProtectionSessionStatus(ctx context.Context, sessionID strin
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if !containsString(g.state.SessionIDs, sessionID) {
-		return protectionSessionStatus{}, storage.ErrNotFound
+		session, err := g.readProtectionSession(ctx, sessionID)
+		if err != nil {
+			return protectionSessionStatus{}, err
+		}
+		if session.State != "released" {
+			return protectionSessionStatus{}, storage.ErrNotFound
+		}
+		return g.protectionSessionStatusFromRecordLocked(ctx, session)
 	}
 	return g.protectionSessionStatusLocked(ctx, sessionID)
 }
@@ -52,6 +59,13 @@ func (g *writeGate) protectionSessionStatusLocked(ctx context.Context, sessionID
 	if err != nil {
 		return protectionSessionStatus{}, err
 	}
+	if session.State == "released" {
+		return protectionSessionStatus{}, errors.New("active protection session is marked released")
+	}
+	return g.protectionSessionStatusFromRecordLocked(ctx, session)
+}
+
+func (g *writeGate) protectionSessionStatusFromRecordLocked(ctx context.Context, session protectionSessionRecord) (protectionSessionStatus, error) {
 	ownerCount, err := g.countProtectionOwnersLocked(ctx, session.OwnerSetID)
 	if err != nil {
 		return protectionSessionStatus{}, err

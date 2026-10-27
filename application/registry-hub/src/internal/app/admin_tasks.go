@@ -57,6 +57,7 @@ func (s *Service) listTasks(writer http.ResponseWriter, request *http.Request, c
 		}
 		view, err := s.taskAdminView(ctx, item)
 		if err != nil {
+			s.logAdminTaskViewFailure(item.ID, err)
 			writeAdminError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "task protection state is unavailable")
 			return
 		}
@@ -84,6 +85,7 @@ func (s *Service) taskOperation(writer http.ResponseWriter, request *http.Reques
 				writeAdminError(writer, http.StatusBadRequest, "UNSUPPORTED", "owner session does not belong to task")
 				return
 			}
+			s.logAdminTaskViewFailure(parts[0], err)
 			writeAdminError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "task detail could not be read")
 			return
 		}
@@ -115,6 +117,7 @@ func (s *Service) taskOperation(writer http.ResponseWriter, request *http.Reques
 	}
 	view, viewErr := s.taskAdminView(ctx, task)
 	if viewErr != nil {
+		s.logAdminTaskViewFailure(task.ID, viewErr)
 		writeAdminError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "task protection state is unavailable")
 		return
 	}
