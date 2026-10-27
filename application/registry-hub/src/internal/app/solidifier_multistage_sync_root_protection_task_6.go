@@ -194,6 +194,9 @@ func (s *solidifier) finalizeAnchoredManifestBlobs(ctx context.Context, task *ta
 func (s *solidifier) markManifestBlobIntentsAnchored(ctx context.Context, task *tasks.Task, manifest *stagedManifest) ([]string, error) {
 	intentIDs := make([]string, 0, len(manifest.blobs))
 	for _, blob := range manifest.blobs {
+		if err := s.saveBlobGraphNodeState(ctx, task, blob, "anchored"); err != nil {
+			return nil, err
+		}
 		intent, err := s.service.records.GetBlobIntentByIdentity(ctx, tasks.BlobIdentity{Authority: task.Authority, Repository: task.Repository, Digest: blob.digest})
 		if err != nil {
 			if errors.Is(err, storage.ErrNotFound) {
@@ -204,9 +207,6 @@ func (s *solidifier) markManifestBlobIntentsAnchored(ctx context.Context, task *
 		anchored, err := s.service.records.SetBlobIntentState(ctx, intent.ID, tasks.IntentAnchored, "", "")
 		if err != nil {
 			return nil, temporary("task_state", err)
-		}
-		if err := s.saveBlobGraphNodeState(ctx, task, blob, "anchored"); err != nil {
-			return nil, err
 		}
 		if !anchored.WakeAcknowledged {
 			s.service.wakeBlobDemandRootsExcept(ctx, intent.ID, task.ID)

@@ -79,40 +79,25 @@ func (s *solidifier) processRootMultiStage(ctx context.Context, task *tasks.Task
 			return withSolidificationFailureStage(err, "manifest_scope_admission")
 		}
 		if !admitted {
-			observationEpoch, canObserve := s.stagedManifestObservationEpoch()
-			if _, _, err := s.readDistributionManifest(ctx, task, manifest.ref); err == nil {
-				if canObserve && s.stagedManifestObservationEpochIsCurrent(observationEpoch) {
-					if err := s.recordStagedManifestPresence(ctx, task, manifest.ref, observationEpoch); err != nil {
-						return err
-					}
-				}
-				if err := s.finalizeAnchoredManifestBlobs(ctx, task, manifest); err != nil {
-					return err
-				}
+			finalized, err := s.finalizeReusedAnchoredManifest(ctx, task, taskLease, manifest)
+			if err != nil {
+				return withSolidificationFailureStage(err, "anchored_scope_reuse")
+			}
+			if finalized {
 				manifestReady[manifest.ref.digest] = true
 				continue
-			} else if !errors.Is(err, storage.ErrNotFound) {
-				return err
 			}
 			admitted, err = s.admitManifestScope(ctx, task, taskLease, manifest, graph.bytes, maxSessions, maxBytes, true)
 			if err != nil {
 				return withSolidificationFailureStage(err, "manifest_scope_recovery")
 			}
 			if !admitted {
-				observationEpoch, canObserve := s.stagedManifestObservationEpoch()
-				if _, _, err := s.readDistributionManifest(ctx, task, manifest.ref); err != nil {
-					if errors.Is(err, storage.ErrNotFound) {
-						return temporary("protection_state", errors.New("anchored manifest remained missing after protection recovery"))
-					}
-					return err
+				finalized, err := s.finalizeReusedAnchoredManifest(ctx, task, taskLease, manifest)
+				if err != nil {
+					return withSolidificationFailureStage(err, "anchored_scope_reuse")
 				}
-				if canObserve && s.stagedManifestObservationEpochIsCurrent(observationEpoch) {
-					if err := s.recordStagedManifestPresence(ctx, task, manifest.ref, observationEpoch); err != nil {
-						return err
-					}
-				}
-				if err := s.finalizeAnchoredManifestBlobs(ctx, task, manifest); err != nil {
-					return err
+				if !finalized {
+					return tasks.WaitFor(tasks.WaitingDeps, "dependencies_unavailable")
 				}
 				manifestReady[manifest.ref.digest] = true
 				continue

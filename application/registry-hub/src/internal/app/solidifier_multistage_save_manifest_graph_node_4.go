@@ -119,7 +119,14 @@ func (s *solidifier) verifyOrReuseLocalBlob(ctx context.Context, task *tasks.Tas
 		return temporary("generation", err)
 	}
 	epoch := s.gate.State().Epoch
-	_, err = s.service.records.FindLocalObservation(ctx, task.Authority, task.Repository, tasks.GraphBlob, blob.digest, blob.size, generation, epoch)
+	return s.verifyOrReuseLocalBlobAtGenerationEpoch(ctx, task, blob, sessionID, path, generation, epoch)
+}
+
+func (s *solidifier) verifyOrReuseLocalBlobAtGenerationEpoch(ctx context.Context, task *tasks.Task, blob contentRef, sessionID, path string, generation, epoch uint64) error {
+	if err := s.requireStableObservationEpoch(ctx, task, blob.digest, generation, epoch); err != nil {
+		return err
+	}
+	_, err := s.service.records.FindLocalObservation(ctx, task.Authority, task.Repository, tasks.GraphBlob, blob.digest, blob.size, generation, epoch)
 	if err == nil {
 		return nil
 	}
@@ -127,6 +134,9 @@ func (s *solidifier) verifyOrReuseLocalBlob(ctx context.Context, task *tasks.Tas
 		return temporary("task_state", err)
 	}
 	if err := s.verifyLocalObject(ctx, path, blob.digest, blob.size); err != nil {
+		return err
+	}
+	if err := s.requireStableObservationEpoch(ctx, task, blob.digest, generation, epoch); err != nil {
 		return err
 	}
 	owner := sessionID
@@ -141,5 +151,5 @@ func (s *solidifier) verifyOrReuseLocalBlob(ctx context.Context, task *tasks.Tas
 	}); err != nil {
 		return temporary("task_state", err)
 	}
-	return nil
+	return s.requireStableObservationEpoch(ctx, task, blob.digest, generation, epoch)
 }

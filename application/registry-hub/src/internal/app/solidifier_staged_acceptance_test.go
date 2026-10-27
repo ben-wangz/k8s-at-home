@@ -23,13 +23,14 @@ type stagedAcceptanceObject struct {
 }
 
 type stagedAcceptanceFixture struct {
-	t         *testing.T
-	service   *Service
-	processor *solidifier
-	mu        sync.Mutex
-	objects   map[string]stagedAcceptanceObject
-	uploads   map[string]int
-	requests  int
+	t             *testing.T
+	service       *Service
+	processor     *solidifier
+	mu            sync.Mutex
+	objects       map[string]stagedAcceptanceObject
+	uploads       map[string]int
+	requests      int
+	beforeRequest func(*http.Request)
 }
 
 func newStagedAcceptanceFixture(t *testing.T, maxBytes int64) *stagedAcceptanceFixture {
@@ -67,6 +68,9 @@ func newStagedAcceptanceFixture(t *testing.T, maxBytes int64) *stagedAcceptanceF
 }
 
 func (f *stagedAcceptanceFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if f.beforeRequest != nil {
+		f.beforeRequest(r)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.requests++

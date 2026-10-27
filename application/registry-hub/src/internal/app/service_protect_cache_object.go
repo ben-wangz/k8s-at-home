@@ -59,7 +59,7 @@ func (s *Service) protectCacheObject(ctx context.Context, authority, repository,
 					return true, nil
 				}
 				if s.store == nil || s.gate == nil {
-					continue
+					return true, nil
 				}
 				generation, err := s.generation(ctx, authority, repository, digest)
 				if err != nil {
@@ -78,15 +78,31 @@ func (s *Service) protectCacheObject(ctx context.Context, authority, repository,
 			} else if !errors.Is(nodeErr, storage.ErrNotFound) {
 				return false, nodeErr
 			}
-			if _, nodeErr := s.records.GetGraphNode(ctx, task.ID, tasks.GraphBlob, digest); nodeErr == nil {
+			if node, nodeErr := s.records.GetGraphNode(ctx, task.ID, tasks.GraphBlob, digest); nodeErr == nil {
 				if intentErr != nil || intent.State != tasks.IntentVerified && intent.State != tasks.IntentAnchored {
 					return true, nil
+				}
+				if (node.LocalState != "verified_present" && node.LocalState != "anchored") || s.store == nil || s.gate == nil {
+					return true, nil
+				}
+				generation, err := s.generation(ctx, authority, repository, digest)
+				if err != nil {
+					return false, err
+				}
+				epoch := s.gate.State().Epoch
+				if node.ContentGeneration == nil || *node.ContentGeneration != generation.Generation || node.GCEpoch != epoch {
+					return true, nil
+				}
+				if _, err := s.records.FindLocalObservation(ctx, authority, repository, tasks.GraphBlob, digest, node.ActualSize, generation.Generation, epoch); errors.Is(err, storage.ErrNotFound) {
+					return true, nil
+				} else if err != nil {
+					return false, err
 				}
 				continue
 			} else if !errors.Is(nodeErr, storage.ErrNotFound) {
 				return false, nodeErr
 			}
-			if _, exists := task.Graph[digest]; exists && (intentErr != nil || intent.State != tasks.IntentVerified && intent.State != tasks.IntentAnchored) {
+			if _, exists := task.Graph[digest]; exists {
 				return true, nil
 			}
 		}

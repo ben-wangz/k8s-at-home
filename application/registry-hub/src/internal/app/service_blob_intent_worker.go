@@ -11,6 +11,16 @@ func (s *Service) runBlobIntentReconciliation(ctx context.Context) {
 	if err := s.reconcileBlobIntentTasks(ctx); err != nil && s.logger != nil {
 		s.logger.Warn("blob intent reconciliation failed", "error_class", "storage")
 	}
+	anchoredReuseCursor := anchoredManifestReuseCursor{}
+	if gate := s.gate.State(); gate.State == "open" && !gate.RecoveryBarrier {
+		if next, _, err := s.reconcileAnchoredManifestReusePage(ctx, anchoredReuseCursor); err != nil {
+			if s.logger != nil {
+				s.logger.Warn("anchored manifest reuse reconciliation deferred", "error_class", "recovery")
+			}
+		} else {
+			anchoredReuseCursor = next
+		}
+	}
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	cacheScanActive := true
@@ -66,6 +76,13 @@ func (s *Service) runBlobIntentReconciliation(ctx context.Context) {
 				processor := &solidifier{service: s, tasks: s.tasks, gate: s.gate}
 				processor.wakeCoordinationWaiters(ctx)
 				s.wakeAvailableQuotaWaiters(ctx, gate)
+				if next, _, err := s.reconcileAnchoredManifestReusePage(ctx, anchoredReuseCursor); err != nil {
+					if s.logger != nil {
+						s.logger.Warn("anchored manifest reuse reconciliation deferred", "error_class", "recovery")
+					}
+				} else {
+					anchoredReuseCursor = next
+				}
 			}
 		}
 	}

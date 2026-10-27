@@ -21,16 +21,34 @@ func TestCacheProtectionIndexTracksUnanchoredManifestNodes(t *testing.T) {
 	}
 	defer manager.Close()
 	ctx := context.Background()
+	gate, err := newWriteGate(ctx, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := tasks.NewRecords(store)
+	service := &Service{tasks: manager, records: records, store: store, gate: gate}
 	digest := "sha256:" + strings.Repeat("a", 64)
 	task, _, err := manager.EnqueueResolved(ctx, "ghcr.io", "team/image", "latest", digest, "application/vnd.oci.image.manifest.v1+json", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	records := tasks.NewRecords(store)
+	generation, err := service.generation(ctx, task.Authority, task.Repository, digest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	node := tasks.GraphNode{
 		RootTaskID: task.ID, Role: tasks.GraphManifest, Digest: digest,
 		MediaType: "application/vnd.oci.image.manifest.v1+json", DeclaredSize: 128,
 		LocalState: "discovered", Generation: task.Generation,
+		ContentGeneration: &generation.Generation, GCEpoch: gate.State().Epoch,
+	}
+	if err := records.RecordLocalObservation(ctx, tasks.LocalObservation{
+		Authority: task.Authority, Repository: task.Repository, Role: tasks.GraphManifest,
+		Digest: digest, ActualSize: node.ActualSize, Generation: generation.Generation,
+		GCEpoch: gate.State().Epoch, OperationID: "cache-protection-manifest-test",
+		VerificationBasis: "distribution_readback",
+	}); err != nil {
+		t.Fatal(err)
 	}
 	if err := records.EnsureCacheProtectionReference(ctx, task.ID, task.Authority, task.Repository, digest); err != nil {
 		t.Fatal(err)
@@ -51,7 +69,6 @@ func TestCacheProtectionIndexTracksUnanchoredManifestNodes(t *testing.T) {
 	if err := manager.Leases().Release(ctx, taskLease); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{tasks: manager, records: records}
 	service.cacheProtectionReady.Store(true)
 	protected, err := service.protectCacheObject(ctx, "ghcr.io", "team/image", digest)
 	if err != nil || !protected {
@@ -79,6 +96,23 @@ func TestCacheProtectionIndexTracksUnanchoredManifestNodes(t *testing.T) {
 	if err := records.SaveGraphNode(ctx, &blobNode); err != nil {
 		t.Fatal(err)
 	}
+	blobGeneration, err := service.generation(ctx, task.Authority, task.Repository, blobDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobNode.ContentGeneration = &blobGeneration.Generation
+	blobNode.GCEpoch = gate.State().Epoch
+	if err := records.SaveGraphNode(ctx, &blobNode); err != nil {
+		t.Fatal(err)
+	}
+	if err := records.RecordLocalObservation(ctx, tasks.LocalObservation{
+		Authority: task.Authority, Repository: task.Repository, Role: tasks.GraphBlob,
+		Digest: blobDigest, ActualSize: blobNode.ActualSize, Generation: blobGeneration.Generation,
+		GCEpoch: gate.State().Epoch, OperationID: "cache-protection-test",
+		VerificationBasis: "distribution_readback",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	intent, _, err := records.EnsureBlobIntent(ctx, tasks.BlobIdentity{
 		Authority: task.Authority, Repository: task.Repository, Digest: blobDigest,
 	}, task.Generation, "")
@@ -96,7 +130,15 @@ func TestCacheProtectionIndexTracksUnanchoredManifestNodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	protected, err = service.protectCacheObject(ctx, "ghcr.io", "team/image", blobDigest)
+	if err != nil || !protected {
+		t.Fatalf("anchored intent with discovered graph node protection = %t, %v; want protected", protected, err)
+	}
+	blobNode.LocalState = "anchored"
+	if err := records.SaveGraphNode(ctx, &blobNode); err != nil {
+		t.Fatal(err)
+	}
+	protected, err = service.protectCacheObject(ctx, "ghcr.io", "team/image", blobDigest)
 	if err != nil || protected {
-		t.Fatalf("anchored blob cache protection = %t, %v; want unprotected", protected, err)
+		t.Fatalf("verified anchored blob cache protection = %t, %v; want unprotected", protected, err)
 	}
 }
