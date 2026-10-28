@@ -2,9 +2,9 @@ package dnsrouter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/miekg/dns"
@@ -21,6 +21,8 @@ type Router struct {
 	lifecycleCtx context.Context
 	cancel       context.CancelFunc
 }
+
+const maxUDPResponseSize = 1232
 
 type runtimeGroup struct {
 	name      string
@@ -68,9 +70,10 @@ func New(cfg config.Config, metrics *Metrics, logger *slog.Logger) (*Router, err
 	}
 	for i, rule := range cfg.DNS.Rules {
 		domain, _ := config.NormalizeDomain(rule.Domain)
+		domain = dns.CanonicalName(domain)
 		router.rules = append(router.rules, compiledRule{
 			match: rule.Match, domain: domain, group: rule.UpstreamGroup,
-			labels: len(strings.Split(domain, ".")), ordinal: i,
+			labels: dns.CountLabel(domain), ordinal: i,
 		})
 	}
 	router.lifecycleCtx, router.cancel = context.WithCancel(context.Background())
@@ -99,19 +102,15 @@ func (r *Router) ServeDNSContext(clientCtx context.Context, writer dns.ResponseW
 	response.SetReply(request)
 	if len(request.Question) != 1 || request.Opcode != dns.OpcodeQuery {
 		response.Rcode = dns.RcodeFormatError
-		_ = writer.WriteMsg(response)
+		_ = writeResponse(writer, request, response)
 		r.record(groupName, response.Rcode, source, started)
 		return
 	}
 	question := request.Question[0]
-	name := ""
-	var err error
-	if question.Name != "." {
-		name, err = config.NormalizeDomain(question.Name)
-	}
+	name, err := normalizeQuestionName(question.Name)
 	if err != nil {
 		response.Rcode = dns.RcodeFormatError
-		_ = writer.WriteMsg(response)
+		_ = writeResponse(writer, request, response)
 		r.record(groupName, response.Rcode, source, started)
 		return
 	}
@@ -157,18 +156,19 @@ func (r *Router) ServeDNSContext(clientCtx context.Context, writer dns.ResponseW
 		r.record(groupName, dns.RcodeServerFailure, source, started)
 		return
 	}
-	if err := writer.WriteMsg(response); err != nil {
+	if err := writeResponse(writer, request, response); err != nil {
 		r.logger.Debug("DNS response write failed", "group", groupName, "error", errorClass(err))
 	}
 	r.record(groupName, response.Rcode, source, started)
 }
 
 func (r *Router) selectGroup(name string) string {
+	name = dns.CanonicalName(name)
 	best := compiledRule{labels: -1, ordinal: len(r.rules)}
 	for _, rule := range r.rules {
 		matches := name == rule.domain
 		if rule.match == "suffix" {
-			matches = matches || strings.HasSuffix(name, "."+rule.domain)
+			matches = dns.CompareDomainName(name, rule.domain) == rule.labels
 		}
 		if !matches || rule.labels < best.labels {
 			continue
@@ -184,6 +184,30 @@ func (r *Router) selectGroup(name string) string {
 		return r.defaultGroup
 	}
 	return best.group
+}
+
+func normalizeQuestionName(name string) (string, error) {
+	if _, ok := dns.IsDomainName(name); !ok {
+		return "", errors.New("invalid DNS question name")
+	}
+	return dns.CanonicalName(name), nil
+}
+
+func writeResponse(writer dns.ResponseWriter, request, response *dns.Msg) error {
+	localAddress := writer.LocalAddr()
+	if localAddress == nil || localAddress.Network() != "udp" {
+		return writer.WriteMsg(response)
+	}
+	limit := dns.MinMsgSize
+	if opt := request.IsEdns0(); opt != nil && int(opt.UDPSize()) > limit {
+		limit = int(opt.UDPSize())
+	}
+	if limit > maxUDPResponseSize {
+		limit = maxUDPResponseSize
+	}
+	message := response.Copy()
+	message.Truncate(limit)
+	return writer.WriteMsg(message)
 }
 
 func (r *Router) resolve(ctx context.Context, group *runtimeGroup, request *dns.Msg) (*dns.Msg, error) {

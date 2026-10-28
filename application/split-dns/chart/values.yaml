@@ -11,8 +11,8 @@ replicaCount: 2
 revisionHistoryLimit: 5
 image:
   registry: ghcr.io
-  repository: ben-wangz/k8s-at-home-split-dns
-  tag: 0.1.0
+  repository: ben-wangz/k8s-at-home-split-dns-backend
+  tag: 0.1.1
   digest: ""
   pullPolicy: IfNotPresent
 imagePullSecrets: []
