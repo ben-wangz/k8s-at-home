@@ -14,7 +14,7 @@ backend:
   image:
     registry: ghcr.io
     repository: ben-wangz/k8s-at-home-registry-hub-backend
-    tag: 0.2.8
+    tag: 0.2.9
     digest: ""
     pullPolicy: IfNotPresent
   serviceAccount:
@@ -34,6 +34,12 @@ backend:
     key: config.json
   limits:
     referrerPages: 100
+  inventory:
+    refreshSeconds: 30
+    staleSeconds: 120
+    snapshotRetentionSeconds: 3600
+    batchSize: 100
+    batchTimeoutSeconds: 60
   solidification:
     idleTimeoutSeconds: 86400
     maxWaitingRoots: 1024

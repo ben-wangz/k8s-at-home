@@ -1,5 +1,7 @@
 # Observability
 
+Image inventory exports `registry_hub_inventory_images{scope,category}`, `registry_hub_inventory_last_publish_timestamp_seconds`, `registry_hub_inventory_observed_timestamp_seconds`, `registry_hub_inventory_coverage_complete`, and `registry_hub_inventory_batch_duration_seconds`. Compute snapshot age from the observation timestamp. Projection failures and successful publications also increment `registry_hub_events_total` with `inventory_projection_error` and `inventory_snapshot_published`. See [inventory.md](inventory.md) for coverage and freshness semantics.
+
 ## Health
 
 Both backend listeners expose unauthenticated health endpoints:

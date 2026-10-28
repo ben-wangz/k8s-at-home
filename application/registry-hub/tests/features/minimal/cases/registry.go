@@ -18,6 +18,7 @@ import (
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/delete-semantics"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/dependency-failure"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/external-combinations"
+	imageinventory "github.com/ben-wangz/registry-hub-tests/features/minimal/cases/image-inventory"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/initialization-secrets"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/initializer-faults"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/installation"
@@ -54,6 +55,7 @@ func Registry() ([]testkit.Case, error) {
 		adminauth.New,
 		externalcombinations.New,
 		registryroundtrip.New,
+		imageinventory.New,
 		restartreuse.New,
 		rbacboundary.New,
 		startupwait.New,

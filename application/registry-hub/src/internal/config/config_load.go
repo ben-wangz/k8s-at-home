@@ -96,6 +96,7 @@ func Load() (Config, error) {
 		DownloadPartialTTL:      secondsValue("REGISTRY_HUB_DOWNLOAD_PARTIAL_TTL_SECONDS", 24*60*60),
 		DownloadMaxBytes:        downloadMaxBytes,
 	}
+	cfg.Inventory = Inventory{RefreshInterval: secondsValue("REGISTRY_HUB_INVENTORY_REFRESH_SECONDS", 30), StaleAfter: secondsValue("REGISTRY_HUB_INVENTORY_STALE_SECONDS", 120), SnapshotRetention: secondsValue("REGISTRY_HUB_INVENTORY_SNAPSHOT_RETENTION_SECONDS", 3600), BatchSize: int(intValue("REGISTRY_HUB_INVENTORY_BATCH_SIZE", 100)), BatchTimeout: secondsValue("REGISTRY_HUB_INVENTORY_BATCH_TIMEOUT_SECONDS", 60)}
 	cfg.Solidification = Solidification{
 		IdleTimeout:                    secondsValue("REGISTRY_HUB_SOLIDIFICATION_IDLE_TIMEOUT_SECONDS", 24*60*60),
 		MaxWaitingRoots:                int(intValue("REGISTRY_HUB_SOLIDIFICATION_MAX_WAITING_ROOTS", 1024)),

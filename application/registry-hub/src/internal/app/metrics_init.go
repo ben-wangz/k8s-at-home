@@ -195,5 +195,6 @@ func newMetrics() *metrics {
 	for _, event := range []string{"upstream_retry", "upstream_404", "upstream_fetch", "upstream_auth_challenge", "upstream_redirect", "local_hit", "digest_mismatch", "lease_lost", "download_wait_timeout", "download_resume", "download_persisted_chunk", "download_fallback", "download_recovered_corrupt_chunk", "download_partial_cleanup"} {
 		result.events.WithLabelValues(event).Add(0)
 	}
+	result.initInventoryMetrics()
 	return result
 }

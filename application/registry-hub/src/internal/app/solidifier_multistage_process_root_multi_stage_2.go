@@ -107,6 +107,9 @@ func (s *solidifier) processRootMultiStage(ctx context.Context, task *tasks.Task
 		for _, blob := range manifest.blobs {
 			cacheReady := cacheReadyByDigest[blob.digest]
 			intent := intentByDigest[blob.digest]
+			if err := s.service.inventoryStart(ctx, task, manifest.ref.digest); err != nil {
+				return err
+			}
 			present, err := s.distributionBlobPresent(ctx, task, blob, manifest.sessionID)
 			if err != nil {
 				return withSolidificationFailureStage(err, "blob_presence_check")

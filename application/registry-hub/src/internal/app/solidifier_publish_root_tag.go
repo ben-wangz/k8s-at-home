@@ -51,6 +51,9 @@ func (s *solidifier) publishRootTag(ctx context.Context, task *tasks.Task, taskL
 	}
 	path := "/v2/" + s.internalName(task.Authority, task.Repository) + "/manifests/" + url.PathEscape(task.Reference)
 	remoteWrite := protectionRemoteWrite{Kind: "root_tag", Path: path, Digest: task.RootDigest, Size: root.Size, MediaType: task.MediaType}
+	if err := s.service.inventoryStart(ctx, task, task.RootDigest); err != nil {
+		return err
+	}
 	current, err := s.registry.Do(tagCtx, http.MethodGet, path, nil, manifestReadHeaders(), nil, 0)
 	if err != nil {
 		return temporary("distribution", err)

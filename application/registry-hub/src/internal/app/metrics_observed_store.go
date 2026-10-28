@@ -38,6 +38,9 @@ func (s *observedStore) Put(ctx context.Context, key string, body io.Reader, siz
 	started := time.Now()
 	entry, err := s.Store.Put(ctx, key, body, size, options)
 	s.record(ctx, "put", err, started)
+	if err == nil && s.inventoryNotify != nil && inventorySourceKey(key) {
+		s.inventoryNotify()
+	}
 	return entry, err
 }
 
@@ -45,6 +48,9 @@ func (s *observedStore) Delete(ctx context.Context, key string) error {
 	started := time.Now()
 	err := s.Store.Delete(ctx, key)
 	s.record(ctx, "delete", err, started)
+	if err == nil && s.inventoryNotify != nil && inventorySourceKey(key) {
+		s.inventoryNotify()
+	}
 	return err
 }
 
@@ -52,6 +58,9 @@ func (s *observedStore) DeleteIfMatch(ctx context.Context, key, version string) 
 	started := time.Now()
 	err := s.Store.DeleteIfMatch(ctx, key, version)
 	s.record(ctx, "delete_if_match", err, started)
+	if err == nil && s.inventoryNotify != nil && inventorySourceKey(key) {
+		s.inventoryNotify()
+	}
 	return err
 }
 

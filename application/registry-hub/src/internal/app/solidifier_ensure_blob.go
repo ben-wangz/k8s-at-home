@@ -44,6 +44,9 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 	internalRepository := s.internalName(task.Authority, task.Repository)
 	path := "/v2/" + internalRepository + "/blobs/" + blob.digest
 	remoteWrite := protectionRemoteWrite{Kind: "blob", Path: path, Digest: blob.digest, Size: blob.size, MediaType: "application/octet-stream"}
+	if err := s.service.inventoryStart(ctx, task, blob.digest); err != nil {
+		return err
+	}
 	response, err := s.registry.Do(ctx, http.MethodHead, path, nil, make(http.Header), nil, 0)
 	if err != nil {
 		return temporary("distribution", err)

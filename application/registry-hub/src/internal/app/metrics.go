@@ -10,6 +10,7 @@ import (
 )
 
 type metrics struct {
+	inventory              *inventoryMetrics
 	registry               *prometheus.Registry
 	requests               *prometheus.CounterVec
 	requestLatency         *prometheus.HistogramVec
@@ -117,6 +118,7 @@ func expectedStorageError(err error) bool {
 }
 
 type observedStore struct {
+	inventoryNotify func()
 	storage.Store
 	metrics *metrics
 	logger  *slog.Logger

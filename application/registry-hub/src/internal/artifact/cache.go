@@ -10,16 +10,18 @@ import (
 )
 
 type cacheMetadata struct {
-	SchemaVersion int       `json:"schemaVersion"`
-	Authority     string    `json:"authority"`
-	Repository    string    `json:"repository"`
-	Digest        string    `json:"digest"`
-	MediaType     string    `json:"mediaType"`
-	Size          int64     `json:"size"`
-	DataVersion   string    `json:"dataVersion"`
-	VerifiedAt    time.Time `json:"verifiedAt"`
-	CleanupAfter  time.Time `json:"cleanupAfter,omitempty"`
-	State         string    `json:"state"`
+	SchemaVersion    int       `json:"schemaVersion"`
+	Authority        string    `json:"authority"`
+	Repository       string    `json:"repository"`
+	Digest           string    `json:"digest"`
+	MediaType        string    `json:"mediaType"`
+	Size             int64     `json:"size"`
+	DataVersion      string    `json:"dataVersion"`
+	DataFingerprint  string    `json:"dataFingerprint,omitempty"`
+	VerifiedAt       time.Time `json:"verifiedAt"`
+	InventoryTracked bool      `json:"inventoryTracked,omitempty"`
+	CleanupAfter     time.Time `json:"cleanupAfter,omitempty"`
+	State            string    `json:"state"`
 }
 
 type cacheComplete struct {
@@ -77,11 +79,20 @@ const (
 )
 
 type Cache struct {
-	store          storage.Store
-	mu             sync.Mutex
-	identityLocks  [256]sync.Mutex
-	protectOrphans func(context.Context, string, string, string) (bool, error)
+	store             storage.Store
+	mu                sync.Mutex
+	identityLocks     [256]sync.Mutex
+	protectOrphans    func(context.Context, string, string, string) (bool, error)
+	inventoryTracking bool
 }
+
+func (c *Cache) EnableInventoryTracking() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.inventoryTracking = true
+}
+
+func (c *Cache) tracksInventory() bool { c.mu.Lock(); defer c.mu.Unlock(); return c.inventoryTracking }
 
 func NewCache(store storage.Store) *Cache { return &Cache{store: store} }
 

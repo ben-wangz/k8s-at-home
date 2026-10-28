@@ -18,6 +18,7 @@ The docs directory contains configuration and operations guides. Configuration e
 | [Usage](docs/usage.md) | Images, mirrors, Helm OCI, ORAS, and Referrers |
 | [Security](docs/security.md) | Admin credentials, permissions, upstream settings, and Secret lifecycle |
 | [Operations](docs/operations.md) | Tasks, cleanup, GC, upgrades, backup, restore, and uninstall |
+| [Image inventory](docs/inventory.md) | Reference/platform inventory, cache coverage, lifecycle, and immutable pagination |
 | [Observability](docs/observability.md) | Health checks, logs, metrics, and alerts |
 | [Architecture](docs/architecture.md) | Component boundaries, storage responsibilities, and core flows |
 | [Standalone](docs/standalone.md) | Process mode, authentication/TLS, persistent storage, and local GC |

@@ -45,10 +45,16 @@ func (c *Cache) put(ctx context.Context, authority, repository, digest, mediaTyp
 			return err
 		}
 	}
+	fingerprint, err := storage.Fingerprint(ctx, c.store, dataKey)
+	if err != nil {
+		return err
+	}
 	metadata := cacheMetadata{
 		SchemaVersion: cacheSchemaCurrent, Authority: authority, Repository: repository, Digest: digest,
 		MediaType: mediaType, Size: size, DataVersion: entry.Version,
-		VerifiedAt: time.Now().UTC(), CleanupAfter: time.Now().UTC().Add(24 * time.Hour), State: "complete",
+		DataFingerprint: fingerprint,
+		VerifiedAt:      time.Now().UTC(), CleanupAfter: time.Now().UTC().Add(24 * time.Hour), State: "complete",
+		InventoryTracked: c.tracksInventory(),
 	}
 	data, err := json.Marshal(metadata)
 	if err != nil {
@@ -66,7 +72,8 @@ func (c *Cache) put(ctx context.Context, authority, repository, digest, mediaTyp
 		if metadata.Digest != digest || metadata.Size != size || metadata.MediaType != mediaType || metadata.DataVersion != entry.Version || metadata.State != "complete" && metadata.State != "cleanup_pending" {
 			return errors.New("existing cache metadata does not match verified content")
 		}
-		if metadata.State == "cleanup_pending" {
+		if metadata.State == "cleanup_pending" || metadata.DataFingerprint != fingerprint {
+			metadata.DataFingerprint = fingerprint
 			metadata.State = "complete"
 			metadata.CleanupAfter = time.Now().UTC().Add(24 * time.Hour)
 			updated, marshalErr := json.Marshal(metadata)

@@ -50,6 +50,9 @@ func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskL
 	}
 	path := "/v2/" + s.internalName(task.Authority, task.Repository) + "/manifests/" + url.PathEscape(reference)
 	remoteWrite := protectionRemoteWrite{Kind: "manifest", Path: path, Digest: manifest.digest, Size: manifest.size, MediaType: manifest.mediaType}
+	if err := s.service.inventoryStart(ctx, task, manifest.digest); err != nil {
+		return err
+	}
 	response, err := s.registry.Do(ctx, http.MethodGet, path, nil, manifestReadHeaders(), nil, 0)
 	if err != nil {
 		return temporary("distribution", err)

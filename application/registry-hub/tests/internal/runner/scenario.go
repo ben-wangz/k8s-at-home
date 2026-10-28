@@ -26,6 +26,7 @@ func scenarioRegistry() map[string]ScenarioDefinition {
 				"admin-api", "admin-auth", "artifact-persistence", "artifact-roundtrip", "blob-mount", "blob-read",
 				"blob-upload", "client-interop", "default-limits", "default-render", "delete-semantics",
 				"dependency-failure", "external-combinations", "initialization-secrets", "initializer-faults",
+				"image-inventory",
 				"installation", "manifest-validation", "observability", "podman-upstream-pull", "rbac-boundary", "referrers-lifecycle",
 				"referrers-migration", "referrers-read", "registry-protocol", "registry-roundtrip", "restart-reuse",
 				"routing-paths", "security-defaults", "startup-wait", "tag-publication", "tags-pagination", "upstream-mirror", "upstream-resume",
@@ -41,11 +42,11 @@ func scenarioRegistry() map[string]ScenarioDefinition {
 		},
 		"feature-backend-s3": {
 			ID: "feature-backend-s3", ConfigPath: "tests/features/backend-s3/config.yaml",
-			CaseIDs: []string{"default-render", "installation", "upstream-mirror", "feature-backend-s3"}, BackendS3: true,
+			CaseIDs: []string{"default-render", "installation", "upstream-mirror", "feature-backend-s3", "image-inventory", "registry-roundtrip", "admin-auth", "initialization-secrets"}, BackendS3: true,
 		},
 		"feature-registry-s3": {
 			ID: "feature-registry-s3", ConfigPath: "tests/features/registry-s3/config.yaml",
-			CaseIDs: []string{"default-render", "installation", "upstream-mirror", "feature-registry-s3"}, RegistryS3: true,
+			CaseIDs: []string{"default-render", "installation", "upstream-mirror", "feature-registry-s3", "image-inventory", "registry-roundtrip", "admin-auth", "initialization-secrets"}, RegistryS3: true,
 		},
 		"feature-storage-redirect": {
 			ID: "feature-storage-redirect", ConfigPath: "tests/features/storage-redirect/config.yaml",

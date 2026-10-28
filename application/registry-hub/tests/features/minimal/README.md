@@ -93,6 +93,7 @@ See the [environment guide](environment/README.md) for prerequisites and environ
 | rbac-boundary | Initialization Role scope, separation of workload identities, and Registry token settings | installation |
 | startup-wait | Init container blocks startup while initialization is pending; Deployment becomes Ready after recovery | installation |
 | registry-roundtrip | OCI content upload/read and digest consistency | admin-auth, initialization-secrets |
+| image-inventory | Inventory discovery of pushed images, local closure proof, authentication, immutable pagination, and query validation | registry-roundtrip |
 | client-interop | Real Podman image and Helm OCI chart round trips | installation |
 | restart-reuse | Job recreation, repeated Helm upgrades, Pod restart, release reinstall, and credential stability | registry-roundtrip |
 | external-combinations | Automatic/external Secret combinations, cleanup simulation, reuse-values upgrade from old references, and restore to empty values | restart-reuse |

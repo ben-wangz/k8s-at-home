@@ -118,6 +118,7 @@ type Config struct {
 	Proxy                         ProxyConfig
 	Limits                        Limits
 	Solidification                Solidification
+	Inventory                     Inventory
 	CatalogEnabled                bool
 	InternalToken                 string
 	GCMode                        string

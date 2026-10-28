@@ -52,6 +52,9 @@ func adminResponses(api huma.API, success map[string]*huma.Response, errorStatus
 }
 
 func adminTag(path string) string {
+	if inventoryAdminPath(path) {
+		return "Inventory"
+	}
 	switch {
 	case strings.HasPrefix(path, "/api/v1/tasks"):
 		return "Tasks"

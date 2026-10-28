@@ -15,6 +15,9 @@ import (
 )
 
 func (c Config) Validate() error {
+	if err := c.Inventory.validateOptional(); err != nil {
+		return err
+	}
 	if c.GCMode != "disabled" && c.GCMode != "local" && c.GCMode != "kubernetes" {
 		return errors.New("REGISTRY_HUB_GC_MODE must be disabled, local, or kubernetes")
 	}

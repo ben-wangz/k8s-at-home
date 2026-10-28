@@ -128,6 +128,15 @@ func (s *Service) serveUpstreamManifest(writer http.ResponseWriter, request *htt
 		return
 	}
 	discoveryMediaType, discoveryDigest := mediaType, digest
+	if s.inventory != nil {
+		inventoryCtx, inventoryCancel := context.WithTimeout(operationCtx, 2*time.Second)
+		identity := inventoryIdentity(routed.Upstream, routed.RemoteRepo, routed.Reference)
+		_, contentErr := s.inventoryContent(inventoryCtx, identity, digest, mediaType, data)
+		s.inventoryFailure(contentErr)
+		_, bindingErr := s.inventoryBinding(inventoryCtx, identity, digest, "upstream", generation.Generation, time.Now().UTC(), !s.inventoryInstalledAt.IsZero() && discoveryTask.CreatedAt.After(s.inventoryInstalledAt))
+		s.inventoryFailure(bindingErr)
+		inventoryCancel()
+	}
 	_, _, enqueueErr := s.tasks.ResolveDiscovery(operationCtx, discoveryTask.ID, routed.Upstream, routed.RemoteRepo, routed.Reference, discoveryDigest, discoveryMediaType, generation.Generation)
 	if errors.Is(enqueueErr, tasks.ErrCancelled) {
 		enqueueErr = nil

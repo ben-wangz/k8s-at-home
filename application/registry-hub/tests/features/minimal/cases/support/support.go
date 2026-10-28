@@ -139,6 +139,7 @@ func WriteResult(environment testkit.CaseContext, details map[string]any) error 
 }
 
 var defaultChecks = map[string][]string{
+	"image-inventory":                 {"image-inventory.auth", "image-inventory.reference", "image-inventory.snapshot", "image-inventory.validation"},
 	"default-render":                  {"default-render.closure-limits-defaulted", "default-render.service-readiness-routing"},
 	"registry-protocol":               {"registry-protocol.version", "registry-protocol.errors", "registry-protocol.head", "registry-protocol.listeners"},
 	"client-interop":                  {"client-interop.podman", "client-interop.manifest", "client-interop.helm", "client-interop.oras-push-pull", "client-interop.oras-referrer", "client-interop.oras-delete", "client-interop.isolation"},

@@ -18,6 +18,9 @@ import (
 )
 
 func (s *solidifier) readDistributionManifest(ctx context.Context, task *tasks.Task, reference contentRef) ([]byte, contentRef, error) {
+	if err := s.service.inventoryStart(ctx, task, reference.digest); err != nil {
+		return nil, contentRef{}, err
+	}
 	path := "/v2/" + s.internalName(task.Authority, task.Repository) + "/manifests/" + url.PathEscape(reference.digest)
 	response, err := s.registry.Do(ctx, http.MethodGet, path, nil, manifestReadHeaders(), nil, 0)
 	if err != nil {

@@ -57,6 +57,13 @@ func (m *Manager) Cleanup(ctx context.Context, olderThan time.Duration, limit in
 				}
 			}
 			batchLimit := min(recordBudget, 500)
+			if keeper, ok := m.processor.(interface {
+				PreserveTaskHistory(context.Context, *Task) error
+			}); ok {
+				if err := keeper.PreserveTaskHistory(ctx, &task); err != nil {
+					return removed, err
+				}
+			}
 			if task.Kind == RootKind {
 				n, done, err := records.DeleteTaskGraph(ctx, task.ID, batchLimit)
 				recordBudget -= n

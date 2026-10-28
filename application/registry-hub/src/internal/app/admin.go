@@ -50,6 +50,8 @@ func (s *Service) handleAdmin(writer http.ResponseWriter, request *http.Request)
 	ctx, cancel := context.WithTimeout(request.Context(), adminTimeout)
 	defer cancel()
 	switch {
+	case request.Method == http.MethodGet && inventoryAdminPath(request.URL.Path):
+		s.serveInventory(writer, request, ctx)
 	case request.URL.Path == "/api/v1/tasks" && request.Method == http.MethodGet:
 		s.listTasks(writer, request, ctx)
 	case request.URL.Path == "/api/v1/tasks/cleanup" && request.Method == http.MethodPost:
@@ -210,6 +212,9 @@ func (s *Service) writeGCConflict(writer http.ResponseWriter, ctx context.Contex
 }
 
 func adminPermission(method, path string) string {
+	if method == http.MethodGet && inventoryAdminPath(path) {
+		return auth.TaskAdmin
+	}
 	if path == "/metrics" {
 		return auth.TaskAdmin
 	}

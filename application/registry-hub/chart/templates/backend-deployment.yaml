@@ -100,6 +100,16 @@ spec:
               value: {{ .Values.backend.catalog.enabled | quote }}
             - name: REGISTRY_HUB_LIMIT_REFERRER_PAGES
               value: {{ .Values.backend.limits.referrerPages | quote }}
+            - name: REGISTRY_HUB_INVENTORY_REFRESH_SECONDS
+              value: {{ .Values.backend.inventory.refreshSeconds | quote }}
+            - name: REGISTRY_HUB_INVENTORY_STALE_SECONDS
+              value: {{ .Values.backend.inventory.staleSeconds | quote }}
+            - name: REGISTRY_HUB_INVENTORY_SNAPSHOT_RETENTION_SECONDS
+              value: {{ .Values.backend.inventory.snapshotRetentionSeconds | quote }}
+            - name: REGISTRY_HUB_INVENTORY_BATCH_SIZE
+              value: {{ .Values.backend.inventory.batchSize | quote }}
+            - name: REGISTRY_HUB_INVENTORY_BATCH_TIMEOUT_SECONDS
+              value: {{ .Values.backend.inventory.batchTimeoutSeconds | quote }}
             - name: REGISTRY_HUB_SOLIDIFICATION_IDLE_TIMEOUT_SECONDS
               value: {{ .Values.backend.solidification.idleTimeoutSeconds | quote }}
             - name: REGISTRY_HUB_SOLIDIFICATION_MAX_WAITING_ROOTS

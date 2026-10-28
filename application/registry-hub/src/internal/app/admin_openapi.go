@@ -181,7 +181,7 @@ func (s *Service) AdminHandler() http.Handler {
 }
 
 func (s *Service) registerAdminOpenAPIOperations(api huma.API) []huma.Operation {
-	operations := adminOpenAPIOperations(api)
+	operations := append(adminOpenAPIOperations(api), adminInventoryOperations(api)...)
 	for index := range operations {
 		operation := &operations[index]
 		api.OpenAPI().AddOperation(operation)

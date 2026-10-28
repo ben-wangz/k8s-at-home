@@ -10,6 +10,7 @@ import (
 	"registry-hub/internal/config"
 	"registry-hub/internal/distribution"
 	"registry-hub/internal/download"
+	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/storage/filesystem"
 	"registry-hub/internal/storage/s3store"
@@ -36,6 +37,9 @@ type Service struct {
 	downloadOnce         sync.Once
 	tasks                *tasks.Manager
 	records              *tasks.Records
+	inventory            *inventory.Repository
+	inventoryDirty       atomic.Bool
+	inventoryInstalledAt time.Time
 	gate                 *writeGate
 	uploads              *uploadSessions
 	metrics              *metrics
@@ -139,6 +143,12 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 		blobIntentEvents:    make(chan tasks.BlobIdentity, 256),
 		limiter:             newRequestLimiter(cfg.Limits.GlobalRate, cfg.Limits.GlobalBurst, cfg.Limits.NoAuthRate, cfg.Limits.NoAuthBurst), nativeCache: make(map[string]nativeReferrerCapability),
 	}
+	service.inventory = &inventory.Repository{Store: store}
+	service.cache.EnableInventoryTracking()
+	service.initializeInventory(ctx)
+	if observed, ok := store.(*observedStore); ok {
+		observed.inventoryNotify = func() { service.inventoryDirty.Store(true) }
+	}
 	for index := range service.upstreamPerKey {
 		service.upstreamPerKey[index] = make(chan struct{}, 8)
 	}
@@ -192,7 +202,8 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	service.uploads = newUploadSessions(store, registry, service.tasks.Leases(), cfg.Limits.UploadIdleTimeout, cfg.Limits.UploadMaxLifetime)
 	service.cache.SetOrphanProtection(service.protectCacheObject)
 	service.tasks.Start(ctx)
-	service.background.Add(5)
+	service.background.Add(6)
+	go func() { defer service.background.Done(); service.runInventory(ctx) }()
 	go func() {
 		defer service.background.Done()
 		service.watchReadiness(ctx)

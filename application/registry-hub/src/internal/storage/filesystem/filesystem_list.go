@@ -16,6 +16,10 @@ import (
 )
 
 func (s *Store) List(ctx context.Context, prefix, token string, limit int) (result []storage.Entry, nextToken string, returnErr error) {
+	return s.list(ctx, prefix, token, limit, true)
+}
+
+func (s *Store) list(ctx context.Context, prefix, token string, limit int, versions bool) (result []storage.Entry, nextToken string, returnErr error) {
 	defer func() { returnErr = mapError(returnErr) }()
 	if err := ctx.Err(); err != nil {
 		return nil, "", err
@@ -70,7 +74,12 @@ func (s *Store) List(ctx context.Context, prefix, token string, limit int) (resu
 		if err != nil {
 			return nil, "", err
 		}
-		entry, err := s.head(path, key)
+		var entry storage.Entry
+		if versions {
+			entry, err = s.head(path, key)
+		} else {
+			entry, _, err = s.Fingerprint(ctx, key)
+		}
 		if err != nil && !errors.Is(err, storage.ErrNotFound) {
 			return nil, "", err
 		}
