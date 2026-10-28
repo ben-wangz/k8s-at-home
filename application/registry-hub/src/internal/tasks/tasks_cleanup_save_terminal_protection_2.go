@@ -20,7 +20,7 @@ func (m *Manager) SaveTerminalProtection(ctx context.Context, task *Task, protec
 	}
 	latest.GCProtected = protected
 	latest.RecoveryReason = recoveryReason
-	latest.TerminalCleanupComplete = !protected
+	latest.TerminalCleanupComplete = !protected && recoveryReason == ""
 	latest.QuotaWaitAt = time.Time{}
 	latest.QuotaWaitReason = ""
 	latest.QuotaWaitBytes = 0
@@ -32,7 +32,7 @@ func (m *Manager) SaveTerminalProtection(ctx context.Context, task *Task, protec
 	latest.ReservedBytes = task.ReservedBytes
 	latest.ProtectionSessionID = task.ProtectionSessionID
 	latest.ProtectionOwnerID = task.ProtectionOwnerID
-	if !protected {
+	if !protected && recoveryReason == "" {
 		latest.ScopeID = ""
 		latest.SessionIDs = nil
 		latest.RequestedBytes = 0

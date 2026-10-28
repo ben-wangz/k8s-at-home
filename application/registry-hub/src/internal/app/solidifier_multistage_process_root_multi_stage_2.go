@@ -138,14 +138,11 @@ func (s *solidifier) processRootMultiStage(ctx context.Context, task *tasks.Task
 			}
 			continue
 		}
-		previousSession := task.ProtectionSessionID
-		task.ProtectionSessionID = manifest.sessionID
 		requestCtx, cancel := context.WithTimeout(ctx, s.cfg.Limits.RequestTimeout)
-		err = s.ensureManifest(requestCtx, task, taskLease, manifest.ref, manifest.ref.digest)
+		err = s.ensureManifest(requestCtx, task, taskLease, manifest.ref, manifest.ref.digest, manifest.sessionID)
 		cancel()
-		task.ProtectionSessionID = previousSession
 		if err != nil {
-			return withSolidificationFailureStage(err, "manifest_publication")
+			return withSolidificationFailureStage(err, "manifest_publication", manifest.sessionID)
 		}
 		if err := s.recordStagedManifestObservation(ctx, task, manifest.ref); err != nil {
 			return err

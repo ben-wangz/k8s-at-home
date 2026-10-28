@@ -23,11 +23,13 @@ func (g *writeGate) MarkProtectionQuiesced(ctx context.Context, sessionID string
 		if session.State != "stop_requested" && session.State != "quiescing" && session.State != "recovery_required" {
 			return errors.New("protection session is not stopping")
 		}
-		if session.PendingOperations != 0 {
-			return errors.New("protection session still has in-flight operations")
+		if session.PendingOperations != 0 || session.UncertainRemoteResult {
+			return errors.New("protection session still has unresolved remote operations")
 		}
 		session.State = "quiesced"
 		session.CancelPhase = "quiesced"
+		session.RecoveryStage = ""
+		session.RecoveryReason = ""
 		return nil
 	})
 }
@@ -108,6 +110,8 @@ func (g *writeGate) ReleaseProtection(ctx context.Context, sessionID, reason str
 	session.State = "released"
 	session.CancelPhase = "released"
 	session.TerminalReason = reason
+	session.RecoveryStage = ""
+	session.RecoveryReason = ""
 	if err := g.saveProtectionSession(ctx, &session); err != nil {
 		g.signalLocked()
 		return err

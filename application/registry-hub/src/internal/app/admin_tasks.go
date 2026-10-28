@@ -167,7 +167,7 @@ func (s *Service) retryTask(ctx context.Context, id string) (tasks.Task, error) 
 }
 
 func taskAdminView(task tasks.Task) adminTaskView {
-	protected := task.GCProtected || len(task.SessionIDs) > 0 || task.ProtectionSessionID != "" || task.RecoveryReason != ""
+	protected := task.GCProtected || len(task.SessionIDs) > 0 || task.ProtectionSessionID != ""
 	return adminTaskView{Task: task, GCProtectionActive: protected}
 }
 

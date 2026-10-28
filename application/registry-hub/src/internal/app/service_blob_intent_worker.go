@@ -47,7 +47,7 @@ func (s *Service) runBlobIntentReconciliation(ctx context.Context) {
 			if gate.RecoveryBarrier {
 				recoveryCtx, cancel := context.WithTimeout(ctx, time.Minute)
 				if err := s.recoverSolidificationProtection(recoveryCtx); err != nil && s.logger != nil {
-					s.logger.Warn("solidification recovery remains blocked", "error_class", "recovery")
+					s.logger.Warn("solidification recovery remains blocked", "error_class", "recovery", "error", err)
 				}
 				cancel()
 			} else if err := s.reconcileTerminalTaskCleanup(ctx); err != nil && s.logger != nil {

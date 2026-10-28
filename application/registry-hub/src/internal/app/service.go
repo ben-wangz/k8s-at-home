@@ -177,7 +177,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	service.tasks.SetIdleTimeout(cfg.Solidification.IdleTimeout)
 	solidificationRecoveryCtx, solidificationRecoveryCancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	if err := service.recoverSolidificationProtection(solidificationRecoveryCtx); err != nil {
-		logger.Warn("solidification startup recovery is blocked", "error_class", "recovery")
+		logger.Warn("solidification startup recovery is blocked", "error_class", "recovery", "error", err)
 	}
 	solidificationRecoveryCancel()
 	if !gate.State().RecoveryBarrier {

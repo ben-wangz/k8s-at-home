@@ -21,17 +21,18 @@ type adminTaskListResponse struct {
 
 type adminTaskView struct {
 	tasks.Task
-	Graph                map[string]tasks.GraphEntry `json:"graph,omitempty"`
-	Checkpoints          map[string]string           `json:"checkpoints,omitempty"`
-	GraphNodes           []tasks.GraphNode           `json:"graphNodes,omitempty"`
-	GraphNextToken       string                      `json:"graphNextToken,omitempty"`
-	GraphNodesNextToken  string                      `json:"graphNodesNextToken,omitempty"`
-	CheckpointsNextToken string                      `json:"checkpointsNextToken,omitempty"`
-	GCProtectionActive   bool                        `json:"gcProtectionActive"`
-	ProtectionSessions   []protectionSessionStatus   `json:"protectionSessions,omitempty"`
-	OwnerSessionID       string                      `json:"ownerSessionID,omitempty"`
-	Owners               []string                    `json:"owners,omitempty"`
-	OwnersNextToken      string                      `json:"ownersNextToken,omitempty"`
+	Graph                        map[string]tasks.GraphEntry `json:"graph,omitempty"`
+	Checkpoints                  map[string]string           `json:"checkpoints,omitempty"`
+	GraphNodes                   []tasks.GraphNode           `json:"graphNodes,omitempty"`
+	GraphNextToken               string                      `json:"graphNextToken,omitempty"`
+	GraphNodesNextToken          string                      `json:"graphNodesNextToken,omitempty"`
+	CheckpointsNextToken         string                      `json:"checkpointsNextToken,omitempty"`
+	GCProtectionActive           bool                        `json:"gcProtectionActive"`
+	ProtectionSessions           []protectionSessionStatus   `json:"protectionSessions,omitempty"`
+	ReleasedProtectionSessionIDs []string                    `json:"releasedProtectionSessionIDs,omitempty"`
+	OwnerSessionID               string                      `json:"ownerSessionID,omitempty"`
+	Owners                       []string                    `json:"owners,omitempty"`
+	OwnersNextToken              string                      `json:"ownersNextToken,omitempty"`
 }
 
 type adminTaskCleanupResponse struct {

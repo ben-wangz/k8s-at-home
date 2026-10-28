@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskLease lease.Lease, manifest contentRef, reference string) (result error) {
-	finishOperation, err := s.beginProtectedOperation(ctx, task)
+func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskLease lease.Lease, manifest contentRef, reference, protectionSessionID string) (result error) {
+	finishOperation, err := s.beginProtectedOperation(ctx, protectionSessionID)
 	if err != nil {
 		return err
 	}
@@ -55,9 +55,11 @@ func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskL
 		return temporary("distribution", err)
 	}
 	if response.StatusCode == http.StatusOK {
-		if err := s.gate.MarkProtectionContentObserved(ctx, taskProtectionSession(task)); err != nil {
-			_ = response.Body.Close()
-			return temporary("protection_state", err)
+		if protectionSessionID != "" {
+			if err := s.gate.MarkProtectionContentObserved(ctx, protectionSessionID); err != nil {
+				_ = response.Body.Close()
+				return temporary("protection_state", err)
+			}
 		}
 		data, readErr := io.ReadAll(io.LimitReader(response.Body, s.cfg.Limits.ManifestBytes+1))
 		nativeSubjectHeader := response.Header.Get("OCI-Subject")
@@ -70,10 +72,10 @@ func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskL
 				return err
 			}
 		}
-		if err := s.resolveRemoteWrite(ctx, task, remoteWrite); err != nil {
+		if err := s.resolveRemoteWrite(ctx, protectionSessionID, remoteWrite); err != nil {
 			return err
 		}
-		return s.syncReferrerManifest(ctx, task, taskLease, data, manifest.mediaType, manifest.digest, nativeSubjectHeader, false)
+		return s.syncReferrerManifestWithProtectionSession(ctx, task, taskLease, data, manifest.mediaType, manifest.digest, nativeSubjectHeader, false, protectionSessionID)
 	}
 	if response.StatusCode != http.StatusNotFound {
 		_ = response.Body.Close()
@@ -95,7 +97,7 @@ func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskL
 	if err := s.service.checkContentGeneration(ctx, task.Authority, task.Repository, manifest.digest); err != nil {
 		return permanent("generation", err)
 	}
-	if err := s.markRemoteWrite(ctx, task, remoteWrite); err != nil {
+	if err := s.markRemoteWrite(ctx, protectionSessionID, remoteWrite); err != nil {
 		return err
 	}
 	put, err := s.registry.Do(ctx, http.MethodPut, path, nil, http.Header{"Content-Type": []string{manifest.mediaType}}, object.Body, object.Size)
@@ -107,13 +109,13 @@ func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskL
 		return temporary("distribution", fmt.Errorf("Distribution manifest PUT returned status %d", put.StatusCode))
 	}
 	nativeSubjectHeader := put.Header.Get("OCI-Subject")
-	if err := s.markRemoteContentObserved(ctx, task); err != nil {
+	if err := s.markRemoteContentObserved(ctx, protectionSessionID); err != nil {
 		return temporary("protection_state", err)
 	}
 	if err := s.verifyLocalObject(ctx, path, manifest.digest, manifest.size); err != nil {
 		return err
 	}
-	if err := s.resolveRemoteWrite(ctx, task, remoteWrite); err != nil {
+	if err := s.resolveRemoteWrite(ctx, protectionSessionID, remoteWrite); err != nil {
 		return err
 	}
 	if rootDigestReference {
@@ -125,19 +127,22 @@ func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskL
 	if err != nil {
 		return temporary("storage", err)
 	}
-	if err := s.syncReferrerManifest(ctx, task, taskLease, data, mediaType, manifest.digest, nativeSubjectHeader, true); err != nil {
+	if err := s.syncReferrerManifestWithProtectionSession(ctx, task, taskLease, data, mediaType, manifest.digest, nativeSubjectHeader, true, protectionSessionID); err != nil {
 		return err
 	}
 	return s.checkpoint(ctx, task, taskLease, manifest)
 }
 
 func (s *solidifier) syncReferrerManifest(ctx context.Context, task *tasks.Task, taskLease lease.Lease, data []byte, mediaType, digest, nativeSubjectHeader string, requireSubjectHeader bool) error {
+	return s.syncReferrerManifestWithProtectionSession(ctx, task, taskLease, data, mediaType, digest, nativeSubjectHeader, requireSubjectHeader, taskProtectionSession(task))
+}
+
+func (s *solidifier) syncReferrerManifestWithProtectionSession(ctx context.Context, task *tasks.Task, taskLease lease.Lease, data []byte, mediaType, digest, nativeSubjectHeader string, requireSubjectHeader bool, protectionSessionID string) error {
 	manifest, err := artifact.ParseManifest(data, mediaType, s.cfg.Limits.MaxDescriptors, s.cfg.Limits.DescriptorDataBytes)
 	if err != nil {
 		return permanent("referrer_index", invalidReferrer("referrer manifest failed validation"))
 	}
 	fenced := manifest.Subject != nil && !task.RootPublished
-	protectionSessionID := taskProtectionSession(task)
 	if fenced {
 		if err := s.tasks.BeginRootPublish(ctx, task, taskLease); err != nil {
 			return err

@@ -29,20 +29,25 @@ type solidifier struct {
 }
 
 type solidificationFailureStage struct {
-	name  string
-	cause error
+	name      string
+	sessionID string
+	cause     error
 }
 
 func (e *solidificationFailureStage) Error() string { return e.cause.Error() }
 func (e *solidificationFailureStage) Unwrap() error { return e.cause }
 
-func withSolidificationFailureStage(err error, stage string) error {
+func withSolidificationFailureStage(err error, stage string, sessionIDs ...string) error {
 	var failure *tasks.Failure
 	if !errors.As(err, &failure) {
 		return err
 	}
 	copy := *failure
-	copy.Err = &solidificationFailureStage{name: stage, cause: failure.Err}
+	stageFailure := &solidificationFailureStage{name: stage, cause: failure.Err}
+	if len(sessionIDs) > 0 {
+		stageFailure.sessionID = sessionIDs[0]
+	}
+	copy.Err = stageFailure
 	return &copy
 }
 
@@ -108,11 +113,15 @@ func (s *solidifier) Process(ctx context.Context, task *tasks.Task, taskLease le
 		var stage *solidificationFailureStage
 		if errors.As(result, &failure) && errors.As(failure.Err, &stage) {
 			fields = append(fields, "failure_stage", stage.name)
+			if stage.sessionID != "" {
+				fields = append(fields, "session_id", stage.sessionID)
+			}
 		}
 		var downloadErr *download.PersistenceError
 		if errors.As(result, &downloadErr) {
 			fields = append(fields, "download_stage", downloadErr.Stage)
 		}
+		fields = append(fields, "error", result)
 		s.service.logger.Warn("solidification failed", fields...)
 	}()
 	releaseSlot, ok := s.service.acquireSolidificationSlot(ctx, false)

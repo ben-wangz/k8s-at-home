@@ -16,7 +16,8 @@ import (
 )
 
 func (s *solidifier) publishRootTag(ctx context.Context, task *tasks.Task, taskLease lease.Lease) (result error) {
-	finishOperation, err := s.beginProtectedOperation(ctx, task)
+	protectionSessionID := task.ProtectionSessionID
+	finishOperation, err := s.beginProtectedOperation(ctx, protectionSessionID)
 	if err != nil {
 		return err
 	}
@@ -61,7 +62,7 @@ func (s *solidifier) publishRootTag(ctx context.Context, task *tasks.Task, taskL
 			if err := s.verifyLocalObject(tagCtx, path, task.RootDigest, root.Size); err != nil {
 				return err
 			}
-			if err := s.resolveRemoteWrite(tagCtx, task, remoteWrite); err != nil {
+			if err := s.resolveRemoteWrite(tagCtx, protectionSessionID, remoteWrite); err != nil {
 				return err
 			}
 			return s.tasks.MarkRootPublished(tagCtx, task, taskLease)
@@ -98,7 +99,7 @@ func (s *solidifier) publishRootTag(ctx context.Context, task *tasks.Task, taskL
 	if err := s.tasks.Leases().Validate(tagCtx, tagLease); err != nil {
 		return temporary("tag_lease", err)
 	}
-	if err := s.markRemoteWrite(tagCtx, task, remoteWrite); err != nil {
+	if err := s.markRemoteWrite(tagCtx, protectionSessionID, remoteWrite); err != nil {
 		return err
 	}
 	put, err := s.registry.Do(tagCtx, http.MethodPut, path, nil, http.Header{"Content-Type": []string{task.MediaType}}, object.Body, object.Size)
@@ -109,15 +110,15 @@ func (s *solidifier) publishRootTag(ctx context.Context, task *tasks.Task, taskL
 	if put.StatusCode != http.StatusCreated || put.Header.Get("Docker-Content-Digest") != task.RootDigest {
 		return temporary("distribution", errors.New("root tag publication was not confirmed"))
 	}
-	if task.ProtectionSessionID != "" {
-		if err := s.gate.MarkProtectionContentObserved(tagCtx, taskProtectionSession(task)); err != nil {
+	if protectionSessionID != "" {
+		if err := s.gate.MarkProtectionContentObserved(tagCtx, protectionSessionID); err != nil {
 			return temporary("protection_state", err)
 		}
 	}
 	if err := s.verifyLocalObject(ctx, path, task.RootDigest, root.Size); err != nil {
 		return err
 	}
-	if err := s.resolveRemoteWrite(ctx, task, remoteWrite); err != nil {
+	if err := s.resolveRemoteWrite(ctx, protectionSessionID, remoteWrite); err != nil {
 		return err
 	}
 	return s.tasks.MarkRootPublished(ctx, task, taskLease)

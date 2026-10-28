@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
 )
 
@@ -53,6 +54,9 @@ func (s *solidifier) TaskTerminal(ctx context.Context, task *tasks.Task) error {
 				return s.requireTaskProtectionRecovery(ctx, task, []string{sessionID}, "session_read_unknown", err)
 			}
 			if !active {
+				if err := s.gate.confirmInactiveProtectionSessionReleased(ctx, sessionID, legacyGrandfatheredScopeID, "legacy"); err != nil {
+					return s.requireTaskProtectionRecovery(ctx, task, []string{sessionID}, "session_release_unknown", err)
+				}
 				continue
 			}
 			if session.ReservationClass != "legacy" || session.ScopeID != legacyGrandfatheredScopeID {
@@ -77,6 +81,13 @@ func (s *solidifier) TaskTerminal(ctx context.Context, task *tasks.Task) error {
 		}
 		remaining, err := s.gate.RemoveProtectionOwner(ctx, sessionID, task.ID)
 		if err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				if releaseErr := s.gate.confirmInactiveProtectionSessionReleased(ctx, sessionID, "", ""); releaseErr == nil {
+					continue
+				} else {
+					err = errors.Join(err, releaseErr)
+				}
+			}
 			return s.requireTaskProtectionRecovery(ctx, task, []string{sessionID}, "owner_removal_unknown", err)
 		}
 		if remaining > 0 {

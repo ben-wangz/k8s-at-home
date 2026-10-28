@@ -161,7 +161,11 @@ func (s *Service) taskAdminViewWithRetry(ctx context.Context, task tasks.Task, r
 				return adminTaskView{}, err
 			}
 			view.Task = normalizedTask
-			view.GCProtectionActive = normalizedTask.GCProtected || len(normalizedTask.SessionIDs) > 0 || normalizedTask.ProtectionSessionID != "" || normalizedTask.RecoveryReason != ""
+			view.GCProtectionActive = normalizedTask.GCProtected || len(normalizedTask.SessionIDs) > 0 || normalizedTask.ProtectionSessionID != ""
+			for id := range releasedSessions {
+				view.ReleasedProtectionSessionIDs = append(view.ReleasedProtectionSessionIDs, id)
+			}
+			sort.Strings(view.ReleasedProtectionSessionIDs)
 			sort.Slice(view.ProtectionSessions, func(i, j int) bool {
 				return view.ProtectionSessions[i].ID < view.ProtectionSessions[j].ID
 			})

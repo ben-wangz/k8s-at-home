@@ -78,6 +78,8 @@ func (g *writeGate) ReleaseEmptyProtection(ctx context.Context, sessionID, deman
 	session.State = "released"
 	session.TerminalReason = "empty"
 	session.CancelPhase = "released"
+	session.RecoveryStage = ""
+	session.RecoveryReason = ""
 	if err := g.saveProtectionSession(ctx, &session); err != nil {
 		g.failClosedLocked("empty_protection_state_unknown")
 		return err

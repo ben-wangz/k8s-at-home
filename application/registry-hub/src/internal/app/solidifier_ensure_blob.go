@@ -13,7 +13,8 @@ import (
 )
 
 func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease lease.Lease, blob contentRef) (result error) {
-	finishOperation, err := s.beginProtectedOperation(ctx, task)
+	protectionSessionID := task.ProtectionSessionID
+	finishOperation, err := s.beginProtectedOperation(ctx, protectionSessionID)
 	if err != nil {
 		return err
 	}
@@ -52,13 +53,13 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 		if response.ContentLength != blob.size || response.Header.Get("Docker-Content-Digest") != blob.digest {
 			return permanent("distribution_invalid", errors.New("existing Distribution blob does not match its descriptor"))
 		}
-		if err := s.markRemoteContentObserved(ctx, task); err != nil {
+		if err := s.markRemoteContentObserved(ctx, protectionSessionID); err != nil {
 			return temporary("protection_state", err)
 		}
 		if err := s.verifyOrReuseLocalBlob(ctx, task, blob, taskProtectionSession(task), path); err != nil {
 			return err
 		}
-		return s.resolveRemoteWrite(ctx, task, remoteWrite)
+		return s.resolveRemoteWrite(ctx, protectionSessionID, remoteWrite)
 	}
 	if response.StatusCode != http.StatusNotFound {
 		_ = response.Body.Close()
@@ -120,8 +121,8 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 			if writeStarted {
 				confirmCtx, cancel := context.WithTimeout(context.Background(), s.cfg.Limits.RequestTimeout)
 				defer cancel()
-				if err := s.confirmBlobAfterUpload(confirmCtx, task, path, blob.digest, blob.size); err == nil {
-					if resolveErr := s.resolveRemoteWrite(confirmCtx, task, remoteWrite); resolveErr != nil {
+				if err := s.confirmBlobAfterUpload(confirmCtx, task, protectionSessionID, path, blob.digest, blob.size); err == nil {
+					if resolveErr := s.resolveRemoteWrite(confirmCtx, protectionSessionID, remoteWrite); resolveErr != nil {
 						result = errors.Join(result, resolveErr)
 					}
 				}
@@ -136,7 +137,7 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 	if err := s.tasks.CheckActive(ctx, task, taskLease); err != nil {
 		return err
 	}
-	if err := s.markRemoteWrite(ctx, task, remoteWrite); err != nil {
+	if err := s.markRemoteWrite(ctx, protectionSessionID, remoteWrite); err != nil {
 		return err
 	}
 	writeStarted = true
@@ -149,19 +150,19 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 		return temporary("distribution", fmt.Errorf("Distribution blob commit returned status %d", put.StatusCode))
 	}
 	uploadCommitted = true
-	if err := s.markRemoteContentObserved(ctx, task); err != nil {
+	if err := s.markRemoteContentObserved(ctx, protectionSessionID); err != nil {
 		return temporary("protection_state", err)
 	}
 	if err := s.verifyOrReuseLocalBlob(ctx, task, blob, taskProtectionSession(task), path); err != nil {
 		return err
 	}
-	if err := s.resolveRemoteWrite(ctx, task, remoteWrite); err != nil {
+	if err := s.resolveRemoteWrite(ctx, protectionSessionID, remoteWrite); err != nil {
 		return err
 	}
 	return s.checkpoint(ctx, task, taskLease, blob)
 }
 
-func (s *solidifier) confirmBlobAfterUpload(ctx context.Context, task *tasks.Task, path, digest string, size int64) error {
+func (s *solidifier) confirmBlobAfterUpload(ctx context.Context, task *tasks.Task, protectionSessionID, path, digest string, size int64) error {
 	response, err := s.registry.Do(ctx, http.MethodHead, path, nil, make(http.Header), nil, 0)
 	if err != nil {
 		return err
@@ -173,8 +174,8 @@ func (s *solidifier) confirmBlobAfterUpload(ctx context.Context, task *tasks.Tas
 	if response.StatusCode != http.StatusOK || response.ContentLength != size || response.Header.Get("Docker-Content-Digest") != digest {
 		return errors.New("post-cancellation blob state could not be verified")
 	}
-	if task.ProtectionSessionID != "" {
-		if err := s.markRemoteContentObserved(ctx, task); err != nil {
+	if protectionSessionID != "" {
+		if err := s.markRemoteContentObserved(ctx, protectionSessionID); err != nil {
 			return err
 		}
 	}

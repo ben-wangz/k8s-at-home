@@ -91,8 +91,11 @@ func (s *solidifier) protectionSessionsOwnedBy(ctx context.Context, ownerID stri
 
 func (s *solidifier) releaseAnchoredSession(ctx context.Context, sessionID string) error {
 	session, active, err := s.gate.protectionSession(ctx, sessionID)
-	if err != nil || !active {
+	if err != nil {
 		return err
+	}
+	if !active {
+		return s.gate.confirmInactiveProtectionSessionReleased(ctx, sessionID, "", "")
 	}
 	if session.PendingOperations != 0 || session.UncertainRemoteResult {
 		return ErrProtectionBusy

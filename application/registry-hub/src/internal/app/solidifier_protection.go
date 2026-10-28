@@ -80,9 +80,8 @@ func isDigestReference(reference string) bool {
 	return artifactDigest(reference) == nil
 }
 
-func (s *solidifier) beginProtectedOperation(ctx context.Context, task *tasks.Task) (func() error, error) {
-	sessionID := taskProtectionSession(task)
-	if task.ProtectionSessionID == "" {
+func (s *solidifier) beginProtectedOperation(ctx context.Context, sessionID string) (func() error, error) {
+	if sessionID == "" {
 		release, err := s.gate.Enter(ctx)
 		if err != nil {
 			return nil, temporary("gc_admission", err)
@@ -109,28 +108,28 @@ func (s *solidifier) finishProtectedOperation(finish func() error, result *error
 	}
 }
 
-func (s *solidifier) markRemoteWrite(ctx context.Context, task *tasks.Task, remoteWrite protectionRemoteWrite) error {
-	if task.ProtectionSessionID == "" {
+func (s *solidifier) markRemoteWrite(ctx context.Context, sessionID string, remoteWrite protectionRemoteWrite) error {
+	if sessionID == "" {
 		return nil
 	}
-	if err := s.gate.MarkProtectionWriteStarted(ctx, taskProtectionSession(task), remoteWrite); err != nil {
+	if err := s.gate.MarkProtectionWriteStarted(ctx, sessionID, remoteWrite); err != nil {
 		return temporary("protection_write_state", err)
 	}
 	return nil
 }
 
-func (s *solidifier) markRemoteContentObserved(ctx context.Context, task *tasks.Task) error {
-	if task.ProtectionSessionID == "" {
+func (s *solidifier) markRemoteContentObserved(ctx context.Context, sessionID string) error {
+	if sessionID == "" {
 		return nil
 	}
-	return s.gate.MarkProtectionContentObserved(ctx, task.ProtectionSessionID)
+	return s.gate.MarkProtectionContentObserved(ctx, sessionID)
 }
 
-func (s *solidifier) resolveRemoteWrite(ctx context.Context, task *tasks.Task, remoteWrite protectionRemoteWrite) error {
-	if task.ProtectionSessionID == "" {
+func (s *solidifier) resolveRemoteWrite(ctx context.Context, sessionID string, remoteWrite protectionRemoteWrite) error {
+	if sessionID == "" {
 		return nil
 	}
-	if err := s.gate.MarkProtectionWriteResolved(ctx, taskProtectionSession(task), remoteWrite); err != nil {
+	if err := s.gate.MarkProtectionWriteResolved(ctx, sessionID, remoteWrite); err != nil {
 		return temporary("protection_write_state", err)
 	}
 	return nil

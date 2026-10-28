@@ -63,12 +63,8 @@ func adminTaskWithoutReleasedProtection(task tasks.Task, released map[string]str
 		task.ProtectionSessionID = ""
 	}
 	if len(task.SessionIDs) == 0 && task.ProtectionSessionID == "" {
-		if task.RecoveryReason == "" {
-			task.GCProtected = false
-			task.ReservedBytes = 0
-		} else {
-			task.GCProtected = true
-		}
+		task.GCProtected = false
+		task.ReservedBytes = 0
 		return task, nil
 	}
 	var reserved int64
