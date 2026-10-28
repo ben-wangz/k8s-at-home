@@ -1,0 +1,24 @@
+apiVersion: v2
+name: split-dns
+version: 0.1.0
+appVersion: "0.1.0"
+description: DNS routing by domain with isolated DNS and DNS-over-HTTPS upstreams
+type: application
+keywords:
+  - dns
+  - doh
+  - forwarding
+annotations:
+  split-dns/images: |
+    - name: split-dns-backend
+      path: application/split-dns/container
+      valuesKey: image.tag
+dependencies:
+  - name: common
+    repository: oci://registry-1.docker.io/bitnamicharts
+    tags:
+      - bitnami-common
+    version: 2.x.x
+home: https://github.com/ben-wangz/k8s-at-home
+sources:
+  - https://github.com/ben-wangz/k8s-at-home/tree/main/application/split-dns

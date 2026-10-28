@@ -1,0 +1,106 @@
+nameOverride: ""
+fullnameOverride: ""
+global:
+  imageRegistry: ""
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+
+replicaCount: 2
+revisionHistoryLimit: 5
+image:
+  registry: ghcr.io
+  repository: ben-wangz/k8s-at-home-split-dns
+  tag: 0.1.0
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+serviceAccount:
+  create: false
+  name: ""
+
+containerPort: 5353
+healthPort: 8080
+dnsPolicy: ClusterFirst
+
+service:
+  type: ClusterIP
+  clusterIP: ""
+  port: 53
+  annotations: {}
+
+dns:
+  defaultUpstreamGroup: default
+  upstreamGroups:
+    default:
+      type: forward
+      servers:
+        - 192.0.2.53:53
+      queryTimeout: 2s
+      maxConcurrentRequests: 128
+  proxies: {}
+  rules: []
+  cache:
+    enabled: false
+    maxEntries: 4096
+    maxTTL: 300
+    negativeMaxTTL: 30
+
+metrics:
+  enabled: false
+  port: 9153
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+podSpread:
+  enabled: true
+  maxSkew: 1
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: ScheduleAnyway
+
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 128Mi
+
+startupProbe:
+  failureThreshold: 30
+  periodSeconds: 2
+  timeoutSeconds: 1
+livenessProbe:
+  periodSeconds: 10
+  timeoutSeconds: 1
+readinessProbe:
+  periodSeconds: 5
+  timeoutSeconds: 1
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,157 @@
+{{- include "split-dns.validate" . -}}
+apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
+kind: Deployment
+metadata:
+  name: {{ include "split-dns.fullname" . }}
+  labels:
+    {{- include "split-dns.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  strategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "split-dns.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "split-dns.podLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "split-dns.runtimeConfig" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.serviceAccount.create }}
+      serviceAccountName: {{ default (include "split-dns.fullname" .) .Values.serviceAccount.name }}
+      {{- else if .Values.serviceAccount.name }}
+      serviceAccountName: {{ .Values.serviceAccount.name | quote }}
+      {{- end }}
+      automountServiceAccountToken: false
+      dnsPolicy: {{ .Values.dnsPolicy }}
+      terminationGracePeriodSeconds: 15
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.podSpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.podSpread.maxSkew }}
+          topologyKey: {{ .Values.podSpread.topologyKey | quote }}
+          whenUnsatisfiable: {{ .Values.podSpread.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "split-dns.selectorLabels" . | nindent 14 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: split-dns
+          image: {{ include "split-dns.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --config
+            - /etc/split-dns/config/config.json
+          ports:
+            - name: dns-udp
+              containerPort: {{ .Values.containerPort }}
+              protocol: UDP
+            - name: dns-tcp
+              containerPort: {{ .Values.containerPort }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ .Values.healthPort }}
+              protocol: TCP
+          {{- $proxyEnv := list }}
+          {{- range $name, $proxy := .Values.dns.proxies }}
+            {{- if and $proxy.auth $proxy.auth.existingSecret }}
+              {{- $proxyEnv = append $proxyEnv (dict "name" (include "split-dns.proxyUsernameEnv" $name) "valueFrom" (dict "secretKeyRef" (dict "name" $proxy.auth.existingSecret "key" $proxy.auth.usernameKey))) }}
+              {{- $proxyEnv = append $proxyEnv (dict "name" (include "split-dns.proxyPasswordEnv" $name) "valueFrom" (dict "secretKeyRef" (dict "name" $proxy.auth.existingSecret "key" $proxy.auth.passwordKey))) }}
+            {{- end }}
+          {{- end }}
+          {{- if $proxyEnv }}
+          env:
+            {{- toYaml $proxyEnv | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: health
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/split-dns/config
+              readOnly: true
+            {{- range $groupName, $group := .Values.dns.upstreamGroups }}
+              {{- if eq $group.type "doh" }}
+                {{- range $index, $endpoint := $group.endpoints }}
+                  {{- if $endpoint.ca }}
+            - name: doh-ca-{{ $groupName }}-{{ $index }}
+              mountPath: /etc/split-dns/ca/{{ $groupName }}-{{ $index }}
+              readOnly: true
+                  {{- end }}
+                {{- end }}
+              {{- end }}
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "split-dns.fullname" . }}-config
+            items:
+              - key: config.json
+                path: config.json
+        {{- range $groupName, $group := .Values.dns.upstreamGroups }}
+          {{- if eq $group.type "doh" }}
+            {{- range $index, $endpoint := $group.endpoints }}
+              {{- if $endpoint.ca }}
+        - name: doh-ca-{{ $groupName }}-{{ $index }}
+                {{- if $endpoint.ca.secretName }}
+          secret:
+            secretName: {{ $endpoint.ca.secretName }}
+            items:
+              - key: {{ default "ca.crt" $endpoint.ca.key }}
+                path: bundle.pem
+                {{- else }}
+          configMap:
+            name: {{ $endpoint.ca.configMapName }}
+            items:
+              - key: {{ default "ca.crt" $endpoint.ca.key }}
+                path: bundle.pem
+                {{- end }}
+              {{- end }}
+            {{- end }}
+          {{- end }}
+        {{- end }}

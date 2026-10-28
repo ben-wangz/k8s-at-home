@@ -1,0 +1,36 @@
+fullnameOverride: split-dns
+
+dns:
+  defaultUpstreamGroup: default
+  upstreamGroups:
+    default:
+      type: forward
+      servers:
+        - 192.0.2.53:53
+      queryTimeout: 2s
+      maxConcurrentRequests: 128
+    public-doh:
+      type: doh
+      strategy: parallel
+      endpoints:
+        - url: https://dns.google/dns-query
+          bootstrapIPs:
+            - 8.8.8.8
+        - url: https://cloudflare-dns.com/dns-query
+          bootstrapIPs:
+            - 1.1.1.1
+      egress:
+        mode: direct
+      queryTimeout: 8s
+      connectTimeout: 3s
+      tlsHandshakeTimeout: 5s
+      maxAttemptsPerEndpoint: 2
+      maxConcurrentRequests: 128
+  rules:
+    - match: suffix
+      domain: example.org
+      upstreamGroup: public-doh
+
+pdb:
+  enabled: true
+  minAvailable: 1

@@ -33,6 +33,12 @@ apps:
   - name: sshpiper
     type: chart
     path: application/sshpiper/chart
+  - name: split-dns
+    type: chart
+    path: application/split-dns/chart
+  - name: split-dns-backend
+    type: container
+    path: application/split-dns/container
   - name: sub2api
     type: chart
     path: application/sub2api/chart

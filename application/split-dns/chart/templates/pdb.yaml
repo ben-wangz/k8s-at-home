@@ -1,0 +1,13 @@
+{{- if .Values.pdb.enabled }}
+apiVersion: {{ include "common.capabilities.policy.apiVersion" . }}
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "split-dns.fullname" . }}
+  labels:
+    {{- include "split-dns.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ toYaml .Values.pdb.minAvailable | nindent 2 | trim }}
+  selector:
+    matchLabels:
+      {{- include "split-dns.selectorLabels" . | nindent 6 }}
+{{- end }}

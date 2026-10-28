@@ -1,0 +1,18 @@
+ARG GO_IMAGE=docker.io/library/golang:1.26-alpine
+ARG RUNTIME_IMAGE=gcr.io/distroless/static-debian13:nonroot
+
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
+ARG TARGETOS=linux
+ARG TARGETARCH
+ARG GOPROXY=https://proxy.golang.org,direct
+WORKDIR /src
+COPY application/split-dns/src/go.mod application/split-dns/src/go.sum ./
+RUN GOPROXY="${GOPROXY}" go mod download
+COPY application/split-dns/src/ ./
+RUN GOPROXY="${GOPROXY}" CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/split-dns ./cmd/split-dns
+
+FROM ${RUNTIME_IMAGE}
+COPY --from=build /out/split-dns /split-dns
+USER 65532:65532
+EXPOSE 5353/udp 5353/tcp 8080/tcp
+ENTRYPOINT ["/split-dns"]

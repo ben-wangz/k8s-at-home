@@ -1,3 +1,9 @@
+{{- if and .Values.backend.dnsPolicy (not (has .Values.backend.dnsPolicy (list "Default" "ClusterFirst" "None"))) }}
+{{- fail "backend.dnsPolicy must be Default, ClusterFirst, or None" }}
+{{- end }}
+{{- if and (eq .Values.backend.dnsPolicy "None") (empty .Values.backend.dnsConfig.nameservers) }}
+{{- fail "backend.dnsPolicy None requires backend.dnsConfig.nameservers" }}
+{{- end }}
 apiVersion: {{ include "common.capabilities.deployment.apiVersion" . }}
 kind: Deployment
 metadata:
@@ -17,6 +23,13 @@ spec:
       labels:
         {{- include "registry-hub.backendSelector" . | nindent 8 }}
     spec:
+      {{- if .Values.backend.dnsPolicy }}
+      dnsPolicy: {{ .Values.backend.dnsPolicy }}
+      {{- end }}
+      {{- with .Values.backend.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: {{ default (include "registry-hub.fullname" .) .Values.backend.serviceAccount.name }}
       automountServiceAccountToken: true
       securityContext:
