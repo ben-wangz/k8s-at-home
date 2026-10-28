@@ -218,8 +218,12 @@ func TestAdmitBlobProtectionMakesBlobTaskSessionOwner(t *testing.T) {
 	processor.cfg = config.Config{Solidification: config.Solidification{
 		MaxProtectedCacheBytes: 1024, MaxProtectionSessions: 4, MaxUnanchoredDistributionBytes: 1024,
 	}}
-	if _, err := processor.admitBlobProtection(ctx, &blobTask, intent); err != nil {
+	protection, err := processor.admitBlobProtection(ctx, &blobTask, intent)
+	if err != nil {
 		t.Fatalf("admit blob protection: %v", err)
+	}
+	if protection.ownerID != blobTask.ID {
+		t.Fatalf("blob protection owner = %q, want blob task %q", protection.ownerID, blobTask.ID)
 	}
 	owners, err := gate.ProtectionSessionOwners(ctx, sessionID)
 	if err != nil {

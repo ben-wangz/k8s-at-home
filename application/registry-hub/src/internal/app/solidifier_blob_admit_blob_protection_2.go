@@ -49,7 +49,7 @@ func (s *solidifier) admitBlobProtection(ctx context.Context, task *tasks.Task, 
 			}
 			return blobProtection{}, temporary("protection_owner", err)
 		}
-		return blobProtection{scopeID: candidate.ScopeID, sessionID: candidate.SessionID, ownerID: candidate.RootTaskID, reservedBytes: session.ReservedBytes}, nil
+		return blobProtection{scopeID: candidate.ScopeID, sessionID: candidate.SessionID, ownerID: intent.ID, reservedBytes: session.ReservedBytes}, nil
 	}
 	if !directDemand {
 		if len(candidates) > 0 {

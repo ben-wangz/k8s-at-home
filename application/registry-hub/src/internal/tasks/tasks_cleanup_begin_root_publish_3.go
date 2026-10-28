@@ -2,6 +2,8 @@ package tasks
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
@@ -90,7 +92,8 @@ func (m *Manager) SaveProgress(ctx context.Context, task *Task, currentLease lea
 		return err
 	}
 	if current.version != task.version {
-		return storage.ErrConditionFailed
+		return fmt.Errorf("task progress conflict: task_id=%s stage=version_check expected_version=%q observed_version=%q: %w",
+			task.ID, task.version, current.version, storage.ErrConditionFailed)
 	}
 	task.LegacyProtectionBytes = current.LegacyProtectionBytes
 	task.FencingToken = currentLease.FencingToken
@@ -102,7 +105,14 @@ func (m *Manager) SaveProgress(ctx context.Context, task *Task, currentLease lea
 		task.LastProgressAt = current.LastProgressAt
 		task.ExpiresAt = current.ExpiresAt
 	}
-	return m.save(ctx, task)
+	if err := m.save(ctx, task); err != nil {
+		if errors.Is(err, storage.ErrConditionFailed) {
+			return fmt.Errorf("task progress conflict: task_id=%s stage=conditional_write expected_version=%q: %w",
+				task.ID, task.version, err)
+		}
+		return err
+	}
+	return nil
 }
 
 func taskProgressChanged(current, next Task) bool {
