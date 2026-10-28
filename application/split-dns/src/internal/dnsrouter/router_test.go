@@ -1,7 +1,6 @@
 package dnsrouter
 
 import (
-	"context"
 	"io"
 	"log/slog"
 	"testing"
