@@ -69,7 +69,7 @@ func TestRetryBlobCapacityFailureStartsFreshRound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	service := &Service{tasks: manager, records: records, cache: cache}
+	service := &Service{store: store, tasks: manager, records: records, cache: cache}
 	newTask, err := service.retryTask(ctx, oldTask.ID)
 	if err != nil {
 		t.Fatalf("retry blob task: %v", err)

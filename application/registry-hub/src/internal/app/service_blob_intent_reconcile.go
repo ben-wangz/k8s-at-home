@@ -19,56 +19,8 @@ func (s *Service) reconcileBlobIntentTasks(ctx context.Context) error {
 			return err
 		}
 		for _, intent := range intents {
-			if intent.ProtectionSessionID != "" && terminalBlobIntentState(intent.State) {
-				_, active, sessionErr := s.gate.protectionSession(ctx, intent.ProtectionSessionID)
-				if sessionErr != nil {
-					return sessionErr
-				}
-				if !active {
-					if err := s.records.ClearBlobIntentProtectionSession(ctx, intent.ID, intent.ProtectionSessionID); err != nil {
-						return err
-					}
-					intent.ProtectionSessionID = ""
-				}
-			}
-			if intent.State == tasks.IntentWaitingCache || intent.State == tasks.IntentWaitingQuota {
-				cached, cacheErr := s.cache.GetAnyRetained(ctx, intent.Identity.Authority, intent.Identity.Repository, intent.Identity.Digest)
-				if errors.Is(cacheErr, storage.ErrNotFound) {
-					if !intent.ExpiresAt.IsZero() && !intent.ExpiresAt.After(time.Now().UTC()) {
-						if err := s.expireIdleBlobIntent(ctx, intent, time.Now().UTC()); err != nil {
-							return err
-						}
-					}
-					continue
-				}
-				if cacheErr != nil {
-					return cacheErr
-				}
-				ready, readyErr := s.records.SetBlobIntentReady(ctx, intent.ID, cached.MediaType, cached.DataVersion, cached.Size)
-				_ = cached.Body.Close()
-				if readyErr != nil {
-					return readyErr
-				}
-				intent = ready
-			}
-			if !intent.WakeAcknowledged && (intent.State == tasks.IntentReady || intent.State == tasks.IntentVerified || terminalBlobIntentState(intent.State)) {
-				if err := s.notifyBlobDemandRoots(ctx, intent.ID); err != nil {
-					return err
-				}
-			}
-			if intent.State != tasks.IntentReady && intent.State != tasks.IntentRetryWait {
-				continue
-			}
-			if !intent.ExpiresAt.IsZero() && !intent.ExpiresAt.After(time.Now().UTC()) {
-				if err := s.expireIdleBlobIntent(ctx, intent, time.Now().UTC()); err != nil {
-					return err
-				}
-				continue
-			}
-			if _, _, err := s.enqueueBlobIntent(ctx, intent); err != nil && !errors.Is(err, storage.ErrConditionFailed) {
-				if s.logger != nil {
-					s.logger.Warn("blob intent reconciliation deferred", "intent_id", intent.ID, "error_class", "queue")
-				}
+			if err := s.reconcileBlobIntent(ctx, intent); err != nil {
+				return err
 			}
 		}
 		if next == "" {
@@ -76,6 +28,62 @@ func (s *Service) reconcileBlobIntentTasks(ctx context.Context) error {
 		}
 		token = next
 	}
+}
+
+func (s *Service) reconcileBlobIntent(ctx context.Context, intent tasks.BlobIntent) error {
+	if intent.ProtectionSessionID != "" && terminalBlobIntentState(intent.State) {
+		_, active, sessionErr := s.gate.protectionSession(ctx, intent.ProtectionSessionID)
+		if sessionErr != nil {
+			return sessionErr
+		}
+		if !active {
+			if err := s.records.ClearBlobIntentProtectionSession(ctx, intent.ID, intent.ProtectionSessionID); err != nil {
+				return err
+			}
+			intent.ProtectionSessionID = ""
+		}
+	}
+	if intent.State == tasks.IntentWaitingCache || intent.State == tasks.IntentWaitingQuota {
+		cached, cacheErr := s.cache.GetAnyRetained(ctx, intent.Identity.Authority, intent.Identity.Repository, intent.Identity.Digest)
+		if errors.Is(cacheErr, storage.ErrNotFound) {
+			if !intent.ExpiresAt.IsZero() && !intent.ExpiresAt.After(time.Now().UTC()) {
+				if err := s.expireIdleBlobIntent(ctx, intent, time.Now().UTC()); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		if cacheErr != nil {
+			return cacheErr
+		}
+		ready, readyErr := s.records.SetBlobIntentReady(ctx, intent.ID, cached.MediaType, cached.DataVersion, cached.Size)
+		_ = cached.Body.Close()
+		if readyErr != nil {
+			return readyErr
+		}
+		intent = ready
+	}
+	if !intent.WakeAcknowledged && (intent.State == tasks.IntentReady || intent.State == tasks.IntentVerified || terminalBlobIntentState(intent.State)) {
+		if err := s.notifyBlobDemandRoots(ctx, intent.ID); err != nil {
+			return err
+		}
+	}
+	if intent.State != tasks.IntentReady && intent.State != tasks.IntentRetryWait {
+		return nil
+	}
+	if !intent.ExpiresAt.IsZero() && !intent.ExpiresAt.After(time.Now().UTC()) {
+		if err := s.expireIdleBlobIntent(ctx, intent, time.Now().UTC()); err != nil {
+			return err
+		}
+		return nil
+	}
+	if _, _, err := s.enqueueBlobIntent(ctx, intent); err != nil && !errors.Is(err, storage.ErrConditionFailed) {
+		if s.logger != nil {
+			s.logger.Warn("blob intent reconciliation deferred", "intent_id", intent.ID, "error_class", "queue")
+		}
+		return err
+	}
+	return nil
 }
 
 func terminalBlobIntentState(state tasks.BlobIntentState) bool {

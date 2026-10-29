@@ -13,7 +13,7 @@ Both backend listeners expose unauthenticated health endpoints:
 | `/healthz` | The process can serve HTTP. Upstream failures do not make this fail. |
 | `/readyz` | The backend can accept Registry work: startup completed, storage and internal Distribution checks pass, and the GC gate is open with no recovery barrier or exclusive operation. Shutdown makes this return `503`. |
 
-Storage and Distribution health are rechecked periodically, currently every 60 seconds. Gate transitions update readiness immediately. Readiness is not a per-request guarantee. An unavailable public upstream does not by itself make the backend unready. A closed GC gate can leave reads available while `/readyz` returns `503` because Registry writes and solidification are blocked.
+Storage and Distribution health have independent schedules, currently every 30 seconds with separate 15-second deadlines. Statistics and cleanup scans cannot occupy either probe worker. Results become stale after 90 seconds; readiness also checks their age. `GET /api/v1/images/status` exposes each probe's last result, last execution, last success, and validity period. Gate transitions update readiness immediately. Readiness is not a per-request guarantee. An unavailable public upstream does not by itself make the backend unready. A closed GC gate can leave reads available while `/readyz` returns `503` because Registry writes and solidification are blocked.
 
 For the default release:
 
@@ -33,7 +33,7 @@ Use a reachable Service DNS address or ClusterIP. An HTTP `200` with an empty bo
 
 The backend writes structured JSON logs to stderr. Read them through Kubernetes:
 
-Storage failure records include a bounded operation and error class. When available, `request_id` identifies the Hub request, `operation_id` identifies the solidification task, and `s3_request_id` is the object store's request ID for matching RustFS logs. Credentials, request bodies, and object keys are not logged.
+Storage failure records include a bounded operation and error class. When available, `request_id` identifies the Hub request, `operation_id` identifies the solidification task or background job, and `s3_request_id` is the object store's request ID for matching storage-provider logs. Credentials, request bodies, and object keys are not logged.
 
 ```sh
 kubectl -n "$NAMESPACE" logs \
@@ -73,8 +73,16 @@ Configure your monitoring system to scrape this Service with Basic or Bearer aut
 | `registry_hub_download_partial_reserved_bytes`, `registry_hub_download_partial_sessions`, `registry_hub_download_partial_limit_bytes` | Reserved capacity and active sessions for resumable upstream downloads. |
 | `registry_hub_s3_replay_memory_bytes`, `registry_hub_s3_replay_disk_bytes`, `registry_hub_s3_replay_active_sources` | Temporary replay memory, disk, and active bodies used by Backend S3 requests; filesystem storage reports zero. |
 | `registry_hub_concurrency_slots`, `registry_hub_rejections_total` | Occupied slots and rate or concurrency rejection. |
+| `registry_hub_background_unit_duration_seconds` | Time spent in a background processing unit, by work kind and outcome. |
+| `registry_hub_background_queue_wait_seconds` | Time from the original source observation to first job claim, including recovery and enqueue delay. |
 
-Task, blob-intent, gate, partial-download, and replay gauges refresh periodically, currently every 15 seconds, and task and intent gauges aggregate across all pages. Partial-download bytes are quota reservations, not a scan of stored chunk bytes. Cache gauges refresh at startup and hourly. Use Kubernetes or storage-provider metrics for actual PVC, ephemeral-storage, and bucket capacity. The paginated `/api/v1/gc` response reports the current protected cache byte total and reservation count; task records and protection sessions provide per-work details.
+Gate, partial-download, and replay gauges refresh periodically, currently every 15 seconds. Task, cache, intent, and protection statistics use independent paged sweeps with bounded work units. They publish only after a successful whole sweep; failed rounds retain previously published values. A new round starts after 15 seconds of idle time. Sweep observation times, progress, errors, completeness, and staleness are available in `background.statistics` on the image status endpoint. Aggregates are observations over a scan interval, rather than atomic storage snapshots. Slow scans can leave old gauges in place; Prometheus scrape time does not establish their freshness.
+
+Partial-download bytes are quota reservations, not a scan of stored chunk bytes. After a verified cache commit, requests and solidification checkpoints can succeed before chunk/state cleanup completes. The durable cleanup queue retains session and cache-version boundaries, rechecks the object lease, and releases quota only after temporary data and matching state are removed. Cache expiry preserves inputs while matching download state remains. Orphan reservation reconciliation covers the state-deleted/quota-release-failed window. Inspect `background.queues.download_cleanup` and outstanding quota together; cleanup failures do not imply another upstream fetch is necessary.
+
+Background event labels on `registry_hub_events_total` distinguish enqueue failures, retries, completions, scan failures, and backpressure. Normal unfinished units have the `yield` processing outcome and do not count as failed solidification attempts. Source reconciliation and maintenance expose separate progress and backoff. Entity IDs remain in authenticated details and correlated logs, outside metric labels. See [inventory.md](inventory.md#background-work-management) for retry endpoints and status semantics.
+
+Use Kubernetes or storage-provider metrics for actual PVC, ephemeral-storage, and bucket capacity. The paginated `/api/v1/gc` response reports the current protected cache byte total and reservation count; task records and protection sessions provide per-work details.
 
 Example PromQL for a persistently failed GC gate:
 

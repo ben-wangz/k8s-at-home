@@ -116,7 +116,11 @@ func (s *Service) advanceInventoryProjection(ctx context.Context, p *inventoryGr
 
 func (s *Service) preserveInventoryTaskWork(ctx context.Context, task tasks.Task) error {
 	identity := inventoryIdentity(task.Authority, task.Repository, task.Reference)
-	if _, err := s.inventoryBinding(ctx, identity, task.RootDigest, "task", task.Generation, task.CreatedAt, false); err != nil {
+	confirmed := task.ManifestObservedAt
+	if confirmed.IsZero() {
+		confirmed = task.CreatedAt
+	}
+	if _, err := s.inventoryBinding(ctx, identity, task.RootDigest, "task", task.Generation, confirmed, false); err != nil {
 		return err
 	}
 	work := inventoryWork{Identity: identity, Digest: task.RootDigest, Generation: task.Generation, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt, Work: inventory.Work{ID: task.ID, Kind: string(task.Kind), Status: string(task.Status), WaitReason: task.WaitReason, ErrorClass: task.ErrorClass, ErrorMessage: task.ErrorMessage, NextAttemptAt: optionalTime(task.NextAttemptAt), LastProgressAt: optionalTime(task.LastProgressAt)}}

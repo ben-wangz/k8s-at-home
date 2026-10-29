@@ -43,6 +43,9 @@ func testBlobWakeRecovery(t *testing.T, state tasks.BlobIntentState) {
 	}
 	faults.rejectWake = true
 	service.wakeBlobDemandRoots(ctx, intent.ID)
+	if err := backgroundUntilError(service, "notify", "wake_root"); !errors.Is(err, storage.ErrUnavailable) {
+		t.Fatalf("wake delivery failure=%v", err)
+	}
 	if faults.failedWakes != 1 {
 		t.Fatalf("rejected wake writes = %d, want 1", faults.failedWakes)
 	}
@@ -64,6 +67,7 @@ func testBlobWakeRecovery(t *testing.T, state tasks.BlobIntentState) {
 	if err := service.reconcileBlobIntentTasks(ctx); err != nil {
 		t.Fatalf("reconcile completed blob after restart: %v", err)
 	}
+	drainBackgroundWork(t, service, "notify", "wake_root")
 	current, err := restarted.Get(ctx, root.ID)
 	if err != nil || current.Status != tasks.Pending || current.WaitReason != "" {
 		t.Fatalf("root after lost-wake recovery = %#v err=%v, want pending", current, err)
@@ -95,8 +99,11 @@ func TestBlobWakeAcknowledgementFailureIsReplayedAfterRestart(t *testing.T) {
 	}
 	faults := &blobWakeFaultStore{Store: service.store, rejectIntent: true}
 	service.records = tasks.NewRecords(faults)
-	if err := service.notifyBlobDemandRoots(ctx, intent.ID); !errors.Is(err, storage.ErrUnavailable) {
-		t.Fatalf("notification acknowledgement = %v, want storage failure", err)
+	if err := service.notifyBlobDemandRoots(ctx, intent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := backgroundUntilError(service, "notify", "wake_root"); !errors.Is(err, storage.ErrUnavailable) {
+		t.Fatalf("notification acknowledgement=%v", err)
 	}
 	current, err := manager.Get(ctx, root.ID)
 	if err != nil || current.Status != tasks.Pending {
@@ -116,6 +123,7 @@ func TestBlobWakeAcknowledgementFailureIsReplayedAfterRestart(t *testing.T) {
 	if err := service.reconcileBlobIntentTasks(ctx); err != nil {
 		t.Fatal(err)
 	}
+	drainBackgroundWork(t, service, "notify", "wake_root")
 	recovered, err := records.GetBlobIntent(ctx, intent.ID)
 	if err != nil || !recovered.WakeAcknowledged {
 		t.Fatalf("replayed acknowledgement = %#v err=%v", recovered, err)
@@ -146,9 +154,10 @@ func TestBlobWakeAcknowledgementCannotOverwriteConcurrentState(t *testing.T) {
 	}
 	t.Cleanup(replacement.Close)
 	service.tasks = replacement
-	if err := service.notifyBlobDemandRoots(ctx, intent.ID); !errors.Is(err, storage.ErrConditionFailed) {
-		t.Fatalf("stale acknowledgement = %v, want conditional conflict", err)
+	if err := service.notifyBlobDemandRoots(ctx, intent.ID); err != nil {
+		t.Fatal(err)
 	}
+	drainBackgroundWork(t, service, "notify", "wake_root")
 	current, err := records.GetBlobIntent(ctx, intent.ID)
 	if err != nil || current.State != tasks.IntentAnchored || current.WakeAcknowledged {
 		t.Fatalf("concurrent state = %#v err=%v, want anchored with its notification pending", current, err)
@@ -156,6 +165,7 @@ func TestBlobWakeAcknowledgementCannotOverwriteConcurrentState(t *testing.T) {
 	if err := service.reconcileBlobIntentTasks(ctx); err != nil {
 		t.Fatal(err)
 	}
+	drainBackgroundWork(t, service, "notify", "wake_root")
 	current, err = records.GetBlobIntent(ctx, intent.ID)
 	if err != nil || current.State != tasks.IntentAnchored || !current.WakeAcknowledged {
 		t.Fatalf("reconciled state = %#v err=%v, want anchored and acknowledged", current, err)

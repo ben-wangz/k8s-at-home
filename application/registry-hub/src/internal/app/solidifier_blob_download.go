@@ -43,6 +43,7 @@ func (s *solidifier) downloadBlobObject(ctx context.Context, task *tasks.Task, t
 	manager := s.service.downloadManager()
 	requestPath := "/v2/" + task.Repository + "/blobs/" + url.PathEscape(ref.digest)
 	result, err := manager.Fetch(transferCtx, download.Request{
+		Authority: task.Authority, Repository: task.Repository,
 		Identity: identity, Digest: ref.digest, ExpectedSize: ref.size, MaxBytes: maxBytes,
 		OwnerFence: objectLease.FencingToken, AttemptLimit: requestTimeout,
 		IdleTimeout: idleTimeout, FinalizeTimeout: finalizeTimeout, LifecycleContext: s.service.ctx,
@@ -111,9 +112,7 @@ func (s *solidifier) downloadBlobObject(ctx context.Context, task *tasks.Task, t
 	if err := s.tasks.Leases().Validate(transferCtx, objectLease); err != nil {
 		return err
 	}
-	if err := manager.CommitComplete(transferCtx, identity, ref.digest, objectLease.FencingToken); err != nil {
-		return temporary("storage", err)
-	}
+	s.service.deferDownloadCleanup(transferCtx, task.Authority, task.Repository, identity, ref.digest, objectLease.FencingToken)
 	ref.mediaType = mediaType
 	return s.checkpoint(transferCtx, task, taskLease, ref)
 }

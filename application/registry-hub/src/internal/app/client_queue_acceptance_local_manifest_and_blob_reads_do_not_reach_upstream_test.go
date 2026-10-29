@@ -98,6 +98,9 @@ func TestBlobFallsBackOnlyAfterConfirmedInternalNotFound(t *testing.T) {
 	if len(remote.calls) != 1 || remote.calls[0].method != http.MethodGet {
 		t.Fatalf("upstream calls = %#v, want one GET after confirmed local miss", remote.calls)
 	}
+	if err := service.processCachedBlobIntent(context.Background(), tasks.BlobIdentity{Authority: "ghcr.io", Repository: "team/image", Digest: digest}); err != nil {
+		t.Fatal(err)
+	}
 	items, _, err := manager.List(context.Background(), "", "", 10)
 	if err != nil {
 		t.Fatal(err)

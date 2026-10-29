@@ -2,128 +2,27 @@ package app
 
 import (
 	"context"
-	"registry-hub/internal/storage"
-	"registry-hub/internal/tasks"
 	"time"
 )
 
 func (s *Service) refreshMetrics(ctx context.Context) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
-	cacheTicker := time.NewTicker(time.Hour)
-	defer cacheTicker.Stop()
-	healthTicker := time.NewTicker(60 * time.Second)
-	defer healthTicker.Stop()
-	s.refreshCacheMetrics(ctx)
-	for {
+	for ctx.Err() == nil {
+		s.metrics.setGateState(s.gate.State().State)
+		s.publishProtectionQuotas()
+		s.metrics.setConcurrency("client", len(s.clientSlots))
+		s.metrics.setConcurrency("no_auth", len(s.noAuthSlots))
+		s.metrics.setConcurrency("push", len(s.pushSlots))
+		s.metrics.setConcurrency("upstream", len(s.upstreamSlots))
+		s.metrics.setConcurrency("solidification", len(s.solidificationSlots))
+		bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
+		s.refreshDownloadAndReplayMetrics(bounded)
+		cancel()
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.metrics.setGateState(s.gate.State().State)
-			s.refreshProtectionMetrics(ctx)
-			s.metrics.setConcurrency("client", len(s.clientSlots))
-			s.metrics.setConcurrency("no_auth", len(s.noAuthSlots))
-			s.metrics.setConcurrency("push", len(s.pushSlots))
-			s.metrics.setConcurrency("upstream", len(s.upstreamSlots))
-			s.metrics.setConcurrency("solidification", len(s.solidificationSlots))
-			counts := make(map[tasks.State]int)
-			authorityCounts := make(map[string]int)
-			errorCounts := make(map[string]int)
-			kindCounts := make(map[string]int)
-			waitCounts := make(map[string]int)
-			retryCounts := make(map[string]float64)
-			cancelCounts := make(map[string]int)
-			var runnable, waiting, recoveryUnknown float64
-			token := ""
-			for {
-				items, next, err := s.tasks.List(ctx, "", token, 1000)
-				if err != nil {
-					counts = nil
-					break
-				}
-				for _, item := range items {
-					counts[item.Status]++
-					authorityCounts[string(item.Status)+"\x00"+taskAuthorityClass(item.Authority)]++
-					kind := stableTaskKind(item.Kind)
-					key := kind + "\x00" + string(item.Status)
-					kindCounts[key]++
-					if item.RetryCount > 0 {
-						retryCounts[key] += float64(item.RetryCount)
-					}
-					switch item.Status {
-					case tasks.Pending, tasks.Running, tasks.RetryWait:
-						if item.Phase == "solidification" {
-							runnable++
-						}
-					case tasks.WaitingCache, tasks.WaitingDeps, tasks.WaitingQuota, tasks.VerifiedLocal:
-						waiting++
-						waitCounts[stableTaskWaitReason(item.WaitReason)]++
-					}
-					if item.CancelRequested {
-						cancelCounts[stableTaskCancelPhase(item.CancelPhase)]++
-					}
-					if item.RecoveryReason != "" {
-						recoveryUnknown++
-					}
-					if item.ErrorClass != "" {
-						errorCounts[stableTaskErrorClass(item.ErrorClass)]++
-					}
-				}
-				if next == "" {
-					break
-				}
-				token = next
-			}
-			if counts != nil {
-				s.metrics.taskKinds.Reset()
-				s.metrics.taskAuthorities.Reset()
-				s.metrics.taskErrors.Reset()
-				s.metrics.taskWaitReasons.Reset()
-				s.metrics.taskRetries.Reset()
-				s.metrics.taskCancelPhases.Reset()
-				for _, state := range []tasks.State{tasks.Pending, tasks.Running, tasks.RetryWait, tasks.WaitingCache, tasks.WaitingDeps, tasks.WaitingQuota, tasks.VerifiedLocal, tasks.Solidified, tasks.Failed, tasks.Cancelled, tasks.RepairPending} {
-					s.metrics.tasks.WithLabelValues(string(state)).Set(float64(counts[state]))
-					for _, kind := range []string{"root", "blob", "other"} {
-						key := kind + "\x00" + string(state)
-						s.metrics.taskKinds.WithLabelValues(kind, string(state)).Set(float64(kindCounts[key]))
-						s.metrics.taskRetries.WithLabelValues(kind, string(state)).Set(retryCounts[key])
-					}
-					for _, authorityClass := range []string{"docker", "public", "local"} {
-						s.metrics.taskAuthorities.WithLabelValues(string(state), authorityClass).Set(float64(authorityCounts[string(state)+"\x00"+authorityClass]))
-					}
-				}
-				for _, reason := range taskWaitReasonLabels {
-					s.metrics.taskWaitReasons.WithLabelValues(reason).Set(float64(waitCounts[reason]))
-				}
-				for _, phase := range []string{"stop_requested", "quiesced", "other"} {
-					s.metrics.taskCancelPhases.WithLabelValues(phase).Set(float64(cancelCounts[phase]))
-				}
-				for _, class := range []string{"upstream", "manifest_invalid", "storage", "referrer_index", "lease", "other"} {
-					s.metrics.taskErrors.WithLabelValues(class).Set(float64(errorCounts[class]))
-				}
-				s.metrics.taskRunnable.Set(runnable)
-				s.metrics.taskWaiting.Set(waiting)
-				s.metrics.recoveryUnknown.Set(recoveryUnknown)
-			}
-			s.refreshBlobIntentMetrics(ctx)
-			s.refreshDownloadAndReplayMetrics(ctx)
-		case <-cacheTicker.C:
-			s.refreshCacheMetrics(ctx)
-		case <-healthTicker.C:
-			probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			storageErr := storage.Probe(probeCtx, s.store)
-			registryErr := s.registry.Ping(probeCtx)
-			cancel()
-			s.storageHealthy.Store(storageErr == nil)
-			s.registryHealthy.Store(registryErr == nil)
-			if storageErr != nil {
-				s.logger.Warn("storage health probe failed", "error_class", "storage")
-			}
-			if registryErr != nil {
-				s.logger.Warn("internal Registry health probe failed", "error_class", "distribution")
-			}
-			s.refreshReadiness()
 		}
 	}
 }

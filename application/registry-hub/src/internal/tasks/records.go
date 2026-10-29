@@ -44,6 +44,7 @@ type BlobIntent struct {
 	MediaType           string          `json:"mediaType,omitempty"`
 	State               BlobIntentState `json:"state"`
 	WakeAcknowledged    bool            `json:"wakeAcknowledged,omitempty"`
+	DemandRevision      uint64          `json:"demandRevision,omitempty"`
 	CacheVersion        string          `json:"cacheVersion,omitempty"`
 	ActualSize          int64           `json:"actualSize,omitempty"`
 	ProtectionSessionID string          `json:"protectionSessionID,omitempty"`

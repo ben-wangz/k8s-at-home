@@ -5,6 +5,7 @@ import (
 	"errors"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
+	"registry-hub/internal/workqueue"
 	"sort"
 )
 
@@ -33,6 +34,15 @@ func (s *Service) advanceInventoryImageWork(ctx context.Context, p *inventoryIma
 		if matches {
 			task, err := s.tasks.Get(ctx, work.Work.ID)
 			if err == nil {
+				fact, readErr := (workqueue.Queue{Store: s.store}).Read(ctx, "execution", workqueue.ID("execution", executionSource(task.ID, image.ResolvedDigest, image.ContentGeneration)))
+				if readErr != nil && !errors.Is(readErr, storage.ErrNotFound) {
+					return false, readErr
+				}
+				if readErr == nil && (image.Solidification.FirstStartedAt == nil || fact.CreatedAt.Before(*image.Solidification.FirstStartedAt)) {
+					started := true
+					image.Solidification.Started = &started
+					image.Solidification.FirstStartedAt = &fact.CreatedAt
+				}
 				work.Work.Status, work.Work.WaitReason = string(task.Status), task.WaitReason
 				work.Work.ErrorClass, work.Work.ErrorMessage = task.ErrorClass, task.ErrorMessage
 				work.Work.NextAttemptAt, work.Work.LastProgressAt = optionalTime(task.NextAttemptAt), optionalTime(task.LastProgressAt)
@@ -74,6 +84,11 @@ func (s *Service) advanceInventoryImageWork(ctx context.Context, p *inventoryIma
 			work.Work.ErrorMessage = work.Work.ErrorMessage[:512]
 		}
 		image.Solidification.Tasks = append(image.Solidification.Tasks, work.Work)
+		progressed := work.Work.LastProgressAt != nil && work.Work.LastProgressAt.After(work.CreatedAt)
+		if image.Solidification.Started != nil && !*image.Solidification.Started && inventoryWorkActive(work.Work) && work.Work.Status != "waiting_cache" && (work.Work.Status != "pending" || progressed) {
+			image.Solidification.Started = nil
+			image.Evidence.Reasons = appendReason(image.Evidence.Reasons, "execution_projection_pending")
+		}
 		if work.Work.LastProgressAt != nil && (image.Solidification.LastProgressAt == nil || work.Work.LastProgressAt.After(*image.Solidification.LastProgressAt)) {
 			image.Solidification.LastProgressAt = work.Work.LastProgressAt
 		}

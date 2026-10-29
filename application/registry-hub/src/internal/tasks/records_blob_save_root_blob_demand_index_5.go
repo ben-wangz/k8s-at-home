@@ -63,6 +63,8 @@ func (r *Records) markBlobIntentDemandProgress(ctx context.Context, intentID str
 			return nil
 		}
 		intent.LastProgressAt = progressAt
+		intent.DemandRevision++
+		intent.WakeAcknowledged = false
 		deadline := r.idleExpiry(progressAt)
 		if intent.ExpiresAt.Before(deadline) {
 			intent.ExpiresAt = deadline

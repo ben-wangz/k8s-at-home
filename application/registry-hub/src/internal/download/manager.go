@@ -31,6 +31,8 @@ type indexPage struct {
 }
 
 type state struct {
+	Authority       string    `json:"authority,omitempty"`
+	Repository      string    `json:"repository,omitempty"`
 	SchemaVersion   int       `json:"schemaVersion"`
 	Identity        string    `json:"identity"`
 	Digest          string    `json:"digest"`
@@ -64,6 +66,8 @@ type Manager struct {
 }
 
 type Request struct {
+	Authority        string
+	Repository       string
 	Identity         string
 	Digest           string
 	ExpectedSize     int64

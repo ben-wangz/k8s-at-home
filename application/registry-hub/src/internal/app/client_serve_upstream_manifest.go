@@ -128,16 +128,16 @@ func (s *Service) serveUpstreamManifest(writer http.ResponseWriter, request *htt
 		return
 	}
 	discoveryMediaType, discoveryDigest := mediaType, digest
-	if s.inventory != nil {
-		inventoryCtx, inventoryCancel := context.WithTimeout(operationCtx, 2*time.Second)
-		identity := inventoryIdentity(routed.Upstream, routed.RemoteRepo, routed.Reference)
-		_, contentErr := s.inventoryContent(inventoryCtx, identity, digest, mediaType, data)
-		s.inventoryFailure(contentErr)
-		_, bindingErr := s.inventoryBinding(inventoryCtx, identity, digest, "upstream", generation.Generation, time.Now().UTC(), !s.inventoryInstalledAt.IsZero() && discoveryTask.CreatedAt.After(s.inventoryInstalledAt))
-		s.inventoryFailure(bindingErr)
-		inventoryCancel()
+	observedAt := time.Now().UTC()
+	resolved, _, enqueueErr := s.tasks.ResolveDiscovery(operationCtx, discoveryTask.ID, routed.Upstream, routed.RemoteRepo, routed.Reference, discoveryDigest, discoveryMediaType, generation.Generation)
+	if enqueueErr == nil {
+		contentGeneration, generationErr := s.generation(operationCtx, routed.Upstream, routed.RemoteRepo, digest)
+		if generationErr == nil {
+			resolved, enqueueErr = s.tasks.RecordManifestObservation(operationCtx, resolved, observedAt, contentGeneration.Generation)
+		} else {
+			enqueueErr = generationErr
+		}
 	}
-	_, _, enqueueErr := s.tasks.ResolveDiscovery(operationCtx, discoveryTask.ID, routed.Upstream, routed.RemoteRepo, routed.Reference, discoveryDigest, discoveryMediaType, generation.Generation)
 	if errors.Is(enqueueErr, tasks.ErrCancelled) {
 		enqueueErr = nil
 	}
@@ -150,51 +150,60 @@ func (s *Service) serveUpstreamManifest(writer http.ResponseWriter, request *htt
 		registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "solidification queue is unavailable")
 		return
 	}
+	if resolved.ID != "" && !resolved.ManifestObservedAt.IsZero() {
+		s.deferManifestProjection(operationCtx, inventoryManifestWork{Identity: inventoryIdentity(routed.Upstream, routed.RemoteRepo, routed.Reference), Digest: digest, MediaType: mediaType, Generation: generation.Generation, ContentGeneration: resolved.ManifestGeneration, KnownNew: !s.inventoryInstalledAt.IsZero() && discoveryTask.CreatedAt.After(s.inventoryInstalledAt), Source: "upstream"}, resolved.ManifestObservedAt)
+	}
 	if !acceptsMedia(clientAccept, mediaType) {
-		compatHeaders := requestHeaders(request.Header)
-		compatHeaders.Set("Accept", clientAccept)
-		compat, compatErr := s.fetchUpstreamMethod(operationCtx, http.MethodGet, routed.Upstream, routed.RemoteRepo, upstreamPath(routed), nil, compatHeaders)
-		if compatErr != nil {
-			meta.errorClass = upstreamFailureClass(compatErr)
-			meta.cacheSource = "upstream"
-			writeUpstreamError(writer, routed.Endpoint, compatErr)
-			return
-		}
-		if compat.StatusCode != http.StatusOK {
-			meta.errorClass = "upstream"
-			_ = compat.Body.Close()
-			meta.cacheSource = "upstream"
-			writeUpstreamStatus(writer, compat.StatusCode, routed.Endpoint)
-			return
-		}
-		body, compatibleType, compatibleDigest, readErr := readUpstreamManifest(compat, routed.Reference, s.cfg.Limits.ManifestBytes)
-		if readErr != nil {
-			meta.errorClass = manifestValidationFailureClass(readErr)
-			meta.cacheSource = "upstream"
-			registryapi.WriteError(writer, http.StatusBadGateway, "MANIFEST_INVALID", "compatible upstream manifest failed validation")
-			return
-		}
-		if !acceptsMedia(clientAccept, compatibleType) {
-			meta.errorClass = "manifest_negotiation"
-			meta.cacheSource = "upstream"
-			registryapi.WriteError(writer, http.StatusNotAcceptable, "MANIFEST_INVALID", "no compatible manifest representation is available")
-			return
-		}
-		if _, parseErr := artifact.ParseManifest(body, compatibleType, s.cfg.Limits.MaxDescriptors, s.cfg.Limits.DescriptorDataBytes); parseErr != nil {
-			meta.errorClass = "manifest_invalid"
-			meta.cacheSource = "upstream"
-			registryapi.WriteError(writer, http.StatusBadGateway, "MANIFEST_INVALID", "compatible upstream manifest failed validation")
-			return
-		}
-		if err := s.cache.Put(operationCtx, routed.Upstream, routed.RemoteRepo, compatibleDigest, compatibleType, bytes.NewReader(body), int64(len(body))); err != nil {
-			meta.errorClass = "storage"
-			registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "temporary storage is unavailable")
-			return
-		}
-		data, mediaType, digest = body, compatibleType, compatibleDigest
+		s.serveCompatibleManifest(writer, request.WithContext(operationCtx), routed, meta, clientAccept)
+		return
 	}
 	meta.cacheSource = "upstream"
 	writeManifestBody(writer, request, routed.Repository, data, mediaType, digest)
+}
+
+func (s *Service) serveCompatibleManifest(writer http.ResponseWriter, request *http.Request, routed route.Route, meta *requestMeta, clientAccept string) {
+	compatHeaders := requestHeaders(request.Header)
+	compatHeaders.Set("Accept", clientAccept)
+	compat, compatErr := s.fetchUpstreamMethod(request.Context(), http.MethodGet, routed.Upstream, routed.RemoteRepo, upstreamPath(routed), nil, compatHeaders)
+	if compatErr != nil {
+		meta.errorClass = upstreamFailureClass(compatErr)
+		meta.cacheSource = "upstream"
+		writeUpstreamError(writer, routed.Endpoint, compatErr)
+		return
+	}
+	if compat.StatusCode != http.StatusOK {
+		meta.errorClass = "upstream"
+		_ = compat.Body.Close()
+		meta.cacheSource = "upstream"
+		writeUpstreamStatus(writer, compat.StatusCode, routed.Endpoint)
+		return
+	}
+	body, compatibleType, compatibleDigest, readErr := readUpstreamManifest(compat, routed.Reference, s.cfg.Limits.ManifestBytes)
+	if readErr != nil {
+		meta.errorClass = manifestValidationFailureClass(readErr)
+		meta.cacheSource = "upstream"
+		registryapi.WriteError(writer, http.StatusBadGateway, "MANIFEST_INVALID", "compatible upstream manifest failed validation")
+		return
+	}
+	if !acceptsMedia(clientAccept, compatibleType) {
+		meta.errorClass = "manifest_negotiation"
+		meta.cacheSource = "upstream"
+		registryapi.WriteError(writer, http.StatusNotAcceptable, "MANIFEST_INVALID", "no compatible manifest representation is available")
+		return
+	}
+	if _, parseErr := artifact.ParseManifest(body, compatibleType, s.cfg.Limits.MaxDescriptors, s.cfg.Limits.DescriptorDataBytes); parseErr != nil {
+		meta.errorClass = "manifest_invalid"
+		meta.cacheSource = "upstream"
+		registryapi.WriteError(writer, http.StatusBadGateway, "MANIFEST_INVALID", "compatible upstream manifest failed validation")
+		return
+	}
+	if err := s.cache.Put(request.Context(), routed.Upstream, routed.RemoteRepo, compatibleDigest, compatibleType, bytes.NewReader(body), int64(len(body))); err != nil {
+		meta.errorClass = "storage"
+		registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "temporary storage is unavailable")
+		return
+	}
+	meta.cacheSource = "upstream"
+	writeManifestBody(writer, request, routed.Repository, body, compatibleType, compatibleDigest)
 }
 
 func (s *Service) markDiscoveryFailed(ctx context.Context, task *tasks.Task, class string, cause error) {

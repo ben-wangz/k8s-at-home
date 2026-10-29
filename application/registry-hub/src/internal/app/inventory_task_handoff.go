@@ -22,7 +22,13 @@ func (s *solidifier) PreserveTaskHistory(ctx context.Context, task *tasks.Task) 
 
 // Cleanup may delete a graph only after this method reports a complete handoff.
 func (s *solidifier) PreserveTaskHistoryStep(ctx context.Context, task *tasks.Task) (bool, error) {
-	if s.service.inventory == nil || task.Kind != tasks.RootKind {
+	if s.service.inventory == nil {
+		return true, nil
+	}
+	if done, err := s.service.handoffExecutionDemandsStep(ctx, task); err != nil || !done {
+		return false, err
+	}
+	if task.Kind != tasks.RootKind {
 		return true, nil
 	}
 	svc := s.service

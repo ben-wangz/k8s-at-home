@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+type cleanupTaskKey struct{}
+
+func (m *Manager) CleanupTaskStep(ctx context.Context, id string, olderThan time.Duration) error {
+	_, err := m.Cleanup(context.WithValue(ctx, cleanupTaskKey{}, taskKey(id)), olderThan, 1)
+	return err
+}
+
 func (m *Manager) Cleanup(ctx context.Context, olderThan time.Duration, limit int) (int, error) {
 	if olderThan < 24*time.Hour {
 		return 0, errors.New("task cleanup retention cannot be shorter than 24 hours")
@@ -19,7 +26,15 @@ func (m *Manager) Cleanup(ctx context.Context, olderThan time.Duration, limit in
 	recordBudget := limit
 	token := ""
 	for removed < limit && recordBudget > 0 {
-		entries, next, err := m.store.List(ctx, "tasks/state/", token, 500)
+		var entries []storage.Entry
+		var next string
+		var err error
+		if key, ok := ctx.Value(cleanupTaskKey{}).(string); ok {
+			entry, headErr := m.store.Head(ctx, key)
+			entries, next, err = []storage.Entry{entry}, "", headErr
+		} else {
+			entries, next, err = m.store.List(ctx, "tasks/state/", token, 500)
+		}
 		if err != nil {
 			return removed, err
 		}

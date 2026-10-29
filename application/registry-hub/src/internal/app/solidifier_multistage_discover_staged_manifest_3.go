@@ -10,7 +10,6 @@ import (
 	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
-	"time"
 )
 
 func (s *solidifier) discoverStagedManifest(ctx context.Context, task *tasks.Task, taskLease lease.Lease, graph *stagedGraph, reference contentRef, depth int, root bool) (*stagedManifest, error) {
@@ -67,12 +66,6 @@ func (s *solidifier) discoverStagedManifest(ctx context.Context, task *tasks.Tas
 	if err != nil {
 		return nil, permanent("manifest_invalid", err)
 	}
-	if s.service.inventory != nil {
-		inventoryCtx, inventoryCancel := context.WithTimeout(ctx, 2*time.Second)
-		_, inventoryErr := s.service.inventoryContent(inventoryCtx, inventoryIdentity(task.Authority, task.Repository, ""), actual.digest, actual.mediaType, data)
-		s.service.inventoryFailure(inventoryErr)
-		inventoryCancel()
-	}
 	if distributionObserved {
 		if err := s.recordStagedManifestObservationAtEpoch(ctx, task, actual, observationEpoch); err != nil {
 			return nil, err
@@ -88,6 +81,7 @@ func (s *solidifier) discoverStagedManifest(ctx context.Context, task *tasks.Tas
 	if err := s.saveManifestGraphNode(ctx, task, actual, false, localState); err != nil {
 		return nil, err
 	}
+	s.service.deferDiscoveredManifestProjection(ctx, task, actual.digest, actual.mediaType)
 	order := 0
 	descriptors := append(copyDescriptors(parsed.Config), parsed.Layers...)
 	for _, descriptor := range descriptors {

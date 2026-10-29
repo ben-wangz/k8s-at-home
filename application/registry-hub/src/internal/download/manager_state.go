@@ -41,10 +41,13 @@ func (m *Manager) loadOrCreate(ctx context.Context, request Request) (stateVersi
 		return stateVersion{}, persistenceError("state_validate", err)
 	}
 	loaded := stateVersion{Value: value, Version: object.Version}
-	if value.ExpectedSize != request.ExpectedSize || value.OwnerFence != request.OwnerFence {
+	if value.ExpectedSize != request.ExpectedSize || value.OwnerFence != request.OwnerFence || value.Authority == "" && request.Authority != "" {
 		candidate := cloneState(loaded.Value)
 		candidate.ExpectedSize = request.ExpectedSize
 		candidate.OwnerFence = request.OwnerFence
+		if request.Authority != "" {
+			candidate.Authority, candidate.Repository = request.Authority, request.Repository
+		}
 		updated, err := m.commitState(ctx, loaded, candidate, request)
 		if err != nil {
 			return stateVersion{}, err
@@ -69,7 +72,7 @@ func (m *Manager) createState(ctx context.Context, key string, request Request) 
 		return stateVersion{}, err
 	}
 	now := m.now().UTC()
-	value := state{SchemaVersion: stateSchemaVersion, Identity: request.Identity, Digest: request.Digest, Session: id, OwnerFence: request.OwnerFence, ExpectedSize: request.ExpectedSize, TotalSize: -1, CreatedAt: now, ProgressAt: now}
+	value := state{SchemaVersion: stateSchemaVersion, Authority: request.Authority, Repository: request.Repository, Identity: request.Identity, Digest: request.Digest, Session: id, OwnerFence: request.OwnerFence, ExpectedSize: request.ExpectedSize, TotalSize: -1, CreatedAt: now, ProgressAt: now}
 	if request.Guard != nil {
 		if err := request.Guard(ctx); err != nil {
 			return stateVersion{}, guardError(err)

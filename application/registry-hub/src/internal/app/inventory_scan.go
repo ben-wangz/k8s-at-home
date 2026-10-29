@@ -125,7 +125,7 @@ func (s *Service) scanInventoryCacheEntry(ctx context.Context, key string) error
 	if err != nil {
 		return err
 	}
-	content, err := s.inventoryContent(ctx, identity, metadata.Digest, metadata.MediaType, data)
+	content, err := s.inventoryContent(context.WithValue(ctx, inventoryObservationKey{}, metadata.VerifiedAt), identity, metadata.Digest, metadata.MediaType, data)
 	if err != nil {
 		return err
 	}

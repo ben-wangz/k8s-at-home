@@ -25,6 +25,19 @@ func (s *observedStore) CleanupOrphans(ctx context.Context, olderThan time.Durat
 	return removed, err
 }
 
+func (s *observedStore) CleanupOrphansStep(ctx context.Context, olderThan time.Duration, token string) (string, int, error) {
+	cleaner, ok := s.Store.(interface {
+		CleanupOrphansStep(context.Context, time.Duration, string) (string, int, error)
+	})
+	if !ok {
+		return "", 0, nil
+	}
+	started := time.Now()
+	next, removed, err := cleaner.CleanupOrphansStep(ctx, olderThan, token)
+	s.record(ctx, "cleanup_orphans", err, started)
+	return next, removed, err
+}
+
 func (s *observedStore) record(ctx context.Context, operation string, err error, started time.Time) {
 	if budget, ok := ctx.Value(inventoryBudgetKey{}).(*inventoryBudget); ok {
 		budget.operations.Add(1)

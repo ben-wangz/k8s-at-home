@@ -63,6 +63,9 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 	}
 	current, currentErr := m.Get(parent, latest.ID)
 	if currentErr == nil {
+		if current.ManifestObservedAt.After(latest.ManifestObservedAt) {
+			latest.ManifestObservedAt, latest.ManifestGeneration = current.ManifestObservedAt, current.ManifestGeneration
+		}
 		latest.RootPublishing = current.RootPublishing
 		latest.RootPublished = current.RootPublished
 		if current.CancelRequested {

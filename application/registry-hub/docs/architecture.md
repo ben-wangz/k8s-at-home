@@ -22,7 +22,7 @@ Backend storage and Distribution storage are independent:
 
 | Storage domain | Contents | Default |
 | --- | --- | --- |
-| Backend | Verified temporary objects, task state, checkpoints, leases, deletion generations, repair state, and GC gate state. | 20 GiB filesystem PVC. |
+| Backend | Verified temporary objects, task state, inventory, durable background work, checkpoints, leases, deletion generations, repair state, and GC gate state. | 20 GiB filesystem PVC. |
 | Distribution | Published images and other OCI artifacts. | 100 GiB filesystem PVC. |
 
 Each can use its own S3 configuration. The backend reads and writes published content through the standard Registry API; it does not manipulate Distribution's private storage layout.
@@ -39,7 +39,9 @@ Each can use its own S3 configuration. The backend reads and writes published co
 
 The client pull can finish before background transfer or publication. A platform can become available independently, while the root reference waits for every referenced platform. Registry Hub preserves artifact bytes, media types, and digests; it does not render charts or interpret signatures and SBOMs.
 
-Blob intents retain a notification acknowledgement alongside their state. Readiness and completion wake dependent roots immediately; an acknowledgement is saved only after those wakes are persisted. Periodic reconciliation retries unacknowledged notifications after storage failures or restarts. A conditional write prevents an older acknowledgement from overwriting a newer state transition, and notification replay does not extend the idle deadline.
+Blob intents retain a notification acknowledgement alongside their state. Verified cache commits send bounded activation hints; durable intents and periodic source scans recover lost hints. Readiness and completion enqueue paged notifications, with independent durable work for each dependent root. An acknowledgement is saved only after the corresponding wakes are persisted. Conditional writes and demand revisions prevent old acknowledgements from replacing newer state. Periodic demand scans also recover targets added during notification processing. Notification replay does not extend the idle deadline.
+
+Inventory projection and committed-download cleanup have separate durable queues and retry state. Authoritative discovery and execution facts precede successful responses or actual solidification. Derived inventory associations and download residue cleanup follow asynchronously. Outstanding download residue retains its quota until safe cleanup finishes. Health probes run independently of paged statistics and maintenance. See [Inventory](inventory.md#background-work-management) for status, recovery, and operator retry interfaces.
 
 Capacity waits retain their durable FIFO position after wakeup while pending or running. Younger scopes cannot take admission ahead of that request until its admission attempt finishes or it safely leaves the quota queue.
 

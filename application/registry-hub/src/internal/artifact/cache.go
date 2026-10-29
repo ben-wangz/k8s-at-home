@@ -83,6 +83,7 @@ type Cache struct {
 	mu                sync.Mutex
 	identityLocks     [256]sync.Mutex
 	protectOrphans    func(context.Context, string, string, string) (bool, error)
+	retainProjection  func(context.Context, string, string, string, string, time.Time) (bool, error)
 	inventoryTracking bool
 }
 
@@ -95,6 +96,12 @@ func (c *Cache) EnableInventoryTracking() {
 func (c *Cache) tracksInventory() bool { c.mu.Lock(); defer c.mu.Unlock(); return c.inventoryTracking }
 
 func NewCache(store storage.Store) *Cache { return &Cache{store: store} }
+
+func (c *Cache) SetProjectionRetention(retain func(context.Context, string, string, string, string, time.Time) (bool, error)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.retainProjection = retain
+}
 
 func (c *Cache) SetOrphanProtection(protect func(context.Context, string, string, string) (bool, error)) {
 	c.mu.Lock()

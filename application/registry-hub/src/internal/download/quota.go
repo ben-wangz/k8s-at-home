@@ -18,8 +18,10 @@ const maxActiveSessions = 128
 var ErrQuotaExceeded = errors.New("partial download quota is exhausted")
 
 type quotaReservation struct {
-	Session string `json:"session"`
-	Bytes   int64  `json:"bytes"`
+	Identity string `json:"identity,omitempty"`
+	Digest   string `json:"digest,omitempty"`
+	Session  string `json:"session"`
+	Bytes    int64  `json:"bytes"`
 }
 
 type quotaState struct {
@@ -81,10 +83,10 @@ func (m *Manager) reserve(ctx context.Context, request Request, session string, 
 				return guardError(err)
 			}
 		}
-		if exists && old.Session == session && old.Bytes >= required {
+		if exists && old.Session == session && old.Bytes >= required && old.Identity == request.Identity && old.Digest == request.Digest {
 			return nil
 		}
-		current.Reservations[key] = quotaReservation{Session: session, Bytes: required}
+		current.Reservations[key] = quotaReservation{Session: session, Bytes: required, Identity: request.Identity, Digest: request.Digest}
 		data, err := json.Marshal(current)
 		if err != nil {
 			return err

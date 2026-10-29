@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -104,7 +105,7 @@ func TestInventoryAdminReadsAreAuthenticatedAndHaveNoBusinessSideEffects(t *test
 	}
 }
 
-func TestInventoryLifecycleFailureBlocksSolidificationBeforeRegistryRead(t *testing.T) {
+func TestInventoryLifecycleFailureDoesNotBlockRegistryReadAfterDurableExecutionFact(t *testing.T) {
 	f := newStagedAcceptanceFixture(t, 1<<20)
 	enableInventory(f)
 	configDescriptor := f.cacheObject([]byte("config"), "application/vnd.oci.image.config.v1+json")
@@ -117,18 +118,27 @@ func TestInventoryLifecycleFailureBlocksSolidificationBeforeRegistryRead(t *test
 	before := f.requests
 	f.mu.Unlock()
 	_, _, err := f.processor.readDistributionManifest(context.Background(), &root, contentRef{digest: manifest.Digest, mediaType: manifest.MediaType, size: manifest.Size})
-	if err == nil || !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("lifecycle failure=%v", err)
+	if !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("Registry read=%v", err)
 	}
 	f.mu.Lock()
 	after := f.requests
 	f.mu.Unlock()
-	if after != before {
-		t.Fatal("registry validation started before lifecycle persistence")
+	if after <= before {
+		t.Fatal("inventory projection blocked Registry validation")
+	}
+	if err := backgroundUntilError(f.service, "execution"); !errors.Is(err, storage.ErrTimeout) {
+		t.Fatalf("projection failure=%v", err)
 	}
 	lifecycle, err := f.service.inventory.Lifecycle(context.Background(), inventory.LifecycleVersion(inventory.ID("platform", root.Authority, root.Repository, root.RootDigest), "", 0))
 	if err != nil || lifecycle.Started == nil || *lifecycle.Started {
 		t.Fatalf("failed start=%+v err=%v", lifecycle, err)
+	}
+	f.service.inventory.Store = f.service.store
+	drainBackgroundWork(t, f.service, "execution")
+	lifecycle, err = f.service.inventory.Lifecycle(context.Background(), lifecycle.Version)
+	if err != nil || lifecycle.Started == nil || !*lifecycle.Started || lifecycle.FirstStartedAt == nil {
+		t.Fatalf("recovered start=%+v err=%v", lifecycle, err)
 	}
 	if time.Since(f.service.inventoryInstalledAt) > time.Minute {
 		t.Fatal("unexpected fixture runtime")

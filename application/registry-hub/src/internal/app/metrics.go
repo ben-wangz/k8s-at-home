@@ -11,6 +11,8 @@ import (
 
 type metrics struct {
 	inventory              *inventoryMetrics
+	backgroundDuration     *prometheus.HistogramVec
+	backgroundWait         *prometheus.HistogramVec
 	registry               *prometheus.Registry
 	requests               *prometheus.CounterVec
 	requestLatency         *prometheus.HistogramVec

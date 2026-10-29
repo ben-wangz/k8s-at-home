@@ -56,7 +56,7 @@ func adminTag(path string) string {
 		return "Inventory"
 	}
 	switch {
-	case strings.HasPrefix(path, "/api/v1/tasks"):
+	case strings.HasPrefix(path, "/api/v1/tasks"), strings.HasPrefix(path, "/api/v1/background/"):
 		return "Tasks"
 	case strings.HasPrefix(path, "/api/v1/gc"):
 		return "Garbage collection"

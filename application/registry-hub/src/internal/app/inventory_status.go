@@ -9,6 +9,7 @@ import (
 )
 
 type inventoryBuildStatus struct {
+	Background    *backgroundStatus      `json:"background,omitempty"`
 	Fence         uint64                 `json:"fence"`
 	ProgressAt    time.Time              `json:"progressAt"`
 	Steps         uint64                 `json:"steps"`
@@ -90,6 +91,8 @@ func (s *Service) inventoryStatus(ctx context.Context) (inventoryBuildStatus, er
 	if failure.ErrorAt.After(status.ProgressAt) {
 		status.ErrorAt, status.ErrorClass, status.NextAttemptAt = failure.ErrorAt, failure.ErrorClass, failure.NextAttemptAt
 	}
+	background := s.backgroundStatus(ctx)
+	status.Background = &background
 	return status, nil
 }
 

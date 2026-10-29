@@ -60,6 +60,11 @@ func Update[T any](ctx context.Context, store storage.Store, key string, change 
 		if version != "" && bytes.Equal(before, data) {
 			return nil
 		}
+		if guard, ok := ctx.Value(writeGuardKey{}).(func(context.Context) error); ok {
+			if err := guard(ctx); err != nil {
+				return err
+			}
+		}
 		_, err = store.Put(ctx, key, bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfAbsent: version == "", IfMatch: version})
 		if err == nil {
 			return nil
@@ -175,12 +180,34 @@ func (r *Repository) Register(ctx context.Context, version string, knownNew bool
 }
 
 func (r *Repository) Start(ctx context.Context, version string) error {
+	return r.StartAt(ctx, version, time.Now().UTC())
+}
+
+type writeGuardKey struct{}
+
+func WithWriteGuard(ctx context.Context, guard func(context.Context) error) context.Context {
+	if previous, ok := ctx.Value(writeGuardKey{}).(func(context.Context) error); ok {
+		next := guard
+		guard = func(ctx context.Context) error {
+			if err := previous(ctx); err != nil {
+				return err
+			}
+			return next(ctx)
+		}
+	}
+	return context.WithValue(ctx, writeGuardKey{}, guard)
+}
+
+func (r *Repository) StartAt(ctx context.Context, version string, at time.Time) error {
+	if at.IsZero() {
+		return storage.ErrCorruptObject
+	}
 	return Update(ctx, r.Store, Prefix+"lifecycle/"+version+".json", func(value *Lifecycle) error {
-		if value.Started != nil && *value.Started {
+		if value.Started != nil && *value.Started && value.FirstStartedAt != nil && !value.FirstStartedAt.After(at) {
 			return nil
 		}
-		started, now := true, time.Now().UTC()
-		*value = Lifecycle{SchemaVersion: 1, Version: version, Started: &started, FirstStartedAt: &now}
+		started := true
+		*value = Lifecycle{SchemaVersion: 1, Version: version, Started: &started, FirstStartedAt: &at}
 		return nil
 	})
 }

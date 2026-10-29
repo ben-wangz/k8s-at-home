@@ -26,6 +26,7 @@ func TestTaskMetricsAggregatePagesAndRetainCompleteSnapshotOnFailure(t *testing.
 	}
 	defer manager.Close()
 	f.service.tasks = manager
+	f.service.store = store
 	for i, state := range []tasks.State{tasks.Pending, tasks.RetryWait, tasks.WaitingDeps, tasks.WaitingQuota, tasks.Failed} {
 		root, _, err := manager.EnqueueResolved(ctx, "ghcr.io", "private/repo", fmt.Sprint(i), artifact.CalculateSHA256([]byte(fmt.Sprint(i))), ociManifestMediaType, 0)
 		if err != nil {
@@ -42,7 +43,7 @@ func TestTaskMetricsAggregatePagesAndRetainCompleteSnapshotOnFailure(t *testing.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		f.service.refreshMetrics(ctx)
+		f.service.runTaskMetrics(ctx)
 	}()
 	defer func() { cancel(); <-done }()
 	samples := []string{

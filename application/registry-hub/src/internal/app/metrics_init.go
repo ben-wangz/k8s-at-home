@@ -4,7 +4,9 @@ import "github.com/prometheus/client_golang/prometheus"
 
 func newMetrics() *metrics {
 	result := &metrics{
-		registry: prometheus.NewRegistry(),
+		backgroundDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "registry_hub_background_unit_duration_seconds", Help: "Background work unit duration.", Buckets: prometheus.DefBuckets}, []string{"kind", "result"}),
+		backgroundWait:     prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "registry_hub_background_queue_wait_seconds", Help: "Time from durable observation to first background processing.", Buckets: []float64{1, 5, 15, 60, 300, 1800, 3600}}, []string{"kind"}),
+		registry:           prometheus.NewRegistry(),
 		requests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "registry_hub_requests_total", Help: "Client Registry requests.",
 		}, []string{"operation", "method", "status", "cache_source", "error_class"}),
@@ -153,7 +155,7 @@ func newMetrics() *metrics {
 			Name: "registry_hub_s3_replay_active_sources", Help: "Active Backend S3 request replay sources.",
 		}),
 	}
-	result.registry.MustRegister(result.requests, result.requestLatency, result.upstream, result.tasks, result.taskKinds, result.taskAuthorities, result.taskErrors, result.taskWaitReasons, result.taskRetries, result.taskCancelPhases, result.blobIntents, result.blobIntentLimit, result.taskRunnable, result.taskWaiting, result.recoveryUnknown, result.gcBlockers, result.gate, result.concurrency, result.rejections, result.events, result.gcRuns, result.gcDuration, result.storageOps, result.storageLatency, result.storageWarnings, result.objectLeases, result.cacheObjects, result.cacheBytes, result.cacheStaging, result.cacheOrphans, result.cacheCleanup, result.distributionErr, result.distributionVal, result.referrerSources, result.referrerRepair, result.referrerReconcile, result.protectionSessions, result.protectionReserved, result.protectionLimit, result.protectedCacheReserved, result.protectedCacheLimit, result.recoveryBarrier, result.partialReserved, result.partialSessions, result.partialLimit, result.s3ReplayMemory, result.s3ReplayDisk, result.s3ReplayActive)
+	result.registry.MustRegister(result.requests, result.requestLatency, result.upstream, result.tasks, result.taskKinds, result.taskAuthorities, result.taskErrors, result.taskWaitReasons, result.taskRetries, result.taskCancelPhases, result.blobIntents, result.blobIntentLimit, result.taskRunnable, result.taskWaiting, result.recoveryUnknown, result.gcBlockers, result.gate, result.concurrency, result.rejections, result.events, result.gcRuns, result.gcDuration, result.storageOps, result.storageLatency, result.storageWarnings, result.objectLeases, result.cacheObjects, result.cacheBytes, result.cacheStaging, result.cacheOrphans, result.cacheCleanup, result.distributionErr, result.distributionVal, result.referrerSources, result.referrerRepair, result.referrerReconcile, result.protectionSessions, result.protectionReserved, result.protectionLimit, result.protectedCacheReserved, result.protectedCacheLimit, result.recoveryBarrier, result.partialReserved, result.partialSessions, result.partialLimit, result.s3ReplayMemory, result.s3ReplayDisk, result.s3ReplayActive, result.backgroundDuration, result.backgroundWait)
 	result.objectLeases.WithLabelValues("active").Set(0)
 	result.objectLeases.WithLabelValues("waiting").Set(0)
 	result.referrerRepair.Set(0)

@@ -19,20 +19,22 @@ type Freshness struct {
 }
 
 type Snapshot struct {
-	SchemaVersion   int              `json:"schemaVersion"`
-	SnapshotID      string           `json:"snapshotID"`
-	BuildStartedAt  time.Time        `json:"buildStartedAt"`
-	ObservedAt      time.Time        `json:"observedAt"`
-	ExpiresAt       time.Time        `json:"expiresAt"`
-	Coverage        string           `json:"coverage"`
-	Building        bool             `json:"building"`
-	Reasons         []string         `json:"reasons"`
-	Freshness       Freshness        `json:"freshness"`
-	BuilderFence    uint64           `json:"builderFence"`
-	Pages           map[string]int   `json:"pages"`
-	Counts          map[string]int64 `json:"counts"`
-	UniqueManifests int64            `json:"uniqueManifests"`
-	GCEpoch         uint64           `json:"gcEpoch"`
+	SchemaVersion        int              `json:"schemaVersion"`
+	SnapshotID           string           `json:"snapshotID"`
+	BuildStartedAt       time.Time        `json:"buildStartedAt"`
+	ObservedAt           time.Time        `json:"observedAt"`
+	ExpiresAt            time.Time        `json:"expiresAt"`
+	Coverage             string           `json:"coverage"`
+	Building             bool             `json:"building"`
+	ProjectionPending    bool             `json:"projectionPending"`
+	ProjectionObservedAt time.Time        `json:"projectionObservedAt,omitempty"`
+	Reasons              []string         `json:"reasons"`
+	Freshness            Freshness        `json:"freshness"`
+	BuilderFence         uint64           `json:"builderFence"`
+	Pages                map[string]int   `json:"pages"`
+	Counts               map[string]int64 `json:"counts"`
+	UniqueManifests      int64            `json:"uniqueManifests"`
+	GCEpoch              uint64           `json:"gcEpoch"`
 }
 
 type ImagePage struct {

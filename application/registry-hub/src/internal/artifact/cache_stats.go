@@ -197,6 +197,15 @@ func (c *Cache) cleanupExpiredEntry(ctx context.Context, entry storage.Entry, no
 	if err != nil || protected {
 		return false, err
 	}
+	c.mu.Lock()
+	retain := c.retainProjection
+	c.mu.Unlock()
+	if retain != nil {
+		pending, err := retain(ctx, metadata.Authority, metadata.Repository, metadata.Digest, metadata.MediaType, metadata.VerifiedAt)
+		if err != nil || pending {
+			return false, err
+		}
+	}
 	if err := c.store.DeleteIfMatch(ctx, entry.Key, version); err != nil {
 		if errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrNotFound) {
 			return false, nil

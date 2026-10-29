@@ -7,12 +7,13 @@ func Classify(image Image, anchored bool) string {
 	if image.Evidence.ClosureComplete && anchored && image.Availability.State == "complete" && (image.Scope != "reference" || image.Reference == image.ResolvedDigest || image.TagPublished) {
 		return "solidified"
 	}
-	active, failed, cancelled := false, false, false
+	active, failed, cancelled, mayHaveStarted := false, false, false, false
 	outcome := false
 	for _, work := range image.Solidification.Tasks {
 		switch work.Status {
 		case "pending", "running", "retry_wait", "waiting_cache", "waiting_dependencies", "waiting_capacity", "verified_local", "repair_pending":
 			active = true
+			mayHaveStarted = mayHaveStarted || work.Status != "pending" && work.Status != "waiting_cache"
 		case "failed":
 			if !outcome {
 				failed = true
@@ -28,7 +29,7 @@ func Classify(image Image, anchored bool) string {
 		}
 	}
 	started := image.Solidification.Started
-	if image.Cache.State == "complete" && started != nil && !*started && !failed && !cancelled {
+	if image.Cache.State == "complete" && started != nil && !*started && !mayHaveStarted && !failed && !cancelled {
 		return "cached_not_started"
 	}
 	if active {

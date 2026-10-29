@@ -191,6 +191,7 @@ func TestBlobTerminalStateWakesWaitingRootDemand(t *testing.T) {
 	if err := processor.TaskTerminal(ctx, &blobTask); err != nil {
 		t.Fatalf("finish failed blob task: %v", err)
 	}
+	drainBackgroundWork(t, service, "notify", "wake_root")
 	awakened, err := manager.Get(ctx, root.ID)
 	if err != nil {
 		t.Fatal(err)

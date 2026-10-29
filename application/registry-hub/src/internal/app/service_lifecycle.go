@@ -62,6 +62,7 @@ func (s *Service) watchReadiness(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-changed:
+		case <-time.After(5 * time.Second):
 		}
 	}
 }
@@ -71,7 +72,9 @@ func (s *Service) setReadinessForGate(gate gateRecord) {
 		s.ready.Store(false)
 		return
 	}
-	s.ready.Store(s.storageHealthy.Load() && s.registryHealthy.Load() && gate.State == "open" && !gate.RecoveryBarrier && !gate.Exclusive)
+	storageFresh := s.storageProbeAt.Load() == 0 || time.Since(time.Unix(0, s.storageProbeAt.Load())) <= 90*time.Second
+	registryFresh := s.registryProbeAt.Load() == 0 || time.Since(time.Unix(0, s.registryProbeAt.Load())) <= 90*time.Second
+	s.ready.Store(s.storageHealthy.Load() && s.registryHealthy.Load() && storageFresh && registryFresh && gate.State == "open" && !gate.RecoveryBarrier && !gate.Exclusive)
 }
 
 // BeginShutdown stops background admission while the HTTP servers drain active requests.

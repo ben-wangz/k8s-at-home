@@ -65,10 +65,17 @@ type Service struct {
 	gc                   *gcController
 	storageHealthy       atomic.Bool
 	registryHealthy      atomic.Bool
+	storageProbeAt       atomic.Int64
+	registryProbeAt      atomic.Int64
+	storageProbeSuccess  atomic.Int64
+	registryProbeSuccess atomic.Int64
 	nativeMu             sync.Mutex
 	nativeCache          map[string]nativeReferrerCapability
 	closeOnce            sync.Once
 	background           sync.WaitGroup
+	backgroundSlots      chan struct{}
+	backgroundPace       <-chan time.Time
+	projectionBacklog    atomic.Bool
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
@@ -202,28 +209,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	service.uploads = newUploadSessions(store, registry, service.tasks.Leases(), cfg.Limits.UploadIdleTimeout, cfg.Limits.UploadMaxLifetime)
 	service.cache.SetOrphanProtection(service.protectCacheObject)
 	service.tasks.Start(ctx)
-	service.background.Add(6)
-	go func() { defer service.background.Done(); service.runInventory(ctx) }()
-	go func() {
-		defer service.background.Done()
-		service.watchReadiness(ctx)
-	}()
-	go func() {
-		defer service.background.Done()
-		service.refreshMetrics(ctx)
-	}()
-	go func() {
-		defer service.background.Done()
-		service.runReferrerRepairs(ctx)
-	}()
-	go func() {
-		defer service.background.Done()
-		service.runCacheCleanup(ctx)
-	}()
-	go func() {
-		defer service.background.Done()
-		service.runBlobIntentReconciliation(ctx)
-	}()
+	service.startBackgroundWorkers(ctx)
 	service.metrics.setGateState(gate.State().State)
 	service.refreshReadiness()
 	return service, nil

@@ -46,6 +46,9 @@ func TestDirectCachedBlobActivatesAfterRestartIncludingEmptyPayload(t *testing.T
 				if err != nil {
 					t.Fatal(err)
 				}
+				if failActivation {
+					_ = f.service.processCachedBlobIntent(ctx, identity)
+				}
 				if failActivation && (!faults.triggered || intent.State != tasks.IntentWaitingCache) {
 					t.Fatalf("failed activation did not retain durable pending intent: %#v", intent)
 				}

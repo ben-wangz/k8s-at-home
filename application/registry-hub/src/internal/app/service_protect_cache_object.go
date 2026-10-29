@@ -18,6 +18,10 @@ func (s *Service) protectCacheObject(ctx context.Context, authority, repository,
 	if active {
 		return true, nil
 	}
+	pending, err := s.downloadManager().HasState(ctx, objectLeaseKey(authority, repository, digest), digest)
+	if err != nil || pending {
+		return pending, err
+	}
 	intent, intentErr := s.records.GetBlobIntentByIdentity(ctx, tasks.BlobIdentity{Authority: authority, Repository: repository, Digest: digest})
 	if intentErr != nil && !errors.Is(intentErr, storage.ErrNotFound) {
 		return false, intentErr

@@ -21,6 +21,7 @@ func enableInventory(f *stagedAcceptanceFixture) {
 func refreshTestInventory(t *testing.T, s *Service) inventory.Snapshot {
 	t.Helper()
 	ctx := context.Background()
+	drainBackgroundWork(t, s, "inventory", "execution")
 	scan := inventoryScan{}
 	for n := 0; scan.Phase < 2; n++ {
 		if n > 5000 {

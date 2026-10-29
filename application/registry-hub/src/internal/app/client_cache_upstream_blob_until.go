@@ -92,6 +92,7 @@ func (s *Service) downloadSharedBlob(ctx context.Context, routed route.Route, ob
 	defer transferCancel()
 	manager := s.downloadManager()
 	downloadResult, err := manager.Fetch(transferCtx, download.Request{
+		Authority: routed.Upstream, Repository: routed.RemoteRepo,
 		Identity: identity, Digest: routed.Reference, ExpectedSize: -1, MaxBytes: maxBytes,
 		OwnerFence: objectLease.FencingToken, AttemptLimit: requestTimeout,
 		IdleTimeout: idleTimeout, FinalizeTimeout: finalizeTimeout, LifecycleContext: s.ctx,
@@ -148,5 +149,6 @@ func (s *Service) downloadSharedBlob(ctx context.Context, routed route.Route, ob
 	if err := s.tasks.Leases().Validate(transferCtx, objectLease); err != nil {
 		return err
 	}
-	return manager.CommitComplete(transferCtx, identity, routed.Reference, objectLease.FencingToken)
+	s.deferDownloadCleanup(transferCtx, routed.Upstream, routed.RemoteRepo, identity, routed.Reference, objectLease.FencingToken)
+	return nil
 }

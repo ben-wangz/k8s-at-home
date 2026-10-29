@@ -2,52 +2,56 @@ package app
 
 import (
 	"context"
+	"registry-hub/internal/inventory"
+	"registry-hub/internal/storage"
+	"registry-hub/internal/tasks"
+	"strings"
+	"sync"
 	"time"
 )
 
 func (s *Service) runCacheCleanup(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-	lastOrphanScan := time.Time{}
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case now := <-ticker.C:
-			utcNow := now.UTC()
-			if _, err := s.tasks.ExpireIdle(ctx, 100); err != nil {
-				s.logger.Warn("idle solidification expiry failed", "error_class", "storage")
+	workers := []struct {
+		kind, prefix string
+		step         func(context.Context, storage.Entry) error
+	}{
+		{"cache_cleanup", "cache/objects/", func(ctx context.Context, entry storage.Entry) error {
+			return s.cache.CleanupEntry(ctx, entry, time.Now().UTC())
+		}},
+		{"reader_cleanup", "cache/readers/", s.cache.CleanupReaderPinEntry},
+		{"upload_cleanup", "uploads/sessions/", func(ctx context.Context, entry storage.Entry) error {
+			return s.uploads.cleanupEntry(ctx, s.gate, entry)
+		}},
+		{"task_cleanup", "tasks/state/", func(ctx context.Context, entry storage.Entry) error {
+			task, _, err := inventory.Read[tasks.Task](ctx, s.store, entry.Key)
+			if err != nil {
+				return err
 			}
-			if err := s.cleanupPartialDownloads(ctx, utcNow); err != nil {
-				s.logger.Warn("partial download cleanup failed", "error_class", "storage")
+			if _, err := s.tasks.CancelIfExpired(ctx, task.ID, time.Now().UTC()); err != nil {
+				return err
 			}
-			if _, err := s.uploads.CleanupExpired(ctx, s.gate, 100); err != nil {
-				s.logger.Warn("expired upload cleanup failed", "error_class", "distribution")
+			return s.tasks.CleanupTaskStep(ctx, task.ID, 30*24*time.Hour)
+		}},
+		{"download_expiry", "downloads/v1/", func(ctx context.Context, entry storage.Entry) error {
+			return s.downloadManager().CleanupExpiredStep(ctx, entry, time.Now().UTC(), s.cfg.Limits.DownloadPartialTTL, s.acquireDownloadCleanup)
+		}},
+		{"receipt_cleanup", "background/v1/receipts/", func(ctx context.Context, entry storage.Entry) error {
+			if strings.Contains(entry.Key, "/execution/") || entry.ModTime == 0 || time.Since(time.Unix(0, entry.ModTime)) < 30*24*time.Hour {
+				return nil
 			}
-			if _, err := s.cache.Cleanup(ctx, utcNow, 1000); err != nil {
-				s.logger.Warn("cache cleanup failed", "error_class", "storage")
-			}
-			if _, err := s.cache.CleanupReaderPins(ctx, 1000); err != nil {
-				s.logger.Warn("cache reader pin cleanup failed", "error_class", "storage")
-			}
-			if lastOrphanScan.IsZero() || utcNow.Sub(lastOrphanScan) >= time.Hour {
-				if _, err := s.cache.CleanupOrphans(ctx, utcNow, time.Hour, 1000); err != nil {
-					s.logger.Warn("cache orphan scan failed", "error_class", "storage")
-				}
-				if cleaner, ok := s.store.(interface {
-					CleanupOrphans(context.Context, time.Duration, int) (int, error)
-				}); ok {
-					if _, err := cleaner.CleanupOrphans(ctx, time.Hour, 1000); err != nil {
-						s.logger.Warn("storage orphan cleanup failed", "error_class", "storage")
-					}
-				}
-				lastOrphanScan = utcNow
-			}
-			if _, err := s.tasks.Cleanup(ctx, 30*24*time.Hour, 1000); err != nil {
-				s.logger.Warn("task cleanup failed", "error_class", "storage")
-			}
-		}
+			return s.store.DeleteIfMatch(ctx, entry.Key, entry.Version)
+		}},
 	}
+	var group sync.WaitGroup
+	for _, worker := range workers {
+		group.Add(1)
+		go func() { defer group.Done(); s.runSourceSweep(ctx, worker.kind, worker.prefix, worker.step) }()
+	}
+	for _, worker := range []func(context.Context){s.runStorageOrphanCleanup, s.runDownloadQuotaCleanup} {
+		group.Add(1)
+		go func() { defer group.Done(); worker(ctx) }()
+	}
+	group.Wait()
 }
 
 func (s *Service) acquireSlot(ctx context.Context, slot chan struct{}) (func(), bool) {

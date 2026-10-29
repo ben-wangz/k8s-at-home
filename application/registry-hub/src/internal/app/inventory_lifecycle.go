@@ -2,116 +2,195 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
+	"registry-hub/internal/workqueue"
+	"strconv"
 	"time"
 )
+
+type inventoryExecutionFact struct {
+	TaskID                string             `json:"taskID"`
+	Kind                  tasks.Kind         `json:"kind"`
+	Identity              inventory.Identity `json:"identity"`
+	RootDigest            string             `json:"rootDigest"`
+	Digest                string             `json:"digest"`
+	Generation            uint64             `json:"generation"`
+	ContentGeneration     uint64             `json:"contentGeneration"`
+	RootContentGeneration uint64             `json:"rootContentGeneration"`
+	Demand                *tasks.BlobDemand  `json:"demand,omitempty"`
+}
+
+type inventoryExecutionProgress struct {
+	Phase  int               `json:"phase"`
+	Cursor inventory.Cursor  `json:"cursor"`
+	Demand *tasks.BlobDemand `json:"demand,omitempty"`
+	Nodes  inventory.Cursor  `json:"nodes"`
+}
 
 func (s *Service) inventoryStart(ctx context.Context, task *tasks.Task, digest string) error {
 	if s.inventory == nil {
 		return nil
 	}
-	if task.Kind == tasks.BlobKind {
-		return s.inventoryStartBlob(ctx, task)
-	}
-	identity := inventoryIdentity(task.Authority, task.Repository, task.Reference)
-	binding, _, err := inventory.Read[inventory.Binding](ctx, s.store, inventory.Prefix+"bindings/"+identity.ID()+".json")
-	if errors.Is(err, storage.ErrNotFound) {
-		binding, err = s.inventoryBinding(ctx, identity, task.RootDigest, "task", task.Generation, task.CreatedAt, false)
-	}
+	generation, err := s.generation(ctx, task.Authority, task.Repository, digest)
 	if err != nil {
-		return temporary("inventory_lifecycle", err)
+		return temporary("execution_state", err)
 	}
-	contentGeneration, generationErr := s.generation(ctx, task.Authority, task.Repository, task.RootDigest)
-	if generationErr != nil {
-		return temporary("inventory_lifecycle", generationErr)
-	}
-	if binding.Digest == task.RootDigest && binding.Generation == task.Generation && binding.ContentGeneration != contentGeneration.Generation {
-		binding, err = s.inventoryBinding(ctx, identity, task.RootDigest, binding.Source, task.Generation, time.Now().UTC(), false)
+	rootGeneration := generation.Generation
+	if task.RootDigest != "" && task.RootDigest != digest {
+		root, err := s.generation(ctx, task.Authority, task.Repository, task.RootDigest)
 		if err != nil {
-			return temporary("inventory_lifecycle", err)
+			return temporary("execution_state", err)
 		}
+		rootGeneration = root.Generation
 	}
-	if binding.Digest == task.RootDigest && binding.Generation == task.Generation {
-		if err := s.inventory.Start(ctx, inventory.LifecycleVersion(identity.ID(), binding.Revision, binding.ContentGeneration)); err != nil {
-			return temporary("inventory_lifecycle", err)
-		}
-	}
-	for _, manifestDigest := range []string{task.RootDigest, digest} {
-		generation, err := s.generation(ctx, task.Authority, task.Repository, manifestDigest)
-		if err != nil {
-			return temporary("inventory_lifecycle", err)
-		}
-		version := inventory.LifecycleVersion(inventory.ID("platform", task.Authority, task.Repository, manifestDigest), "", generation.Generation)
-		if err := s.inventory.Start(ctx, version); err != nil {
-			return temporary("inventory_lifecycle", err)
-		}
-		if err := s.inventoryStartDigestReference(ctx, task, manifestDigest, generation.Generation); err != nil {
-			return temporary("inventory_lifecycle", err)
-		}
+	fact := inventoryExecutionFact{TaskID: task.ID, Kind: task.Kind, Identity: inventoryIdentity(task.Authority, task.Repository, task.Reference), RootDigest: task.RootDigest, Digest: digest, Generation: task.Generation, ContentGeneration: generation.Generation, RootContentGeneration: rootGeneration}
+	key := executionSource(task.ID, digest, generation.Generation)
+	_, err = (workqueue.Queue{Store: s.store}).Enqueue(ctx, "execution", key, fact, time.Now().UTC())
+	if err != nil {
+		return temporary("execution_state", err)
 	}
 	return nil
 }
 
-func (s *Service) inventoryStartBlob(ctx context.Context, task *tasks.Task) error {
-	token := ""
-	for {
-		demands, next, err := s.records.ListBlobDemandRecords(ctx, task.ID, token, 100)
-		if err != nil {
-			return temporary("inventory_lifecycle", err)
-		}
-		for _, demand := range demands {
-			if demand.RootTaskID == "" {
-				continue
-			}
-			root, err := s.tasks.Get(ctx, demand.RootTaskID)
-			if errors.Is(err, storage.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return temporary("inventory_lifecycle", err)
-			}
-			if root.Status == tasks.Failed || root.Status == tasks.Cancelled || root.Status == tasks.Solidified || root.CancelRequested {
-				continue
-			}
-			if err := s.inventoryStart(ctx, &root, root.RootDigest); err != nil {
-				return err
-			}
-			if err := s.inventoryStartDemand(ctx, root, demand.ScopeID); err != nil {
-				return temporary("inventory_lifecycle", err)
-			}
-		}
-		if next == "" {
-			return nil
-		}
-		token = next
-	}
+func executionSource(taskID, digest string, generation uint64) string {
+	return inventory.ID("execution", taskID, digest, strconv.FormatUint(generation, 10))
 }
 
-func (s *Service) inventoryStartDemand(ctx context.Context, root tasks.Task, scope string) error {
-	token := ""
-	for {
-		nodes, next, err := s.records.ListGraphNodes(ctx, root.ID, token, 100)
+func (s *Service) projectExecutionStep(ctx context.Context, job *workqueue.Job) (any, bool, error) {
+	var fact inventoryExecutionFact
+	var p inventoryExecutionProgress
+	if json.Unmarshal(job.Payload, &fact) != nil || len(job.Progress) > 0 && json.Unmarshal(job.Progress, &p) != nil {
+		return p, false, storage.ErrCorruptObject
+	}
+	current, err := s.generation(ctx, fact.Identity.Authority, fact.Identity.Repository, fact.Digest)
+	if err != nil {
+		return p, false, err
+	}
+	if current.Tombstone || current.Generation != fact.ContentGeneration {
+		return p, true, nil
+	}
+	if fact.Kind == tasks.BlobKind {
+		return s.projectBlobExecutionStep(ctx, job, fact, p)
+	}
+	err = s.projectExecutionFact(ctx, fact, job.CreatedAt, p.Phase)
+	if err == nil {
+		p.Phase++
+	}
+	return p, p.Phase >= 3, err
+}
+
+func (s *Service) projectExecutionFact(ctx context.Context, fact inventoryExecutionFact, at time.Time, phase int) error {
+	digest, generation := fact.RootDigest, fact.RootContentGeneration
+	if phase == 2 {
+		digest, generation = fact.Digest, fact.ContentGeneration
+	}
+	current, err := s.generation(ctx, fact.Identity.Authority, fact.Identity.Repository, digest)
+	if err != nil {
+		return err
+	}
+	if current.Tombstone || current.Generation != generation {
+		return nil
+	}
+	if phase == 0 {
+		binding, _, err := inventory.Read[inventory.Binding](ctx, s.store, inventory.Prefix+"bindings/"+fact.Identity.ID()+".json")
+		if errors.Is(err, storage.ErrNotFound) {
+			task, readErr := s.tasks.Get(ctx, fact.TaskID)
+			if readErr != nil {
+				return readErr
+			}
+			confirmed := task.ManifestObservedAt
+			if confirmed.IsZero() {
+				confirmed = task.CreatedAt
+			}
+			binding, err = s.inventoryBinding(ctx, fact.Identity, fact.RootDigest, "task", fact.Generation, confirmed, false)
+		}
 		if err != nil {
 			return err
 		}
-		for _, node := range nodes {
-			if node.Role != tasks.GraphManifest {
-				continue
-			}
-			id, err := protectionScopeID(root.Authority, root.Repository, node.Digest, root.Generation)
-			if err != nil {
-				return err
-			}
-			if id == scope {
-				return s.inventoryStart(ctx, &root, node.Digest)
-			}
+		if binding.Digest == fact.RootDigest && binding.Generation == fact.Generation && binding.ContentGeneration == generation {
+			return s.inventory.StartAt(ctx, inventory.LifecycleVersion(fact.Identity.ID(), binding.Revision, generation), at)
 		}
-		if next == "" {
-			return nil
-		}
-		token = next
+		return nil
 	}
+	if err := s.inventory.StartAt(ctx, inventory.LifecycleVersion(inventory.ID("platform", fact.Identity.Authority, fact.Identity.Repository, digest), "", generation), at); err != nil {
+		return err
+	}
+	identity := inventoryIdentity(fact.Identity.Authority, fact.Identity.Repository, digest)
+	binding, err := s.inventoryBinding(ctx, identity, digest, "execution", generation, at, false)
+	if err != nil {
+		return err
+	}
+	return s.inventory.StartAt(ctx, inventory.LifecycleVersion(identity.ID(), binding.Revision, generation), at)
+}
+
+func (s *Service) projectBlobExecutionStep(ctx context.Context, job *workqueue.Job, fact inventoryExecutionFact, p inventoryExecutionProgress) (any, bool, error) {
+	if p.Demand == nil {
+		if fact.Demand != nil {
+			if p.Cursor.Done {
+				return p, true, nil
+			}
+			p.Demand = fact.Demand
+		} else {
+			entry, ok, err := p.Cursor.Peek(ctx, s.store, "solidification/blobs/owners/"+fact.TaskID+"/", 32)
+			if err != nil {
+				return p, false, err
+			}
+			if !ok {
+				return p, p.Cursor.Done, nil
+			}
+			demand, _, err := inventory.Read[tasks.BlobDemand](ctx, s.store, entry.Key)
+			if err != nil {
+				return p, false, err
+			}
+			if demand.RootTaskID == "" {
+				p.Cursor.Advance()
+				return p, false, nil
+			}
+			p.Demand = &demand
+		}
+	}
+	root, err := s.tasks.Get(ctx, p.Demand.RootTaskID)
+	if errors.Is(err, storage.ErrNotFound) {
+		if fact.Demand != nil {
+			return p, true, nil
+		}
+		p.Demand = nil
+		p.Cursor.Advance()
+		return p, false, nil
+	}
+	if err != nil {
+		return p, false, err
+	}
+	if p.Phase == 0 {
+		node, err := s.records.GetGraphNode(ctx, root.ID, tasks.GraphManifest, root.RootDigest)
+		if errors.Is(err, storage.ErrNotFound) {
+			p.Phase = 1
+			return p, false, nil
+		}
+		if err != nil {
+			return p, false, err
+		}
+		if node.ContentGeneration == nil {
+			p.Phase = 1
+			return p, false, nil
+		}
+		rootFact := inventoryExecutionFact{TaskID: root.ID, Identity: inventoryIdentity(root.Authority, root.Repository, root.Reference), RootDigest: root.RootDigest, Digest: root.RootDigest, Generation: root.Generation, ContentGeneration: *node.ContentGeneration, RootContentGeneration: *node.ContentGeneration}
+		at := job.CreatedAt
+		if p.Demand.CreatedAt.After(at) {
+			at = p.Demand.CreatedAt
+		}
+		if err := s.projectExecutionFact(ctx, rootFact, at, 0); err != nil {
+			return p, false, err
+		}
+		if err := s.projectExecutionFact(ctx, rootFact, at, 1); err != nil {
+			return p, false, err
+		}
+		p.Phase = 1
+		return p, false, nil
+	}
+	return s.projectBlobExecutionScope(ctx, job, root, p)
 }

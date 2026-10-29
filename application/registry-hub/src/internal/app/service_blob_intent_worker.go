@@ -4,86 +4,32 @@ import (
 	"context"
 	"errors"
 	"registry-hub/internal/storage"
+	"registry-hub/internal/tasks"
+	"sync"
 	"time"
 )
 
 func (s *Service) runBlobIntentReconciliation(ctx context.Context) {
-	if err := s.reconcileBlobIntentTasks(ctx); err != nil && s.logger != nil {
-		s.logger.Warn("blob intent reconciliation failed", "error_class", "storage")
+	var group sync.WaitGroup
+	for _, worker := range []func(context.Context){s.runIntentSourceReconciliation, s.runTaskReconciliation, s.runProtectionRecovery, s.runQuotaReconciliation} {
+		group.Add(1)
+		go func() { defer group.Done(); worker(ctx) }()
 	}
-	anchoredReuseCursor := anchoredManifestReuseCursor{}
-	if gate := s.gate.State(); gate.State == "open" && !gate.RecoveryBarrier {
-		if next, _, err := s.reconcileAnchoredManifestReusePage(ctx, anchoredReuseCursor); err != nil {
-			if s.logger != nil {
-				s.logger.Warn("anchored manifest reuse reconciliation deferred", "error_class", "recovery")
-			}
-		} else {
-			anchoredReuseCursor = next
-		}
-	}
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-	cacheScanActive := true
-	cacheScanToken := ""
-	for {
+	defer group.Wait()
+	for ctx.Err() == nil {
 		select {
 		case <-ctx.Done():
 			return
 		case identity := <-s.blobIntentEvents:
-			eventTimeout := s.cfg.Limits.RequestTimeout
-			if eventTimeout <= 0 {
-				eventTimeout = 300 * time.Second
-			}
-			eventCtx, cancel := context.WithTimeout(ctx, eventTimeout)
-			if err := s.processCachedBlobIntent(eventCtx, identity); err != nil {
-				s.cacheIntentRescan.Store(true)
-				if s.logger != nil {
-					s.logger.Warn("cached blob intent activation deferred", "error_class", "storage")
+			bounded, cancel := context.WithTimeout(ctx, 15*time.Second)
+			release, ok := s.backgroundBudget(bounded)
+			if ok {
+				if err := s.processCachedBlobIntent(bounded, identity); err != nil {
+					s.backgroundEvent("activation", "deferred", err)
 				}
+				release()
 			}
 			cancel()
-		case <-ticker.C:
-			gate := s.gate.State()
-			if gate.RecoveryBarrier {
-				recoveryCtx, cancel := context.WithTimeout(ctx, time.Minute)
-				if err := s.recoverSolidificationProtection(recoveryCtx); err != nil && s.logger != nil {
-					s.logger.Warn("solidification recovery remains blocked", "error_class", "recovery", "error", err)
-				}
-				cancel()
-			} else if err := s.reconcileTerminalTaskCleanup(ctx); err != nil && s.logger != nil {
-				s.logger.Warn("terminal task cleanup remains pending", "error_class", "recovery")
-			}
-			if err := s.reconcileBlobIntentTasks(ctx); err != nil && s.logger != nil {
-				s.logger.Warn("blob intent reconciliation failed", "error_class", "storage")
-			}
-			if s.cacheIntentRescan.Swap(false) {
-				cacheScanActive = true
-				cacheScanToken = ""
-			}
-			if cacheScanActive {
-				next, err := s.reconcileCachedBlobIntentPage(ctx, cacheScanToken)
-				if err != nil {
-					if s.logger != nil {
-						s.logger.Warn("cached blob intent reconciliation deferred", "error_class", "storage")
-					}
-				} else {
-					cacheScanToken = next
-					cacheScanActive = next != ""
-				}
-			}
-			gate = s.gate.State()
-			if gate.State == "open" && !gate.RecoveryBarrier {
-				processor := &solidifier{service: s, tasks: s.tasks, gate: s.gate}
-				processor.wakeCoordinationWaiters(ctx)
-				s.wakeAvailableQuotaWaiters(ctx, gate)
-				if next, _, err := s.reconcileAnchoredManifestReusePage(ctx, anchoredReuseCursor); err != nil {
-					if s.logger != nil {
-						s.logger.Warn("anchored manifest reuse reconciliation deferred", "error_class", "recovery")
-					}
-				} else {
-					anchoredReuseCursor = next
-				}
-			}
 		}
 	}
 }
@@ -101,6 +47,10 @@ func (s *Service) wakeAvailableQuotaWaiter(ctx context.Context, reason string, g
 	if err != nil || !found {
 		return err
 	}
+	return s.wakeFittingQuotaWaiter(ctx, reason, waiter, gate)
+}
+
+func (s *Service) wakeFittingQuotaWaiter(ctx context.Context, reason string, waiter tasks.Task, gate gateRecord) error {
 	var fits bool
 	switch reason {
 	case "distribution_quota":
@@ -131,7 +81,7 @@ func (s *Service) wakeAvailableQuotaWaiter(ctx context.Context, reason string, g
 	if !fits {
 		return nil
 	}
-	_, err = s.tasks.Wake(ctx, waiter.ID)
+	_, err := s.tasks.Wake(ctx, waiter.ID)
 	if errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrNotFound) {
 		return nil
 	}

@@ -13,61 +13,17 @@ func (s *Service) wakeBlobDemandRoots(ctx context.Context, intentID string) {
 }
 
 func (s *Service) wakeBlobDemandRootsExcept(ctx context.Context, intentID, excludedRootID string) {
-	if err := s.notifyBlobDemandRootsExcept(ctx, intentID, excludedRootID); err != nil && s.logger != nil {
+	if err := s.deferBlobNotification(ctx, intentID, excludedRootID); err != nil && s.logger != nil {
 		s.logger.Warn("blob dependency notification deferred", "intent_id", intentID, "error_class", "storage")
 	}
 }
 
 func (s *Service) notifyBlobDemandRoots(ctx context.Context, intentID string) error {
-	return s.notifyBlobDemandRootsExcept(ctx, intentID, "")
+	return s.deferBlobNotification(ctx, intentID, "")
 }
 
 func (s *Service) notifyBlobDemandRootsExcept(ctx context.Context, intentID, excludedRootID string) error {
-	intent, err := s.records.GetBlobIntent(ctx, intentID)
-	if err != nil {
-		return err
-	}
-	token := ""
-	for {
-		demands, next, err := s.records.ListBlobDemandRecords(ctx, intentID, token, 500)
-		if err != nil {
-			return err
-		}
-		for _, demand := range demands {
-			if demand.RootTaskID != "" && demand.RootTaskID != excludedRootID {
-				if err := s.wakeBlobDemandRoot(ctx, demand.RootTaskID); err != nil {
-					return err
-				}
-			}
-		}
-		if next == "" {
-			break
-		}
-		token = next
-	}
-	token = ""
-	for {
-		references, next, err := s.records.ListCacheProtectionReferences(ctx, intent.Identity.Digest, token, 500)
-		if err != nil {
-			return err
-		}
-		for _, reference := range references {
-			if reference.TaskID != excludedRootID && reference.Authority == intent.Identity.Authority && reference.Repository == intent.Identity.Repository {
-				if err := s.wakeBlobDemandRoot(ctx, reference.TaskID); err != nil {
-					return err
-				}
-			}
-		}
-		if next == "" {
-			break
-		}
-		token = next
-	}
-	if intent.WakeAcknowledged {
-		return nil
-	}
-	intent.WakeAcknowledged = true
-	return s.records.SaveBlobIntent(ctx, &intent)
+	return s.deferBlobNotification(ctx, intentID, excludedRootID)
 }
 
 func (s *Service) wakeBlobDemandRoot(ctx context.Context, rootID string) error {

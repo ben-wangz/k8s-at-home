@@ -77,6 +77,8 @@ type Task struct {
 	NextAttemptAt           time.Time             `json:"nextAttemptAt,omitempty"`
 	CreatedAt               time.Time             `json:"createdAt"`
 	UpdatedAt               time.Time             `json:"updatedAt"`
+	ManifestObservedAt      time.Time             `json:"manifestObservedAt,omitempty"`
+	ManifestGeneration      uint64                `json:"manifestGeneration,omitempty"`
 	Status                  State                 `json:"status"`
 	WaitReason              string                `json:"waitReason,omitempty"`
 	QuotaWaitAt             time.Time             `json:"quotaWaitAt,omitempty"`

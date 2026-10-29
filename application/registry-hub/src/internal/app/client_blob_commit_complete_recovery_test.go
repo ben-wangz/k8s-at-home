@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"registry-hub/internal/artifact"
 	"registry-hub/internal/route"
@@ -33,8 +32,17 @@ func TestCommittedCacheSurvivesDownloadCleanupFailureWithoutAnotherFetch(t *test
 			}
 			response := httptest.NewRecorder()
 			service.serveUpstreamBlob(response, httptest.NewRequest(http.MethodGet, path, nil), routed, &requestMeta{})
-			if response.Code != http.StatusServiceUnavailable || !faults.triggered || len(remote.calls) != 1 {
-				t.Fatalf("interrupted cleanup status=%d fault=%t fetches=%d", response.Code, faults.triggered, len(remote.calls))
+			if response.Code != http.StatusOK || response.Body.String() != body || faults.triggered || len(remote.calls) != 1 {
+				t.Fatalf("committed response status=%d fault=%t fetches=%d", response.Code, faults.triggered, len(remote.calls))
+			}
+			for n := 0; n < 16 && !faults.triggered; n++ {
+				_, _ = backgroundTestPass(service, "download_cleanup")
+			}
+			if !faults.triggered {
+				t.Fatal("cleanup fault was not exercised")
+			}
+			if reserved, sessions, err := service.downloadManager().Usage(ctx); err != nil || reserved == 0 || sessions != 1 {
+				t.Fatalf("pending cleanup quota=%d sessions=%d err=%v", reserved, sessions, err)
 			}
 			service.cache = artifact.NewCache(service.store)
 			service.records = tasks.NewRecords(service.store)
@@ -51,13 +59,7 @@ func TestCommittedCacheSurvivesDownloadCleanupFailureWithoutAnotherFetch(t *test
 			if err != nil || intent.State != tasks.IntentReady || intent.CacheVersion == "" {
 				t.Fatalf("recovered activation = %#v, error=%v", intent, err)
 			}
-			_, err = service.downloadManager().Cleanup(ctx, time.Now().Add(2*time.Hour), time.Hour, 100,
-				func(ctx context.Context, _, _ string) (context.Context, func(), bool, error) {
-					return ctx, func() {}, true, nil
-				})
-			if err != nil {
-				t.Fatal(err)
-			}
+			drainBackgroundWork(t, service, "download_cleanup")
 			if reserved, sessions, err := service.downloadManager().Usage(ctx); err != nil || reserved != 0 || sessions != 0 {
 				t.Fatalf("recovered download quota = %d bytes, %d sessions, %v", reserved, sessions, err)
 			}

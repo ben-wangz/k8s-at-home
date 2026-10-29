@@ -23,9 +23,6 @@ func (s *Service) serveUpstreamBlob(writer http.ResponseWriter, request *http.Re
 			registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "blob solidification intent could not be recorded")
 			return
 		}
-		if _, intentErr = s.records.SetBlobIntentReady(request.Context(), intent.ID, cached.MediaType, cached.DataVersion, cached.Size); intentErr != nil {
-			s.logBlobIntentDeferred("cached blob solidification intent could not be activated", intentErr)
-		}
 		s.scheduleCachedBlobIntent(intent.Identity)
 		defer cached.Body.Close()
 		meta.cacheSource = "cache"
@@ -89,9 +86,7 @@ func (s *Service) serveUpstreamBlob(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	defer cached.Body.Close()
-	if err := s.activateBlobIntent(request.Context(), intent, cached); err != nil {
-		s.logBlobIntentDeferred("blob solidification intent could not be activated", err)
-	}
+	s.scheduleCachedBlobIntent(intent.Identity)
 	meta.cacheSource = "upstream"
 	s.serveCached(writer, request, routed, cached, true)
 }

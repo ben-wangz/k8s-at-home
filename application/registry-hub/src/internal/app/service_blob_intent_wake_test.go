@@ -28,6 +28,7 @@ func TestBlobEventPersistsWakeForRunningRoot(t *testing.T) {
 	linkRootBlobDemand(t, ctx, records, intent.ID, root.ID, strings.Repeat("5", 32), "scope-running", strings.Repeat("d", 32))
 
 	service.wakeBlobDemandRoots(ctx, intent.ID)
+	drainBackgroundWork(t, service, "notify", "wake_root")
 	if _, err := service.store.Head(ctx, "tasks/wake/"+root.ID+".json"); err != nil {
 		t.Fatalf("running root wake request: %v", err)
 	}
@@ -49,6 +50,7 @@ func TestSharedBlobWakeNotifiesEveryWaitingRootIdempotently(t *testing.T) {
 
 	service.wakeBlobDemandRoots(ctx, intent.ID)
 	service.wakeBlobDemandRoots(ctx, intent.ID)
+	drainBackgroundWork(t, service, "notify", "wake_root")
 	for _, root := range []tasks.Task{rootA, rootB} {
 		current, err := manager.Get(ctx, root.ID)
 		if err != nil || current.Status != tasks.Pending || current.WaitReason != "" {
@@ -166,7 +168,7 @@ func TestBlobIntentReconciliationClearsOnlyReleasedTerminalProtection(t *testing
 	if _, err := records.SetBlobIntentState(ctx, intent.ID, tasks.IntentAnchored, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	service := &Service{records: records, gate: gate}
+	service := &Service{store: store, records: records, gate: gate}
 	if err := service.reconcileBlobIntentTasks(ctx); err != nil {
 		t.Fatal(err)
 	}

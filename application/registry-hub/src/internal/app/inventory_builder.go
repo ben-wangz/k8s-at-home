@@ -5,6 +5,8 @@ import (
 	"errors"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
+	"registry-hub/internal/workqueue"
+	"time"
 )
 
 func (s *Service) buildInventoryPage(ctx context.Context, state *inventoryCheckpoint) error {
@@ -130,6 +132,17 @@ func (s *Service) startInventoryImage(ctx context.Context, state *inventoryCheck
 }
 
 func (s *Service) publishInventory(ctx context.Context, state *inventoryCheckpoint, writer *inventory.Writer) error {
+	if state.Build.ProjectionObservedAt.IsZero() {
+		for _, kind := range []string{"inventory", "execution"} {
+			entries, _, err := storage.Scan(ctx, s.store, workqueue.Prefix+"jobs/"+kind+"/", "", 1)
+			if err != nil {
+				return err
+			}
+			state.Build.ProjectionPending = state.Build.ProjectionPending || len(entries) > 0
+		}
+		state.Build.ProjectionObservedAt = time.Now().UTC()
+		return nil
+	}
 	gate, err := s.inventoryEpoch(ctx)
 	if err != nil {
 		return err
@@ -137,7 +150,11 @@ func (s *Service) publishInventory(ctx context.Context, state *inventoryCheckpoi
 	if writer.Snapshot.GCEpoch != gate.Epoch {
 		return storage.ErrConditionFailed
 	}
-	if err := writer.Publish(ctx, state.Scan.Complete, state.Scan.Reasons); err != nil {
+	reasons := state.Scan.Reasons
+	if writer.Snapshot.ProjectionPending {
+		reasons = appendReason(reasons, "background_projection_pending")
+	}
+	if err := writer.Publish(ctx, state.Scan.Complete && !writer.Snapshot.ProjectionPending, reasons); err != nil {
 		return err
 	}
 	state.Build = nil

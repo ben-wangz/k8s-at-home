@@ -16,6 +16,8 @@ type inventoryProof struct {
 	ObservedAt    time.Time `json:"observedAt"`
 }
 
+type inventoryObservationKey struct{}
+
 type inventoryWork struct {
 	Identity          inventory.Identity `json:"identity"`
 	Digest            string             `json:"digest"`
@@ -67,6 +69,9 @@ func (s *Service) inventoryContent(ctx context.Context, identity inventory.Ident
 	}
 	content := inventory.Content{Identity: inventoryIdentity(identity.Authority, identity.Repository, ""), ObjectRef: inventory.ObjectRef{Role: "manifest", Digest: digest, MediaType: mediaType, Size: int64(len(data)), ArtifactType: parsed.ArtifactType}, Generation: generation.Generation, Children: []inventory.ObjectRef{}, ClosureKnown: true, UpdatedAt: time.Now().UTC()}
 	content.Source = "manifest"
+	if observed, ok := ctx.Value(inventoryObservationKey{}).(time.Time); ok {
+		content.UpdatedAt = observed
+	}
 	if parsed.ArtifactType == "" {
 		content.Platform = s.inventoryConfigPlatform(ctx, identity, parsed.Config)
 	}

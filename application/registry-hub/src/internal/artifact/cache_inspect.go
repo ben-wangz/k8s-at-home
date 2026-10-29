@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"registry-hub/internal/storage"
+	"time"
 )
 
 type Inspection struct {
@@ -14,6 +15,7 @@ type Inspection struct {
 	Unknown          bool
 	Reason           string
 	InventoryTracked bool
+	VerifiedAt       time.Time
 }
 
 func inspectJSON[T any](ctx context.Context, store storage.Store, key string) (T, error) {
@@ -53,6 +55,7 @@ func (c *Cache) Inspect(ctx context.Context, authority, repository, digest, medi
 	}
 	result.Size, result.DataVersion, result.State = metadata.Size, metadata.DataVersion, metadata.State
 	result.InventoryTracked = metadata.InventoryTracked
+	result.VerifiedAt = metadata.VerifiedAt
 	marker, err := inspectJSON[cacheComplete](ctx, c.store, cacheCompleteKey(identity, mediaType))
 	if errors.Is(err, storage.ErrNotFound) {
 		result.Reason = "cache_marker_missing"
