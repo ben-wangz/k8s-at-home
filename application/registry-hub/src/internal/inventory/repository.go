@@ -11,10 +11,11 @@ import (
 )
 
 var (
-	ErrInvalid    = errors.New("invalid inventory query")
-	ErrExpired    = errors.New("inventory snapshot or token expired")
-	ErrSuperseded = errors.New("inventory builder was superseded")
-	ErrIncomplete = errors.New("inventory snapshot members are incomplete")
+	ErrInvalid        = errors.New("invalid inventory query")
+	ErrExpired        = errors.New("inventory snapshot or token expired")
+	ErrCurrentExpired = errors.New("latest inventory snapshot expired")
+	ErrSuperseded     = errors.New("inventory builder was superseded")
+	ErrIncomplete     = errors.New("inventory snapshot members are incomplete")
 )
 
 type Repository struct{ Store storage.Store }

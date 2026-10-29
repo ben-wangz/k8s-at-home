@@ -25,6 +25,7 @@ type inventoryCheckpoint struct {
 	Batch             inventoryBatchProgress  `json:"batch"`
 	NextScanAt        time.Time               `json:"nextScanAt"`
 	NextMaintenanceAt time.Time               `json:"nextMaintenanceAt"`
+	MaintenancePhase  int                     `json:"maintenancePhase,omitempty"`
 }
 
 func (s *Service) inventoryConfig() config.Inventory {
@@ -83,28 +84,13 @@ func (s *Service) runInventoryLeader(ctx context.Context, leader lease.Lease) er
 	if err := s.claimInventory(ctx, leader, &checkpoint); err != nil {
 		return err
 	}
-	current, _, currentErr := inventory.Read[inventory.Snapshot](ctx, s.store, inventory.Prefix+"current.json")
-	if errors.Is(currentErr, storage.ErrNotFound) || currentErr == nil && !current.ExpiresAt.After(time.Now()) {
-		started := time.Now().UTC()
-		if checkpoint.Build != nil {
-			started = checkpoint.Build.BuildStartedAt.Add(-time.Nanosecond)
-		}
-		writer := s.inventory.NewWriter(started, s.inventoryConfig().SnapshotRetention, leader.FencingToken)
-		for done := false; !done; {
-			var err error
-			done, err = writer.Assemble(ctx, s.inventoryConfig().BatchSize)
-			if err != nil {
-				return err
-			}
-		}
-		if err := writer.Publish(ctx, false, []string{"index_backfilling", "untagged_history_not_enumerable"}); err != nil {
+	availability := inventoryAvailability{}
+	for ctx.Err() == nil {
+		if err := s.checkInventoryAvailability(ctx, leader, &checkpoint, &availability); err != nil {
 			return err
 		}
-	} else if currentErr != nil {
-		return currentErr
-	}
-	for ctx.Err() == nil {
 		if s.inventoryIdle(&checkpoint) {
+			s.maintainInventory(ctx, &checkpoint)
 			select {
 			case <-ctx.Done():
 				return ctx.Err()

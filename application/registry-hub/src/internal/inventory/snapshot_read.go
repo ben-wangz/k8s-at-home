@@ -30,6 +30,9 @@ func (r *Repository) Snapshot(ctx context.Context, id string, stale time.Duratio
 		return value, storage.ErrCorruptObject
 	}
 	if !value.ExpiresAt.After(time.Now()) {
+		if id == "" {
+			return value, ErrCurrentExpired
+		}
 		return value, ErrExpired
 	}
 	value.Freshness = Freshness{State: "fresh", AgeSeconds: max(0, int64(time.Since(value.ObservedAt).Seconds()))}

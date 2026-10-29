@@ -146,6 +146,9 @@ func writeInventoryError(writer http.ResponseWriter, err error) {
 		writeAdminError(writer, http.StatusBadRequest, "UNSUPPORTED", "inventory query or page token is invalid")
 	case errors.Is(err, inventory.ErrExpired):
 		writeAdminError(writer, http.StatusGone, "EXPIRED", "inventory snapshot or page token expired; restart pagination")
+	case errors.Is(err, inventory.ErrCurrentExpired):
+		writer.Header().Set("Retry-After", "5")
+		writeAdminError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "latest inventory snapshot expired; wait for background publication and inspect /api/v1/images/status")
 	case errors.Is(err, storage.ErrNotFound):
 		writeAdminError(writer, http.StatusNotFound, "NAME_UNKNOWN", "inventory image does not exist")
 	default:

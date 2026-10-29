@@ -86,25 +86,37 @@ func (s *Service) maintainInventory(ctx context.Context, state *inventoryCheckpo
 		return
 	}
 	state.NextMaintenanceAt = time.Now().Add(30 * time.Second)
-	ctx, cancel := context.WithTimeout(ctx, min(5*time.Second, s.inventoryConfig().BatchTimeout/4))
+	budget := min(5*time.Second, s.inventoryConfig().BatchTimeout/4)
+	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	var err error
+	reserve := budget / 4
 	snapshotsDone, workDone := false, false
 	for step := 0; step < s.inventoryConfig().BatchSize; step++ {
-		if !snapshotsDone {
-			snapshotsDone, err = s.cleanupInventorySnapshots(ctx, "")
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < reserve {
+			if s.metrics != nil {
+				s.metrics.recordEvent("inventory_maintenance_budget_yield")
+			}
+			break
 		}
-		if err == nil && !workDone {
+		started := time.Now()
+		if state.MaintenancePhase == 0 && !snapshotsDone {
+			snapshotsDone, err = s.cleanupInventorySnapshots(ctx, "")
+		} else if !workDone {
 			workDone, err = s.cleanupInventoryWork(ctx)
 		}
+		state.MaintenancePhase = (state.MaintenancePhase + 1) % 2
+		reserve = max(reserve, 2*time.Since(started))
 		if err != nil || snapshotsDone && workDone {
 			break
 		}
-		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < 100*time.Millisecond {
-			break
-		}
 	}
-	if err != nil && !errors.Is(err, storage.ErrConditionFailed) && s.logger != nil {
-		s.logger.Warn("inventory maintenance deferred", "error", err)
+	if err != nil && !errors.Is(err, storage.ErrConditionFailed) {
+		if s.metrics != nil {
+			s.metrics.recordEvent("inventory_maintenance_failed")
+		}
+		if s.logger != nil {
+			s.logger.Warn("inventory maintenance deferred", "error", err)
+		}
 	}
 }
