@@ -13,6 +13,10 @@ func (s *Service) buildInventoryContent(ctx context.Context, writer *inventory.W
 	if err != nil {
 		return err
 	}
+	return s.buildInventoryPlatform(ctx, writer, content)
+}
+
+func (s *Service) buildInventoryPlatform(ctx context.Context, writer *inventory.Writer, content inventory.Content) error {
 	identity := content.Identity
 	identity.Reference = content.Digest
 	image := inventory.Image{ID: inventory.ID("platform", identity.Authority, identity.Repository, content.Digest), ContentID: identity.ContentID(content.Digest), Scope: "platform", Identity: identity, ResolvedDigest: content.Digest, ContentGeneration: content.Generation}
@@ -35,7 +39,14 @@ func (s *Service) buildInventoryReference(ctx context.Context, writer *inventory
 }
 
 func (s *Service) buildInventoryImage(ctx context.Context, writer *inventory.Writer, image inventory.Image, content inventory.Content) error {
+	ready, err := writer.HasImage(ctx, image.ID)
+	if err != nil || ready {
+		return err
+	}
 	image.MediaType, image.ArtifactType, image.Platform = content.MediaType, content.ArtifactType, content.Platform
+	if content.PlatformUnknown {
+		image.Platform = nil
+	}
 	image.Subject = content.Subject
 	image.Kind = "manifest"
 	if content.ArtifactType != "" {
@@ -98,6 +109,16 @@ func (s *Service) buildInventoryImage(ctx context.Context, writer *inventory.Wri
 		return err
 	}
 	image.Category = inventory.Classify(image, anchored)
+	if image.Scope == "reference" && image.ResolvedDigest != "" {
+		if err := writer.RequirePlatform(ctx, image.Identity, content.ObjectRef); err != nil {
+			return err
+		}
+	}
+	for _, ref := range closure.required {
+		if err := writer.RequirePlatform(ctx, image.Identity, ref); err != nil {
+			return err
+		}
+	}
 	return writer.AddImage(ctx, image, objects, closure.platforms)
 }
 

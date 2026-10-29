@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"registry-hub/internal/storage"
 	"time"
 )
@@ -59,6 +60,8 @@ type Writer struct {
 }
 
 func (r *Repository) ResumeWriter(snapshot Snapshot) *Writer {
+	snapshot.Pages = maps.Clone(snapshot.Pages)
+	snapshot.Counts = maps.Clone(snapshot.Counts)
 	return &Writer{r: r, Snapshot: snapshot, images: map[string][]Image{}}
 }
 
@@ -105,6 +108,17 @@ func (r *Repository) Immutable(ctx context.Context, key string, value any) error
 }
 
 func (w *Writer) AddImage(ctx context.Context, image Image, objects []Object, platforms []string) error {
+	ready, err := w.HasImage(ctx, image.ID)
+	if err != nil || ready {
+		return err
+	}
+	if err := w.captureOpen(ctx); err != nil {
+		return err
+	}
+	member := snapshotMember{ID: image.ID, Scope: image.Scope}
+	if err := w.r.Immutable(ctx, w.key("captures/"+image.ID+".json"), member); err != nil {
+		return err
+	}
 	if err := w.r.Immutable(ctx, w.key("entries/"+image.ID+".json"), image); err != nil {
 		return err
 	}
@@ -122,15 +136,7 @@ func (w *Writer) AddImage(ctx context.Context, image Image, objects []Object, pl
 	if err := w.r.Immutable(ctx, w.key("platforms/"+image.ID+"/count.json"), (len(platforms)+PageSize-1)/PageSize); err != nil {
 		return err
 	}
-	w.images[image.Scope] = append(w.images[image.Scope], image)
-	w.Snapshot.Counts[image.Scope+":"+image.Category]++
-	if image.Scope == "platform" {
-		w.Snapshot.UniqueManifests++
-	}
-	if len(w.images[image.Scope]) == PageSize {
-		return w.flushImages(ctx, image.Scope)
-	}
-	return nil
+	return w.r.Immutable(ctx, w.key("members/"+image.ID+".json"), member)
 }
 
 func (w *Writer) writeObjects(ctx context.Context, prefix string, objects []Object) error {
@@ -143,11 +149,17 @@ func (w *Writer) writeObjects(ctx context.Context, prefix string, objects []Obje
 }
 
 func (w *Writer) AddCacheObject(ctx context.Context, object Object) error {
-	w.objects = append(w.objects, object)
-	if len(w.objects) == PageSize {
-		return w.flushObjects(ctx)
+	_, _, err := Read[Object](ctx, w.r.Store, w.key("cache-entries/"+object.ID+".json"))
+	if err == nil {
+		return nil
 	}
-	return nil
+	if !errors.Is(err, storage.ErrNotFound) {
+		return err
+	}
+	if err := w.captureOpen(ctx); err != nil {
+		return err
+	}
+	return w.r.Immutable(ctx, w.key("cache-entries/"+object.ID+".json"), object)
 }
 
 func (w *Writer) flushObjects(ctx context.Context) error {
@@ -175,12 +187,7 @@ func (w *Writer) flushImages(ctx context.Context, scope string) error {
 }
 
 func (w *Writer) Publish(ctx context.Context, complete bool, reasons []string) error {
-	for _, scope := range []string{"reference", "platform"} {
-		if err := w.flushImages(ctx, scope); err != nil {
-			return err
-		}
-	}
-	if err := w.flushObjects(ctx); err != nil {
+	if err := w.assembled(ctx); err != nil {
 		return err
 	}
 	w.Snapshot.Coverage = "partial"

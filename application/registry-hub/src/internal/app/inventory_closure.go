@@ -10,6 +10,7 @@ import (
 type inventoryClosure struct {
 	objects   []inventory.ObjectRef
 	platforms []string
+	required  map[string]inventory.ObjectRef
 	seen      map[string]inventory.ObjectRef
 	active    map[string]bool
 	complete  bool
@@ -18,7 +19,7 @@ type inventoryClosure struct {
 }
 
 func (s *Service) inventoryClosure(ctx context.Context, identity inventory.Identity, digest string) (inventoryClosure, error) {
-	closure := inventoryClosure{complete: true, seen: map[string]inventory.ObjectRef{}, active: map[string]bool{}, reasons: []string{}, platforms: []string{}}
+	closure := inventoryClosure{complete: true, seen: map[string]inventory.ObjectRef{}, required: map[string]inventory.ObjectRef{}, active: map[string]bool{}, reasons: []string{}, platforms: []string{}}
 	err := s.visitInventoryManifest(ctx, identity, digest, 0, &closure)
 	return closure, err
 }
@@ -68,7 +69,10 @@ func (s *Service) visitInventoryManifest(ctx context.Context, identity inventory
 			if _, seen := closure.seen["manifest:"+child.Digest]; seen {
 				continue
 			}
-			closure.platforms = append(closure.platforms, inventory.ID("platform", identity.Authority, identity.Repository, child.Digest))
+			if _, exists := closure.required[child.Digest]; !exists {
+				closure.required[child.Digest] = child
+				closure.platforms = append(closure.platforms, inventory.ID("platform", identity.Authority, identity.Repository, child.Digest))
+			}
 			if err := s.visitInventoryManifest(ctx, identity, child.Digest, depth+1, closure); err != nil {
 				return err
 			}

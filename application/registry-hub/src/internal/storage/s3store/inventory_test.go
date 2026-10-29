@@ -33,6 +33,10 @@ func (f *inventoryS3Fixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `<Error><Code>SlowDown</Code></Error>`)
 		return
 	}
+	if r.Method == http.MethodGet && r.URL.Query().Get("list-type") == "2" {
+		f.list(w, r, etag)
+		return
+	}
 	if r.Method == http.MethodPut {
 		if r.Header.Get("If-None-Match") == "*" && exists || r.Header.Get("If-Match") != "" && (!exists || r.Header.Get("If-Match") != etag(data)) {
 			w.Header().Set("Content-Type", "application/xml")
@@ -47,6 +51,11 @@ func (f *inventoryS3Fixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.objects[r.URL.Path] = body
 		w.Header().Set("ETag", etag(body))
+		return
+	}
+	if r.Method == http.MethodDelete {
+		delete(f.objects, r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if !exists {
@@ -102,6 +111,13 @@ func TestInventoryLifecycleAndSnapshotsThroughS3ConditionalAdapter(t *testing.T)
 	for n := 0; n < 3; n++ {
 		image := inventory.Image{ID: inventory.ID("image", fmt.Sprint(n)), Scope: "reference", Category: "unknown"}
 		if err := writer.AddImage(ctx, image, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for done := false; !done; {
+		var err error
+		done, err = writer.Assemble(ctx, 2)
+		if err != nil {
 			t.Fatal(err)
 		}
 	}

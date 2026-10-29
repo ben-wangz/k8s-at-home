@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -130,7 +131,7 @@ func parseInventoryQuery(request *http.Request) (inventory.Query, error) {
 }
 
 func validInventoryEnums(category, cache, execution string) bool {
-	member := func(value, set string) bool { return value == "" || strings.Contains("|"+set+"|", "|"+value+"|") }
+	member := func(value, set string) bool { return value == "" || slices.Contains(strings.Split(set, "|"), value) }
 	return member(category, "solidified|cached_not_started|solidifying|failed|cancelled|cached_start_unknown|waiting_cache|not_scheduled|unknown") && member(cache, "complete|partial|none|unknown") && member(execution, "not_scheduled|idle|queued|running|retry_wait|waiting")
 }
 

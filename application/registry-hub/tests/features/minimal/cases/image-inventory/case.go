@@ -68,6 +68,15 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if id == "" || snapshot == "" || testkit.String(testkit.Map(image["availability"])["state"]) != "complete" {
 		return fmt.Errorf("incomplete inventory identity or availability")
 	}
+	platformQuery := url.Values{"scope": {"platform"}, "authority": {authority}, "repository": {remote}, "digest": {testkit.String(image["resolvedDigest"])}, "snapshotID": {snapshot}}
+	platforms, err := read(ctx, environment, "/api/v1/images?"+platformQuery.Encode())
+	if err != nil {
+		return err
+	}
+	platformItems, _ := platforms["items"].([]any)
+	if len(platformItems) != 1 {
+		return fmt.Errorf("resolved root has %d platform members, expected one", len(platformItems))
+	}
 	for _, path := range []string{"/api/v1/images/" + id, "/api/v1/images/" + id + "/platforms", "/api/v1/images/summary", "/api/v1/cache/objects"} {
 		result, err := read(ctx, environment, path+"?snapshotID="+snapshot)
 		if err != nil {
@@ -100,7 +109,11 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if count != 3 {
 		return fmt.Errorf("closure has %d objects, expected manifest/config/layer", count)
 	}
-	for _, path := range []string{"/api/v1/images?category=invalid", "/api/v1/images?limit=1001", "/api/v1/cache/objects?cleanupPending=invalid"} {
+	for _, path := range []string{
+		"/api/v1/images?category=invalid", "/api/v1/images?limit=1001", "/api/v1/cache/objects?cleanupPending=invalid",
+		"/api/v1/images?category=solidified%7Ccached_not_started", "/api/v1/images?executionState=queued%7Crunning",
+		"/api/v1/cache/objects?cacheState=complete%7Cpartial",
+	} {
 		response, err := support.AdminRequest(ctx, environment, http.MethodGet, path, nil, nil)
 		if err != nil {
 			return err

@@ -84,6 +84,13 @@ func (s *Service) runInventoryLeader(ctx context.Context, leader lease.Lease) er
 	current, _, currentErr := inventory.Read[inventory.Snapshot](ctx, s.store, inventory.Prefix+"current.json")
 	if errors.Is(currentErr, storage.ErrNotFound) || currentErr == nil && !current.ExpiresAt.After(time.Now()) {
 		writer := s.inventory.NewWriter(time.Now().UTC(), s.inventoryConfig().SnapshotRetention, leader.FencingToken)
+		for done := false; !done; {
+			var err error
+			done, err = writer.Assemble(ctx, s.inventoryConfig().BatchSize)
+			if err != nil {
+				return err
+			}
+		}
 		if err := writer.Publish(ctx, false, []string{"index_backfilling", "untagged_history_not_enumerable"}); err != nil {
 			return err
 		}
@@ -169,58 +176,4 @@ func (s *Service) advanceInventory(ctx context.Context, leader lease.Lease, stat
 		*old = *state
 		return nil
 	})
-}
-
-func (s *Service) buildInventoryPage(ctx context.Context, state *inventoryCheckpoint) error {
-	writer := s.inventory.ResumeWriter(*state.Build)
-	prefixes := []string{"contents/", "bindings/", "cache/"}
-	if state.BuildPhase >= len(prefixes) {
-		gate, err := s.inventoryEpoch(ctx)
-		if err != nil {
-			return err
-		}
-		if writer.Snapshot.GCEpoch != gate.Epoch {
-			return storage.ErrConditionFailed
-		}
-		if err := writer.Publish(ctx, state.Scan.Complete, state.Scan.Reasons); err != nil {
-			return err
-		}
-		state.Build = nil
-		state.Scan.Reasons = nil
-		if s.metrics != nil {
-			s.metrics.recordEvent("inventory_snapshot_published")
-			s.metrics.inventoryPublished(writer.Snapshot)
-		}
-		return s.cleanupInventorySnapshots(ctx, writer.Snapshot.SnapshotID)
-	}
-	entries, next, err := storage.Scan(ctx, s.store, inventory.Prefix+prefixes[state.BuildPhase], state.BuildToken, s.inventoryConfig().BatchSize)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		switch state.BuildPhase {
-		case 0:
-			err = s.buildInventoryContent(ctx, writer, entry.Key)
-		case 1:
-			err = s.buildInventoryReference(ctx, writer, entry.Key)
-		case 2:
-			err = s.buildInventoryCacheObject(ctx, writer, entry.Key)
-		}
-		if errors.Is(err, storage.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-	}
-	if err := writer.Flush(ctx); err != nil {
-		return err
-	}
-	state.Build = &writer.Snapshot
-	state.BuildToken = next
-	if next == "" {
-		state.BuildPhase++
-		state.BuildToken = ""
-	}
-	return nil
 }

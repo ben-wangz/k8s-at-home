@@ -26,6 +26,7 @@ func TestSnapshotSparsePagingAndIsolation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	assembleTestSnapshot(t, writer)
 	if err := writer.Publish(ctx, true, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +58,7 @@ func TestSnapshotSparsePagingAndIsolation(t *testing.T) {
 	}
 	q.Token = page.NextToken
 	newer := repo.NewWriter(time.Now().UTC(), time.Hour, 2)
+	assembleTestSnapshot(t, newer)
 	if err := newer.Publish(ctx, true, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +122,7 @@ func TestSlowBuildRetainsSnapshotAfterPublication(t *testing.T) {
 	ctx := context.Background()
 	repo := testRepository(t)
 	writer := repo.NewWriter(time.Now().Add(-2*time.Hour).UTC(), time.Hour, 1)
+	assembleTestSnapshot(t, writer)
 	if err := writer.Publish(ctx, true, nil); err != nil {
 		t.Fatal(err)
 	}
