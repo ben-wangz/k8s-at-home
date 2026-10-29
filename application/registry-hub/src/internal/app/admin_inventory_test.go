@@ -54,7 +54,7 @@ func TestInventoryAdminReadsAreAuthenticatedAndHaveNoBusinessSideEffects(t *test
 	requests := f.requests
 	f.mu.Unlock()
 	handler := f.service.AdminHandler()
-	paths := []string{"/api/v1/images", "/api/v1/images/summary", "/api/v1/images/" + id, "/api/v1/images/" + id + "/objects", "/api/v1/images/" + id + "/platforms", "/api/v1/cache/objects?associated=false"}
+	paths := []string{"/api/v1/images", "/api/v1/images/summary", "/api/v1/images/status", "/api/v1/images/" + id, "/api/v1/images/" + id + "/objects", "/api/v1/images/" + id + "/platforms", "/api/v1/cache/objects?associated=false"}
 	for _, path := range paths {
 		for _, tc := range []struct {
 			user   string

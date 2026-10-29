@@ -14,6 +14,8 @@ type inventoryMetrics struct {
 	observed      prometheus.Gauge
 	coverage      prometheus.Gauge
 	batch         prometheus.Histogram
+	progress      prometheus.Gauge
+	steps         prometheus.Gauge
 }
 
 func (m *metrics) initInventoryMetrics() {
@@ -23,9 +25,11 @@ func (m *metrics) initInventoryMetrics() {
 		observed:      prometheus.NewGauge(prometheus.GaugeOpts{Name: "registry_hub_inventory_observed_timestamp_seconds", Help: "Unix time of the oldest observation boundary in the published inventory snapshot."}),
 		coverage:      prometheus.NewGauge(prometheus.GaugeOpts{Name: "registry_hub_inventory_coverage_complete", Help: "Whether all declared discoverable inventory sources completed their scan."}),
 		batch:         prometheus.NewHistogram(prometheus.HistogramOpts{Name: "registry_hub_inventory_batch_duration_seconds", Help: "Inventory background batch duration including storage and local registry checks.", Buckets: prometheus.DefBuckets}),
+		progress:      prometheus.NewGauge(prometheus.GaugeOpts{Name: "registry_hub_inventory_last_progress_timestamp_seconds", Help: "Unix time of the last committed inventory step."}),
+		steps:         prometheus.NewGauge(prometheus.GaugeOpts{Name: "registry_hub_inventory_checkpoint_steps", Help: "Number of committed inventory work steps."}),
 	}
 	i := m.inventory
-	m.registry.MustRegister(i.images, i.lastPublished, i.observed, i.coverage, i.batch)
+	m.registry.MustRegister(i.images, i.lastPublished, i.observed, i.coverage, i.batch, i.progress, i.steps)
 }
 
 func (m *metrics) inventoryPublished(snapshot inventory.Snapshot) {

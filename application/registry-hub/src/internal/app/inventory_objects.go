@@ -89,6 +89,10 @@ func (s *Service) inspectInventoryObject(ctx context.Context, identity inventory
 		return object, true, nil
 	}
 	if !validObservation && !validProof {
+		if pending, ok := ctx.Value(inventoryAuditCapture{}).(**inventoryAuditProgress); ok {
+			*pending = &inventoryAuditProgress{Object: object, Path: path, Epoch: epoch}
+			return object, true, nil
+		}
 		if err := s.auditInventoryObject(ctx, object, path, epoch); err != nil {
 			object.Reasons = append(object.Reasons, "local_evidence_stale")
 			return object, true, nil

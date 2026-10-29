@@ -28,6 +28,8 @@ func (s *Service) serveInventory(writer http.ResponseWriter, request *http.Reque
 	stale := s.inventoryConfig().StaleAfter
 	var result any
 	switch q.Kind {
+	case "status":
+		result, err = s.inventoryStatus(ctx)
 	case "images", "platforms":
 		result, err = s.inventory.Images(ctx, q, s.cursorKey, stale)
 	case "objects", "cache":
@@ -80,9 +82,12 @@ func parseInventoryQuery(request *http.Request) (inventory.Query, error) {
 		parts := strings.Split(strings.TrimPrefix(path, "/api/v1/images/"), "/")
 		q.ImageID = parts[0]
 		q.Kind = "detail"
-		if q.ImageID == "summary" && len(parts) == 1 {
-			q.Kind = "summary"
+		if (q.ImageID == "summary" || q.ImageID == "status") && len(parts) == 1 {
+			q.Kind = q.ImageID
 			allowed = []string{"snapshotID"}
+			if q.Kind == "status" {
+				allowed = nil
+			}
 		} else {
 			if !inventory.ValidID(q.ImageID) || len(parts) > 2 {
 				return q, inventory.ErrInvalid

@@ -24,7 +24,7 @@ func TestInventorySnapshotDependenciesThroughS3Adapter(t *testing.T) {
 	if err := writer.RequirePlatform(ctx, identity, ref); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := writer.Assemble(ctx, 1); !errors.Is(err, inventory.ErrIncomplete) {
+	if _, err := writer.AssembleStep(ctx, 1); !errors.Is(err, inventory.ErrIncomplete) {
 		t.Fatalf("pending dependency accepted: %v", err)
 	}
 	requests, keys, _, err := writer.PendingPlatforms(ctx, "", 1)
@@ -50,8 +50,8 @@ func TestInventorySnapshotDependenciesThroughS3Adapter(t *testing.T) {
 	}
 	repo.Store = &inventoryUnknownCommitStore{Store: store}
 	for n := 0; ; n++ {
-		done, err := writer.Assemble(ctx, 1)
-		if err != nil || n > 10 {
+		done, err := writer.AssembleStep(ctx, 1)
+		if err != nil || n > 100 {
 			t.Fatalf("assembly: done=%v err=%v", done, err)
 		}
 		if done {

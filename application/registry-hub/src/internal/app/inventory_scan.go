@@ -11,97 +11,65 @@ import (
 )
 
 type inventoryScan struct {
-	Phase             int       `json:"phase"`
-	Token             string    `json:"token"`
-	Complete          bool      `json:"complete"`
-	LastCompleteAt    time.Time `json:"lastCompleteAt"`
-	Reasons           []string  `json:"reasons"`
-	CatalogRepository string    `json:"catalogRepository"`
-	CatalogLast       string    `json:"catalogLast"`
-	Repositories      []string  `json:"repositories"`
+	Phase             int                       `json:"phase"`
+	Token             string                    `json:"token"`
+	Complete          bool                      `json:"complete"`
+	LastCompleteAt    time.Time                 `json:"lastCompleteAt"`
+	Reasons           []string                  `json:"reasons"`
+	CatalogRepository string                    `json:"catalogRepository"`
+	CatalogLast       string                    `json:"catalogLast"`
+	CatalogTags       []string                  `json:"catalogTags,omitempty"`
+	CatalogNext       string                    `json:"catalogNext,omitempty"`
+	CatalogDone       bool                      `json:"catalogDone,omitempty"`
+	Repositories      []string                  `json:"repositories"`
+	Page              *inventory.Cursor         `json:"page,omitempty"`
+	Root              *inventoryGraphProjection `json:"root,omitempty"`
+	Links             []inventory.Content       `json:"links,omitempty"`
+	LinkOffset        int                       `json:"linkOffset,omitempty"`
 }
 
 func (s *Service) scanInventoryPage(ctx context.Context, state *inventoryScan) error {
+	if len(state.Links) > 0 {
+		return s.advanceInventoryLinks(ctx, state)
+	}
 	if state.Phase == 0 && state.Token == "" {
 		state.Complete = false
 		state.Reasons = appendReason(state.Reasons, "untagged_history_not_enumerable")
 	}
 	switch state.Phase {
 	case 0:
-		entries, next, err := storage.Scan(ctx, s.store, "tasks/state/", state.Token, s.inventoryConfig().BatchSize)
-		if err != nil {
-			return err
-		}
-		for _, entry := range entries {
-			task, err := s.tasks.Get(ctx, strings.TrimSuffix(strings.TrimPrefix(entry.Key, "tasks/state/"), ".json"))
-			if errors.Is(err, storage.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return err
-			}
-			if err := s.preserveInventoryTask(ctx, task); err != nil {
-				return err
-			}
-		}
-		state.Token = next
-		if next == "" {
-			state.Phase++
-		}
+		return s.scanInventoryTasks(ctx, state)
 	case 1:
-		entries, next, err := storage.Scan(ctx, s.store, "cache/objects/", state.Token, s.inventoryConfig().BatchSize)
-		if err != nil {
+		return s.scanInventoryEntry(ctx, state, "cache/objects/", func(ctx context.Context, key string) error {
+			if !strings.Contains(key, "/representations/") || !strings.HasSuffix(key, ".json") {
+				return nil
+			}
+			err := s.scanInventoryCacheEntry(ctx, key)
+			if errors.Is(err, storage.ErrCorruptObject) {
+				state.Reasons = appendReason(state.Reasons, "cache_metadata_invalid")
+				return nil
+			}
 			return err
-		}
-		for _, entry := range entries {
-			if !strings.Contains(entry.Key, "/representations/") || !strings.HasSuffix(entry.Key, ".json") {
-				continue
-			}
-			if err := s.scanInventoryCacheEntry(ctx, entry.Key); err != nil {
-				if errors.Is(err, storage.ErrCorruptObject) {
-					state.Reasons = appendReason(state.Reasons, "cache_metadata_invalid")
-					continue
-				}
-				return err
-			}
-		}
-		state.Token = next
-		if next == "" {
-			state.Phase++
-		}
+		})
 	case 2:
 		return s.scanInventoryCatalog(ctx, state)
 	case 3:
 		return s.scanInventoryObservations(ctx, state)
 	case 4:
-		entries, next, err := storage.Scan(ctx, s.store, inventory.Prefix+"contents/", state.Token, s.inventoryConfig().BatchSize)
-		if err != nil {
-			return err
-		}
-		for _, entry := range entries {
-			content, _, err := inventory.Read[inventory.Content](ctx, s.store, entry.Key)
+		return s.scanInventoryEntry(ctx, state, inventory.Prefix+"contents/", func(ctx context.Context, key string) error {
+			content, _, err := inventory.Read[inventory.Content](ctx, s.store, key)
 			if err != nil {
 				return err
 			}
-			if content.ClosureKnown {
-				continue
+			if !content.ClosureKnown {
+				return s.inventoryDiscoverLocalContent(ctx, content)
 			}
-			if err := s.inventoryDiscoverLocalContent(ctx, content); err != nil {
-				if errors.Is(err, storage.ErrNotFound) {
-					continue
-				}
-				return err
-			}
-		}
-		state.Token = next
-		if next == "" {
-			state.Phase++
-		}
+			return nil
+		})
 	default:
 		state.Complete = true
 		state.LastCompleteAt = time.Now().UTC()
-		state.Phase = 0
-		state.Token = ""
+		state.Phase, state.Token, state.Page = 0, "", nil
 	}
 	return nil
 }

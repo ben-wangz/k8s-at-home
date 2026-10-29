@@ -32,30 +32,31 @@ type inventoryWorkRetention struct {
 	Token string `json:"token"`
 }
 
-func (s *Service) cleanupInventoryWork(ctx context.Context) error {
+func (s *Service) cleanupInventoryWork(ctx context.Context) (bool, error) {
 	state, _, err := inventory.Read[inventoryWorkRetention](ctx, s.store, inventory.Prefix+"work-retention.json")
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {
-		return err
+		return false, err
 	}
 	prefixes := []string{"work/", "content-work/"}
 	if state.Phase >= len(prefixes) {
 		state.Phase = 0
 		state.Token = ""
 	}
-	entries, next, err := storage.Scan(ctx, s.store, inventory.Prefix+prefixes[state.Phase], state.Token, s.inventoryConfig().BatchSize)
+	entries, next, err := storage.Scan(ctx, s.store, inventory.Prefix+prefixes[state.Phase], state.Token, 1)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for _, entry := range entries {
 		if err := s.pruneInventoryWork(ctx, entry.Key); err != nil {
-			return err
+			return false, err
 		}
 	}
 	state.Token = next
 	if next == "" {
 		state.Phase = (state.Phase + 1) % len(prefixes)
 	}
-	return inventory.Update(ctx, s.store, inventory.Prefix+"work-retention.json", func(value *inventoryWorkRetention) error { *value = state; return nil })
+	err = inventory.Update(ctx, s.store, inventory.Prefix+"work-retention.json", func(value *inventoryWorkRetention) error { *value = state; return nil })
+	return state.Phase == 0 && next == "", err
 }
 
 func (s *Service) pruneInventoryWork(ctx context.Context, key string) error {

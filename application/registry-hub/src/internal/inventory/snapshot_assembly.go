@@ -10,12 +10,16 @@ import (
 )
 
 type assemblyState struct {
-	Revision        uint64           `json:"revision"`
-	Phase           int              `json:"phase"`
-	Token           string           `json:"token"`
-	Pages           map[string]int   `json:"pages"`
-	Counts          map[string]int64 `json:"counts"`
-	UniqueManifests int64            `json:"uniqueManifests"`
+	Revision        uint64             `json:"revision"`
+	Phase           int                `json:"phase"`
+	Token           string             `json:"token"`
+	Pages           map[string]int     `json:"pages"`
+	Counts          map[string]int64   `json:"counts"`
+	UniqueManifests int64              `json:"uniqueManifests"`
+	Cursor          *Cursor            `json:"cursor,omitempty"`
+	Member          *assemblyMember    `json:"member,omitempty"`
+	Images          map[string][]Image `json:"images,omitempty"`
+	Objects         []Object           `json:"objects,omitempty"`
 }
 
 func (w *Writer) platformPageKey(id string, page int) string {

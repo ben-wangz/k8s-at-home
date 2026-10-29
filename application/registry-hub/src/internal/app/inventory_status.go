@@ -1,0 +1,113 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"registry-hub/internal/inventory"
+	"registry-hub/internal/storage"
+	"time"
+)
+
+type inventoryBuildStatus struct {
+	Fence         uint64                 `json:"fence"`
+	ProgressAt    time.Time              `json:"progressAt"`
+	Steps         uint64                 `json:"steps"`
+	Batch         inventoryBatchProgress `json:"batch"`
+	SourcePhase   int                    `json:"sourcePhase"`
+	SourceToken   string                 `json:"sourceToken,omitempty"`
+	SourceOffset  int                    `json:"sourceOffset"`
+	TaskID        string                 `json:"taskID,omitempty"`
+	GraphPhase    int                    `json:"graphPhase"`
+	GraphStage    string                 `json:"graphStage,omitempty"`
+	GraphToken    string                 `json:"graphToken,omitempty"`
+	GraphOffset   int                    `json:"graphOffset"`
+	ParentDigest  string                 `json:"parentDigest,omitempty"`
+	ChildOffset   int                    `json:"childOffset"`
+	NodePhase     int                    `json:"nodePhase"`
+	GraphRestarts uint64                 `json:"graphRestarts"`
+	SnapshotID    string                 `json:"snapshotID,omitempty"`
+	BuildPhase    int                    `json:"buildPhase"`
+	ImageID       string                 `json:"imageID,omitempty"`
+	ImagePhase    int                    `json:"imagePhase"`
+	ObjectOffset  int                    `json:"objectOffset"`
+	AuditOffset   int64                  `json:"auditOffset"`
+	CapturePhase  int                    `json:"capturePhase"`
+	CaptureOffset int                    `json:"captureOffset"`
+	ClosureDepth  int                    `json:"closureDepth"`
+	ErrorAt       time.Time              `json:"errorAt,omitempty"`
+	ErrorClass    string                 `json:"errorClass,omitempty"`
+	NextAttemptAt time.Time              `json:"nextAttemptAt,omitempty"`
+}
+
+type inventoryBuildError struct {
+	ErrorAt       time.Time `json:"errorAt"`
+	ErrorClass    string    `json:"errorClass"`
+	NextAttemptAt time.Time `json:"nextAttemptAt"`
+}
+
+func (s *Service) inventoryStatus(ctx context.Context) (inventoryBuildStatus, error) {
+	state, _, err := inventory.Read[inventoryCheckpoint](ctx, s.store, inventory.Prefix+"checkpoint.json")
+	if err != nil && !errors.Is(err, storage.ErrNotFound) {
+		return inventoryBuildStatus{}, err
+	}
+	status := inventoryBuildStatus{Fence: state.Fence, ProgressAt: state.ProgressAt, Steps: state.Steps, SourcePhase: state.Scan.Phase, SourceToken: state.Scan.Token, BuildPhase: state.BuildPhase}
+	status.Batch = state.Batch
+	if state.Scan.Page != nil {
+		status.SourceToken, status.SourceOffset = state.Scan.Page.Token, state.Scan.Page.Offset
+	}
+	if root := state.Scan.Root; root != nil {
+		status.TaskID, status.GraphPhase = root.Task.ID, root.Phase
+		status.GraphRestarts = root.Restarts
+		status.GraphToken, status.GraphOffset = root.Cursor.Token, root.Cursor.Offset
+		stages := []string{"register", "index_edges", "project_nodes", "validate", "cleanup"}
+		if root.Phase >= 0 && root.Phase < len(stages) {
+			status.GraphStage = stages[root.Phase]
+		}
+		if root.Phase == 1 && !root.Nodes.Done {
+			status.GraphStage = "capture_nodes"
+			status.GraphToken, status.GraphOffset = root.Nodes.Token, root.Nodes.Offset
+		}
+		if root.Node != nil {
+			status.ParentDigest, status.ChildOffset = root.Node.Node.Digest, len(root.Node.Content.Children)
+			status.NodePhase = root.Node.Phase
+		}
+	}
+	if state.Build != nil {
+		status.SnapshotID = state.Build.SnapshotID
+	}
+	if image := state.ImageBuild; image != nil {
+		status.ImageID, status.ImagePhase, status.ObjectOffset = image.Image.ID, image.Phase, image.Offset
+		status.CapturePhase, status.CaptureOffset = image.Capture.Phase, image.Capture.Offset
+		status.ClosureDepth = len(image.Closure.Frames)
+		if image.Audit != nil {
+			status.AuditOffset = image.Audit.Offset
+		}
+	}
+	failure, _, err := inventory.Read[inventoryBuildError](ctx, s.store, inventory.Prefix+"error.json")
+	if err != nil && !errors.Is(err, storage.ErrNotFound) {
+		return status, err
+	}
+	if failure.ErrorAt.After(status.ProgressAt) {
+		status.ErrorAt, status.ErrorClass, status.NextAttemptAt = failure.ErrorAt, failure.ErrorClass, failure.NextAttemptAt
+	}
+	return status, nil
+}
+
+func (s *Service) inventoryErrorStatus(ctx context.Context, cause error, delay time.Duration) {
+	class := "storage"
+	switch {
+	case errors.Is(cause, context.DeadlineExceeded), errors.Is(cause, storage.ErrTimeout):
+		class = "timeout"
+	case errors.Is(cause, storage.ErrCorruptObject):
+		class = "corrupt_object"
+	case errors.Is(cause, storage.ErrLeaseLost), errors.Is(cause, inventory.ErrSuperseded), errors.Is(cause, context.Canceled):
+		class = "lease_lost"
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	now := time.Now().UTC()
+	_ = inventory.Update(ctx, s.store, inventory.Prefix+"error.json", func(value *inventoryBuildError) error {
+		*value = inventoryBuildError{ErrorAt: now, ErrorClass: class, NextAttemptAt: now.Add(delay)}
+		return nil
+	})
+}

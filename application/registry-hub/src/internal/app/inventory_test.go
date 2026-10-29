@@ -23,7 +23,7 @@ func refreshTestInventory(t *testing.T, s *Service) inventory.Snapshot {
 	ctx := context.Background()
 	scan := inventoryScan{}
 	for n := 0; scan.Phase < 2; n++ {
-		if n > 100 {
+		if n > 5000 {
 			t.Fatal("source scan did not converge")
 		}
 		if err := s.scanInventoryPage(ctx, &scan); err != nil {
@@ -33,7 +33,7 @@ func refreshTestInventory(t *testing.T, s *Service) inventory.Snapshot {
 	scan.Phase = 3
 	scan.Token = ""
 	for n := 0; !scan.Complete; n++ {
-		if n > 100 {
+		if n > 5000 {
 			t.Fatal("closure scan did not converge")
 		}
 		if err := s.scanInventoryPage(ctx, &scan); err != nil {
@@ -48,7 +48,7 @@ func refreshTestInventory(t *testing.T, s *Service) inventory.Snapshot {
 	writer.Snapshot.GCEpoch = gate.Epoch
 	state := inventoryCheckpoint{Build: &writer.Snapshot, Scan: scan}
 	for n := 0; state.Build != nil; n++ {
-		if n > 100 {
+		if n > 5000 {
 			t.Fatal("snapshot build did not converge")
 		}
 		if err := s.buildInventoryPage(ctx, &state); err != nil {

@@ -26,6 +26,9 @@ func (s *observedStore) CleanupOrphans(ctx context.Context, olderThan time.Durat
 }
 
 func (s *observedStore) record(ctx context.Context, operation string, err error, started time.Time) {
+	if budget, ok := ctx.Value(inventoryBudgetKey{}).(*inventoryBudget); ok {
+		budget.operations.Add(1)
+	}
 	result := s.metrics.recordStorage(operation, err, time.Since(started))
 	if err != nil && !expectedStorageError(err) && s.logger != nil {
 		fields := []any{"operation", operation, "error_class", result}

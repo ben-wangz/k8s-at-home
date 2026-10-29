@@ -85,6 +85,12 @@ func (s *Service) inventoryContent(ctx context.Context, identity inventory.Ident
 		content.Subject = parsed.Subject.Digest
 	}
 	err = s.inventory.SaveContent(ctx, content)
+	if pending, ok := ctx.Value(inventoryLinkCapture{}).(*[]inventory.Content); ok {
+		if err == nil {
+			*pending = append(*pending, content)
+		}
+		return content, err
+	}
 	if err == nil {
 		err = s.linkInventoryContent(ctx, content)
 	}

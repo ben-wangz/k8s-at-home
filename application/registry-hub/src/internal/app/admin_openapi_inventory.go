@@ -29,6 +29,7 @@ func adminInventoryOperations(api huma.API) []huma.Operation {
 	return []huma.Operation{
 		operation("/api/v1/images", "listImages", "List image inventory", imagePage, images),
 		operation("/api/v1/images/summary", "summarizeImages", "Summarize inventory classifications", adminJSONResponse("Counts by scope and category in the declared discoverable range.", adminSchema[inventory.Snapshot](api)), params),
+		operation("/api/v1/images/status", "getInventoryStatus", "Get inventory backfill progress", adminJSONResponse("Read-only builder progress and retry state, available before snapshot publication.", adminSchema[inventoryBuildStatus](api)), nil),
 		operation("/api/v1/images/{imageID}", "getImage", "Get inventory image", adminJSONResponse("Image evidence and lifecycle.", adminSchema[inventory.Detail](api)), append([]*huma.Param{adminPathParam("imageID", "Inventory image ID.")}, params...)),
 		operation("/api/v1/images/{imageID}/platforms", "listImagePlatforms", "List child manifests including artifacts", imagePage, append([]*huma.Param{adminPathParam("imageID", "Inventory image ID.")}, page...)),
 		operation("/api/v1/images/{imageID}/objects", "listImageObjects", "List image closure objects", objectPage, append([]*huma.Param{adminPathParam("imageID", "Inventory image ID.")}, page...)),

@@ -61,7 +61,7 @@ func TestInventoryCapturesPlatformsArrivingAfterContentScan(t *testing.T) {
 			}
 			bindInventoryTestDigest(t, f.service, identity, root.Digest)
 			for n := 0; state.Build != nil; n++ {
-				if n > 100 {
+				if n > 5000 {
 					t.Fatal("late dependency build did not converge")
 				}
 				if err := f.service.buildInventoryPage(ctx, &state); err != nil {
@@ -162,17 +162,24 @@ func assertInventoryTestLinks(t *testing.T, s *Service, snapshot inventory.Snaps
 
 func assertInventoryTestCounts(t *testing.T, s *Service, snapshot inventory.Snapshot) {
 	t.Helper()
-	page, err := s.inventory.Images(context.Background(), inventory.Query{Kind: "images", Scope: "platform", SnapshotID: snapshot.SnapshotID, Limit: 100, Filters: url.Values{}}, s.cursorKey, time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
 	seen, counts := map[string]bool{}, map[string]int64{}
-	for _, item := range page.Items {
-		if seen[item.ID] {
-			t.Fatal("duplicate in platform inventory")
+	q := inventory.Query{Kind: "images", Scope: "platform", SnapshotID: snapshot.SnapshotID, Limit: 100, Filters: url.Values{}}
+	for {
+		page, err := s.inventory.Images(context.Background(), q, s.cursorKey, time.Minute)
+		if err != nil {
+			t.Fatal(err)
 		}
-		seen[item.ID] = true
-		counts["platform:"+item.Category]++
+		for _, item := range page.Items {
+			if seen[item.ID] {
+				t.Fatal("duplicate in platform inventory")
+			}
+			seen[item.ID] = true
+			counts["platform:"+item.Category]++
+		}
+		if page.NextToken == "" {
+			break
+		}
+		q.Token = page.NextToken
 	}
 	if int64(len(seen)) != snapshot.UniqueManifests {
 		t.Fatalf("unique manifests=%d want=%d", snapshot.UniqueManifests, len(seen))

@@ -187,6 +187,7 @@ func (w *Writer) flushImages(ctx context.Context, scope string) error {
 }
 
 func (w *Writer) Publish(ctx context.Context, complete bool, reasons []string) error {
+	fence := w.Snapshot.BuilderFence
 	if err := w.assembled(ctx); err != nil {
 		return err
 	}
@@ -204,14 +205,18 @@ func (w *Writer) Publish(ctx context.Context, complete bool, reasons []string) e
 	} else if !errors.Is(readErr, storage.ErrNotFound) {
 		return readErr
 	}
-	if err := w.r.Immutable(ctx, w.key("manifest.json"), w.Snapshot); err != nil {
-		return err
+	if errors.Is(readErr, storage.ErrNotFound) {
+		if err := w.r.Immutable(ctx, w.key("manifest.json"), w.Snapshot); err != nil {
+			return err
+		}
 	}
+	publication := w.Snapshot
+	publication.BuilderFence = fence
 	return Update(ctx, w.r.Store, Prefix+"current.json", func(current *Snapshot) error {
-		if current.BuilderFence > w.Snapshot.BuilderFence || current.BuilderFence == w.Snapshot.BuilderFence && current.BuildStartedAt.After(w.Snapshot.BuildStartedAt) {
+		if current.BuilderFence > fence || current.BuilderFence == fence && current.BuildStartedAt.After(w.Snapshot.BuildStartedAt) {
 			return ErrSuperseded
 		}
-		*current = w.Snapshot
+		*current = publication
 		return nil
 	})
 }

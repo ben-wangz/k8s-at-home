@@ -12,14 +12,19 @@ import (
 )
 
 type inventoryCheckpoint struct {
-	SchemaVersion     int                 `json:"schemaVersion"`
-	Fence             uint64              `json:"fence"`
-	Scan              inventoryScan       `json:"scan"`
-	Build             *inventory.Snapshot `json:"build"`
-	BuildPhase        int                 `json:"buildPhase"`
-	BuildToken        string              `json:"buildToken"`
-	NextScanAt        time.Time           `json:"nextScanAt"`
-	NextMaintenanceAt time.Time           `json:"nextMaintenanceAt"`
+	SchemaVersion     int                     `json:"schemaVersion"`
+	Fence             uint64                  `json:"fence"`
+	Scan              inventoryScan           `json:"scan"`
+	Build             *inventory.Snapshot     `json:"build"`
+	BuildPhase        int                     `json:"buildPhase"`
+	BuildToken        string                  `json:"buildToken"`
+	BuildPage         *inventory.Cursor       `json:"buildPage,omitempty"`
+	ImageBuild        *inventoryImageProgress `json:"imageBuild,omitempty"`
+	ProgressAt        time.Time               `json:"progressAt"`
+	Steps             uint64                  `json:"steps"`
+	Batch             inventoryBatchProgress  `json:"batch"`
+	NextScanAt        time.Time               `json:"nextScanAt"`
+	NextMaintenanceAt time.Time               `json:"nextMaintenanceAt"`
 }
 
 func (s *Service) inventoryConfig() config.Inventory {
@@ -59,6 +64,7 @@ func (s *Service) runInventory(ctx context.Context) {
 		}
 		if err != nil && !errors.Is(err, lease.ErrHeld) && ctx.Err() == nil {
 			s.inventoryFailure(err)
+			s.inventoryErrorStatus(ctx, err, delay)
 		}
 		select {
 		case <-ctx.Done():
@@ -74,16 +80,16 @@ func (s *Service) runInventoryLeader(ctx context.Context, leader lease.Lease) er
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {
 		return err
 	}
-	checkpoint.SchemaVersion = 1
-	checkpoint.Fence = leader.FencingToken
-	if checkpoint.Build != nil && checkpoint.Build.BuilderFence != leader.FencingToken {
-		checkpoint.Build = nil
-		checkpoint.BuildPhase = 0
-		checkpoint.BuildToken = ""
+	if err := s.claimInventory(ctx, leader, &checkpoint); err != nil {
+		return err
 	}
 	current, _, currentErr := inventory.Read[inventory.Snapshot](ctx, s.store, inventory.Prefix+"current.json")
 	if errors.Is(currentErr, storage.ErrNotFound) || currentErr == nil && !current.ExpiresAt.After(time.Now()) {
-		writer := s.inventory.NewWriter(time.Now().UTC(), s.inventoryConfig().SnapshotRetention, leader.FencingToken)
+		started := time.Now().UTC()
+		if checkpoint.Build != nil {
+			started = checkpoint.Build.BuildStartedAt.Add(-time.Nanosecond)
+		}
+		writer := s.inventory.NewWriter(started, s.inventoryConfig().SnapshotRetention, leader.FencingToken)
 		for done := false; !done; {
 			var err error
 			done, err = writer.Assemble(ctx, s.inventoryConfig().BatchSize)
@@ -98,7 +104,7 @@ func (s *Service) runInventoryLeader(ctx context.Context, leader lease.Lease) er
 		return currentErr
 	}
 	for ctx.Err() == nil {
-		if checkpoint.Build == nil && checkpoint.Scan.Phase == 0 && checkpoint.Scan.Token == "" && checkpoint.NextScanAt.After(time.Now()) && !s.inventoryDirty.Load() {
+		if s.inventoryIdle(&checkpoint) {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -108,7 +114,7 @@ func (s *Service) runInventoryLeader(ctx context.Context, leader lease.Lease) er
 		}
 		batchCtx, cancel := context.WithTimeout(ctx, s.inventoryConfig().BatchTimeout)
 		started := time.Now()
-		err = s.advanceInventory(batchCtx, leader, &checkpoint)
+		err = s.runInventoryBatch(batchCtx, leader, &checkpoint)
 		cancel()
 		if s.metrics != nil && s.metrics.inventory != nil {
 			s.metrics.inventory.batch.Observe(time.Since(started).Seconds())
@@ -116,6 +122,7 @@ func (s *Service) runInventoryLeader(ctx context.Context, leader lease.Lease) er
 		if err != nil {
 			return err
 		}
+		s.maintainInventory(ctx, &checkpoint)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -129,27 +136,21 @@ func (s *Service) advanceInventory(ctx context.Context, leader lease.Lease, stat
 	if err := s.tasks.Leases().Validate(ctx, leader); err != nil {
 		return err
 	}
-	if state.Build == nil && !state.NextMaintenanceAt.After(time.Now()) {
-		if err := s.cleanupInventorySnapshots(ctx, ""); err != nil {
-			return err
-		}
-		if err := s.cleanupInventoryWork(ctx); err != nil {
-			return err
-		}
-		state.NextMaintenanceAt = time.Now().Add(time.Second)
-	}
 	if state.Build != nil {
 		if err := s.buildInventoryPage(ctx, state); err != nil {
 			if errors.Is(err, storage.ErrConditionFailed) {
 				state.Build = nil
 				state.BuildPhase = 0
 				state.BuildToken = ""
+				state.BuildPage, state.ImageBuild = nil, nil
 				state.Scan.Complete = false
+				state.NextScanAt = time.Time{}
 			} else {
 				return err
 			}
 		}
-	} else if state.Scan.Phase > 0 || state.Scan.Token != "" || !state.NextScanAt.After(time.Now()) || s.inventoryDirty.Swap(false) {
+	} else if !s.inventoryIdle(state) {
+		s.inventoryDirty.Store(false)
 		if err := s.scanInventoryPage(ctx, &state.Scan); err != nil {
 			return err
 		}
@@ -163,17 +164,29 @@ func (s *Service) advanceInventory(ctx context.Context, leader lease.Lease, stat
 			state.Build.GCEpoch = gate.Epoch
 			state.BuildPhase = 0
 			state.BuildToken = ""
+			state.BuildPage, state.ImageBuild = nil, nil
 			state.NextScanAt = time.Now().Add(s.inventoryConfig().RefreshInterval)
 		}
 	}
 	if err := s.tasks.Leases().Validate(ctx, leader); err != nil {
 		return err
 	}
-	return inventory.Update(ctx, s.store, inventory.Prefix+"checkpoint.json", func(old *inventoryCheckpoint) error {
+	state.ProgressAt = time.Now().UTC()
+	state.Steps++
+	if budget, ok := ctx.Value(inventoryBudgetKey{}).(*inventoryBudget); ok {
+		state.Batch.Steps++
+		state.Batch.StorageOperations = budget.operations.Load()
+	}
+	err := inventory.Update(ctx, s.store, inventory.Prefix+"checkpoint.json", func(old *inventoryCheckpoint) error {
 		if old.Fence > state.Fence {
 			return inventory.ErrSuperseded
 		}
 		*old = *state
 		return nil
 	})
+	if err == nil && s.metrics != nil && s.metrics.inventory != nil {
+		s.metrics.inventory.progress.Set(float64(state.ProgressAt.Unix()))
+		s.metrics.inventory.steps.Set(float64(state.Steps))
+	}
+	return err
 }

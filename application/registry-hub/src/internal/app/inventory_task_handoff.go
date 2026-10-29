@@ -3,161 +3,97 @@ package app
 import (
 	"context"
 	"errors"
-	"registry-hub/internal/artifact"
 	"registry-hub/internal/inventory"
+	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
+	"strings"
 	"time"
 )
 
 func (s *solidifier) PreserveTaskHistory(ctx context.Context, task *tasks.Task) error {
-	if s.service.inventory == nil {
-		return nil
-	}
-	key := inventory.Prefix + "handoffs/" + task.ID + ".json"
-	done, _, err := inventory.Read[bool](ctx, s.service.store, key)
-	if err == nil && done {
-		return nil
-	}
-	if err != nil && !errors.Is(err, storage.ErrNotFound) {
-		return err
-	}
-	if err := s.service.preserveInventoryTask(ctx, *task); err != nil {
-		return err
-	}
-	return inventory.Update(ctx, s.service.store, key, func(value *bool) error { *value = true; return nil })
-}
-
-func (s *Service) preserveInventoryTask(ctx context.Context, task tasks.Task) error {
-	if task.Kind != tasks.RootKind {
-		return nil
-	}
-	done, _, err := inventory.Read[bool](ctx, s.store, inventory.Prefix+"handoffs/"+task.ID+".json")
-	if err == nil && done {
-		return nil
-	}
-	if err != nil && !errors.Is(err, storage.ErrNotFound) {
-		return err
-	}
-	identity := inventoryIdentity(task.Authority, task.Repository, task.Reference)
-	_, err = s.inventoryBinding(ctx, identity, task.RootDigest, "task", task.Generation, task.CreatedAt, false)
-	if err != nil {
-		return err
-	}
-	key := inventory.Prefix + "work/" + identity.ID() + "/" + task.ID + ".json"
-	work := inventoryWork{Identity: identity, Digest: task.RootDigest, Generation: task.Generation, CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt, Work: inventory.Work{ID: task.ID, Kind: string(task.Kind), Status: string(task.Status), WaitReason: task.WaitReason, ErrorClass: task.ErrorClass, ErrorMessage: task.ErrorMessage, NextAttemptAt: optionalTime(task.NextAttemptAt), LastProgressAt: optionalTime(task.LastProgressAt)}}
-	if err := s.saveInventoryWork(ctx, key, work); err != nil {
-		return err
-	}
-	return s.preserveInventoryGraph(ctx, task)
-}
-
-func optionalTime(t time.Time) *time.Time {
-	if t.IsZero() {
-		return nil
-	}
-	return &t
-}
-
-func (s *Service) preserveInventoryGraph(ctx context.Context, task tasks.Task) error {
-	token := ""
 	for {
-		nodes, next, err := s.records.ListGraphNodes(ctx, task.ID, token, 100)
-		if err != nil {
+		done, err := s.PreserveTaskHistoryStep(ctx, task)
+		if err != nil || done {
 			return err
 		}
-		for _, node := range nodes {
-			if err := s.preserveInventoryNode(ctx, task, node); err != nil {
-				return err
-			}
-		}
-		if next == "" {
-			return nil
-		}
-		token = next
 	}
 }
 
-func (s *Service) preserveInventoryNode(ctx context.Context, task tasks.Task, node tasks.GraphNode) error {
-	identity := inventoryIdentity(task.Authority, task.Repository, "")
-	if node.Role == tasks.GraphManifest {
-		generation := uint64(0)
-		if node.ContentGeneration != nil {
-			generation = *node.ContentGeneration
-		}
-		content := inventory.Content{Identity: identity, ObjectRef: inventory.ObjectRef{Role: "manifest", Digest: node.Digest, MediaType: node.MediaType, Size: node.ActualSize}, Generation: generation, ClosureKnown: node.DiscoveryComplete, Children: []inventory.ObjectRef{}, UpdatedAt: task.UpdatedAt}
-		content.Source = "graph"
-		token := ""
-		for {
-			edges, next, err := s.records.ListDependencyEdges(ctx, task.ID, token, 100)
-			if err != nil {
-				return err
-			}
-			for _, edge := range edges {
-				if edge.ParentRole != tasks.GraphManifest || edge.ParentDigest != node.Digest {
-					continue
-				}
-				role := "layer"
-				if edge.ChildRole == tasks.GraphManifest {
-					role = "manifest"
-				}
-				descriptor := artifact.Descriptor{Digest: edge.ChildDigest, MediaType: edge.Descriptor.MediaType, Size: edge.Descriptor.Size, Platform: edge.Descriptor.Platform, ArtifactType: edge.Descriptor.ArtifactType}
-				content.Children = append(content.Children, inventoryDescriptor(descriptor, role))
-			}
-			if next == "" {
-				break
-			}
-			token = next
-		}
-		if err := s.inventory.SaveContent(ctx, content); err != nil {
-			return err
-		}
-		if err := s.linkInventoryContent(ctx, content); err != nil {
-			return err
-		}
-		if err := s.inventoryChildDescriptors(ctx, content); err != nil {
-			return err
-		}
-		work, _, err := inventory.Read[inventoryWork](ctx, s.store, inventory.Prefix+"work/"+inventoryIdentity(task.Authority, task.Repository, task.Reference).ID()+"/"+task.ID+".json")
-		if err != nil {
-			return err
-		}
-		work.ContentGeneration = generation
-		if err := s.saveInventoryWork(ctx, inventory.Prefix+"content-work/"+identity.ContentID(node.Digest)+"/"+task.ID+".json", work); err != nil {
-			return err
-		}
+// Cleanup may delete a graph only after this method reports a complete handoff.
+func (s *solidifier) PreserveTaskHistoryStep(ctx context.Context, task *tasks.Task) (bool, error) {
+	if s.service.inventory == nil || task.Kind != tasks.RootKind {
+		return true, nil
 	}
-	if node.ContentGeneration == nil || node.LocalState != "anchored" {
-		return nil
-	}
-	scopeID, err := protectionScopeID(task.Authority, task.Repository, node.Digest, task.Generation)
-	if err != nil {
-		return err
-	}
-	if node.Role == tasks.GraphManifest {
-		session, err := s.gate.readProtectionSession(ctx, stagedSessionID(scopeID))
+	svc := s.service
+	key := inventory.Prefix + "handoffs/" + task.ID + ".json"
+	progressKey := inventory.Prefix + "handoff-progress/" + task.ID + ".json"
+	done, _, err := inventory.Read[bool](ctx, svc.store, key)
+	if err == nil && done {
+		_, err := svc.store.Head(ctx, progressKey)
 		if errors.Is(err, storage.ErrNotFound) {
-			return nil
+			return true, nil
 		}
 		if err != nil {
-			return err
-		}
-		if session.State != "anchored" && (session.State != "released" || session.TerminalReason != "anchored") {
-			return nil
+			return false, err
 		}
 	}
-	observation, err := s.records.FindLocalObservation(ctx, task.Authority, task.Repository, node.Role, node.Digest, node.ActualSize, *node.ContentGeneration, node.GCEpoch)
-	if errors.Is(err, storage.ErrNotFound) {
-		return nil
+	if err != nil && !errors.Is(err, storage.ErrNotFound) {
+		return false, err
+	}
+	holder, err := svc.tasks.Leases().Acquire(ctx, "inventory/handoff/"+task.ID, requestID(), time.Minute)
+	if errors.Is(err, lease.ErrHeld) {
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
-	proof := inventoryProof{SchemaVersion: 1, Generation: *node.ContentGeneration, Epoch: node.GCEpoch, State: node.LocalState, ObservedAt: observation.ObservedAt}
-	return inventory.Update(ctx, s.store, inventory.Prefix+"proofs/"+identity.ContentID(node.Digest)+".json", func(old *inventoryProof) error {
-		if old.Generation < proof.Generation || old.Generation == proof.Generation && old.Epoch <= proof.Epoch {
-			*old = proof
+	defer svc.tasks.Leases().Release(ctx, holder)
+	p, _, err := inventory.Read[inventoryGraphProjection](ctx, svc.store, progressKey)
+	if err != nil && !errors.Is(err, storage.ErrNotFound) {
+		return false, err
+	}
+	if p.Task.ID == "" {
+		next, err := svc.newInventoryProjection(ctx, task.ID)
+		if err != nil {
+			return false, err
 		}
+		p = *next
+		p.Prefix = strings.Replace(p.Prefix, "/projections/source/", "/projections/handoff/", 1)
+	}
+	if done {
+		if p.Phase != 4 {
+			p.Phase, p.Cursor = 4, inventory.Cursor{}
+		}
+		p.Restart = false
+	}
+	if err := svc.advanceInventoryProjection(ctx, &p); err != nil {
+		return false, err
+	}
+	if err := svc.tasks.Leases().Validate(ctx, holder); err != nil {
+		return false, err
+	}
+	p.Fence = holder.FencingToken
+	err = inventory.Update(ctx, svc.store, progressKey, func(value *inventoryGraphProjection) error {
+		if value.Fence > holder.FencingToken {
+			return inventory.ErrSuperseded
+		}
+		*value = p
 		return nil
 	})
+	if err != nil {
+		return false, err
+	}
+	if p.Complete {
+		err := inventory.Update(ctx, svc.store, key, func(value *bool) error { *value = true; return nil })
+		if err != nil {
+			return false, err
+		}
+		err = svc.store.Delete(ctx, progressKey)
+		if errors.Is(err, storage.ErrNotFound) {
+			err = nil
+		}
+		return err == nil, err
+	}
+	return false, nil
 }

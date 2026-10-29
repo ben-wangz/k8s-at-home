@@ -9,31 +9,35 @@ import (
 	"time"
 )
 
-func (s *Service) cleanupInventorySnapshots(ctx context.Context, current string) error {
+func (s *Service) cleanupInventorySnapshots(ctx context.Context, current string) (bool, error) {
 	if current == "" {
 		snapshot, _, err := inventory.Read[inventory.Snapshot](ctx, s.store, inventory.Prefix+"current.json")
 		if err == nil {
 			current = snapshot.SnapshotID
 		} else if !errors.Is(err, storage.ErrNotFound) {
-			return err
+			return false, err
 		}
 	}
 	token, _, err := inventory.Read[string](ctx, s.store, inventory.Prefix+"retention.json")
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {
-		return err
+		return false, err
 	}
-	entries, next, err := storage.Scan(ctx, s.store, inventory.Prefix+"snapshots/", token, s.inventoryConfig().BatchSize)
+	checkpoint, _, err := inventory.Read[inventoryCheckpoint](ctx, s.store, inventory.Prefix+"checkpoint.json")
+	if err != nil && !errors.Is(err, storage.ErrNotFound) {
+		return false, err
+	}
+	entries, next, err := storage.Scan(ctx, s.store, inventory.Prefix+"snapshots/", token, 1)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for _, entry := range entries {
 		id, _, ok := strings.Cut(strings.TrimPrefix(entry.Key, inventory.Prefix+"snapshots/"), "/")
-		if !ok || id == current {
+		if !ok || id == current || checkpoint.Build != nil && id == checkpoint.Build.SnapshotID {
 			continue
 		}
 		snapshot, _, err := inventory.Read[inventory.Snapshot](ctx, s.store, inventory.Prefix+"snapshots/"+id+"/manifest.json")
 		if err != nil && !errors.Is(err, storage.ErrNotFound) {
-			return err
+			return false, err
 		}
 		expired := err == nil && !snapshot.ExpiresAt.After(time.Now())
 		if errors.Is(err, storage.ErrNotFound) {
@@ -41,9 +45,10 @@ func (s *Service) cleanupInventorySnapshots(ctx context.Context, current string)
 		}
 		if expired {
 			if err := s.store.Delete(ctx, entry.Key); err != nil && !errors.Is(err, storage.ErrNotFound) {
-				return err
+				return false, err
 			}
 		}
 	}
-	return inventory.Update(ctx, s.store, inventory.Prefix+"retention.json", func(value *string) error { *value = next; return nil })
+	err = inventory.Update(ctx, s.store, inventory.Prefix+"retention.json", func(value *string) error { *value = next; return nil })
+	return next == "", err
 }

@@ -67,25 +67,37 @@ func (s *Service) scanInventoryCatalog(ctx context.Context, state *inventoryScan
 	if ok {
 		authority, repository, _ = strings.Cut(name, "/")
 	}
+	if len(state.CatalogTags) > 0 {
+		tag := state.CatalogTags[0]
+		if !strings.HasSuffix(tag, ".referrers") {
+			links := []inventory.Content{}
+			err := s.inventoryLocalTag(context.WithValue(ctx, inventoryLinkCapture{}, &links), inventoryIdentity(authority, repository, tag), state.CatalogRepository)
+			if err != nil && !errors.Is(err, storage.ErrNotFound) {
+				return err
+			}
+			state.Links = links
+		}
+		state.CatalogTags = state.CatalogTags[1:]
+		if len(state.CatalogTags) == 0 {
+			state.CatalogLast = state.CatalogNext
+			if state.CatalogDone {
+				state.CatalogRepository, state.CatalogLast = "", ""
+			}
+		}
+		return nil
+	}
 	var tags struct {
 		Tags []string `json:"tags"`
 	}
 	if err := s.inventoryRegistryJSON(ctx, "/v2/"+state.CatalogRepository+"/tags/list", url.Values{"n": {"100"}, "last": {state.CatalogLast}}, &tags); err != nil {
 		return err
 	}
-	for _, tag := range tags.Tags {
-		if strings.HasSuffix(tag, ".referrers") {
-			continue
-		}
-		if err := s.inventoryLocalTag(ctx, inventoryIdentity(authority, repository, tag), state.CatalogRepository); err != nil && !errors.Is(err, storage.ErrNotFound) {
-			return err
-		}
-	}
-	if len(tags.Tags) < 100 {
+	state.CatalogTags, state.CatalogDone = tags.Tags, len(tags.Tags) < 100
+	if len(tags.Tags) == 0 {
 		state.CatalogRepository = ""
 		state.CatalogLast = ""
 	} else {
-		state.CatalogLast = tags.Tags[len(tags.Tags)-1]
+		state.CatalogNext = tags.Tags[len(tags.Tags)-1]
 	}
 	return nil
 }

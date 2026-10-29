@@ -6,6 +6,7 @@ The management API exposes a persistent inventory of observed references, manife
 | --- | --- |
 | `/api/v1/images` | Reference inventory; use `scope=platform` for independent manifest content |
 | `/api/v1/images/summary` | Counts by scope and category, plus coverage and freshness |
+| `/api/v1/images/status` | Live backfill phase, committed cursors, active task/image, progress time, and retry state |
 | `/api/v1/images/{imageID}` | Binding, lifecycle, classification, and evidence |
 | `/api/v1/images/{imageID}/platforms` | Descendant manifests, including artifacts with no known platform |
 | `/api/v1/images/{imageID}/objects` | Deduplicated manifest/config/layer closure |
@@ -23,6 +24,8 @@ Use returned `nextToken` values unchanged. Tokens bind the filters and immutable
 
 ## State interpretation
 
+The status endpoint reads background progress independently of the published snapshot and accepts no query parameters. It is available during initial backfill, including before the first nonempty snapshot. Its `batch` fields report the latest committed batch's start time, completed steps, and observed storage operations before that checkpoint was written; the operation count excludes the checkpoint write itself. An empty partial snapshot does not establish that physical inventory is empty. Status queries never advance or repair the builder.
+
 `cache.state` measures verified cache availability independently of Distribution. Its values are `complete`, `partial`, `none`, and `unknown`. `availability.state` measures the union of cache and verified local Distribution objects. Counts and bytes describe a deduplicated logical closure within one scope; totals across images are not physical storage usage.
 
 Categories follow this priority: `solidified`, `cached_not_started`, `solidifying`, `failed`, `cancelled`, `cached_start_unknown`, `waiting_cache`, `not_scheduled`, and `unknown`. Solidified content requires a complete verified closure and durable anchor evidence for the current content generation and GC epoch. A tag also requires a confirmed local binding. A successful task or a manifest HEAD response alone does not establish solidification. One platform can be solidified while its parent index remains incomplete.
@@ -32,6 +35,12 @@ Categories follow this priority: `solidified`, `cached_not_started`, `solidifyin
 Unknown platforms remain null. Referenced attestations and other artifacts remain part of an index closure. A manifest's subject association is metadata and does not implicitly expand the dependency closure. Locally pushed repositories without an upstream authority use an empty `authority` and their original repository name.
 
 ## Storage and refresh
+
+Source scans retain bounded page keys and offsets alongside opaque storage continuation tokens. Graph projection captures node versions, reads each root's dependency edges once into temporary parent indexes, and processes children in descriptor order. A changed node or task causes revalidation and replay; incomplete child sets never become known closures. Temporary graph indexes are removed after projection.
+
+Image closure traversal, object verification, task-history selection, platform completion, immutable payload capture, and final link validation persist their own progress. Local historical audits hash Distribution content in 4 MiB ranges, checkpoint the hash state, and validate content generation and GC epoch before recording proof. Unsupported or invalid range responses cannot establish verification.
+
+Each successful work step commits its cursor. Batches limit work steps, observed storage calls, and elapsed time, reserving time for checkpoint commits. Normal budget yields do not count as projection failures or enter failure backoff. Genuine storage failures resume from the last committed step. A new leader fences publication before adopting an unfinished build; completed immutable pages remain reusable. Retention protects the active build and advances independently of source scans. Task cleanup preserves its full-handoff requirement and can return without deleting a graph while its durable handoff is still progressing.
 
 Inventory records, restart checkpoints, and immutable snapshot pages use `inventory/v1/` in the existing backend store. No additional database, bucket, or service is needed. A fenced builder lease coordinates replicas. Task cleanup hands off durable content and anchor facts before deleting the graph; lifecycle and inventory facts survive task retention.
 
@@ -50,7 +59,7 @@ Cache inspection checks complete markers, size, and payload version without rere
 | `refreshSeconds` | `REFRESH_SECONDS` | 30 | 5–3600 |
 | `staleSeconds` | `STALE_SECONDS` | 120 | At least refresh interval, at most 86400 |
 | `snapshotRetentionSeconds` | `SNAPSHOT_RETENTION_SECONDS` | 3600 | 900–604800; greater than stale threshold |
-| `batchSize` | `BATCH_SIZE` | 100 | 1–1000 |
+| `batchSize` | `BATCH_SIZE` | 100 | 1–1000; bounds source page keys and work steps per batch |
 | `batchTimeoutSeconds` | `BATCH_TIMEOUT_SECONDS` | 60 | 1–600 |
 
 The builder processes bounded batches, persists scan cursors, and retries failures with exponential delay up to five minutes. Snapshot age starts at build start rather than publication, so a slow scan cannot make old evidence appear newly observed. Retention starts at publication so a slow build still provides a usable pagination window. Expired snapshots are removed in resumable batches. Superseded terminal task projections are removed after 30 days once the original task is gone; the latest outcome and independent content, lifecycle, and anchor facts remain. Responses include at most 32 related task records, prioritize active work, and report `taskCount` and `task_history_truncated` when more history exists. Full current task diagnostics remain available through the task API.

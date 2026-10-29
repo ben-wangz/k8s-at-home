@@ -48,14 +48,14 @@ func TestInventoryBuilderResumesSourceCheckpointAndRepeatsFullScan(t *testing.T)
 	if restored.Scan.Phase != state.Scan.Phase || restored.Scan.Token != state.Scan.Token {
 		t.Fatal("source cursor was not persisted")
 	}
-	for n := 0; n < 100; n++ {
+	for n := 0; n < 5000; n++ {
 		if err := f.service.advanceInventory(ctx, leader, &restored); err != nil {
 			t.Fatal(err)
 		}
 		if restored.Build == nil && restored.Scan.Complete {
 			break
 		}
-		if n == 99 {
+		if n == 4999 {
 			t.Fatal("build did not converge")
 		}
 	}
