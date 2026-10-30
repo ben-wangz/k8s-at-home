@@ -26,7 +26,7 @@ func (s *Service) buildInventoryPage(ctx context.Context, state *inventoryCheckp
 		return err
 	}
 	if state.ImageBuild != nil {
-		done, err := s.advanceInventoryImage(ctx, writer, state.ImageBuild)
+		done, err := s.advanceInventoryImageUnit(ctx, writer, state.ImageBuild)
 		if err == nil && done {
 			state.ImageBuild = nil
 			if state.BuildPhase != 3 {

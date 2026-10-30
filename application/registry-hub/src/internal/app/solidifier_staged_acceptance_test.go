@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"registry-hub/internal/artifact"
 	"registry-hub/internal/config"
+	"registry-hub/internal/storage"
 	"registry-hub/internal/storage/filesystem"
 	"registry-hub/internal/tasks"
 	"strings"
@@ -35,12 +36,17 @@ type stagedAcceptanceFixture struct {
 
 func newStagedAcceptanceFixture(t *testing.T, maxBytes int64) *stagedAcceptanceFixture {
 	t.Helper()
-	ctx := context.Background()
 	store, err := filesystem.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
+	return newStagedAcceptanceFixtureWithStore(t, maxBytes, store)
+}
+
+func newStagedAcceptanceFixtureWithStore(t *testing.T, maxBytes int64, store storage.Store) *stagedAcceptanceFixture {
+	t.Helper()
+	ctx := context.Background()
 	gate, err := newWriteGate(ctx, store)
 	if err != nil {
 		t.Fatal(err)

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"maps"
 	"registry-hub/internal/storage"
+	"time"
 )
 
 type assemblyMember struct {
@@ -53,8 +54,16 @@ func (w *Writer) AssembleStep(ctx context.Context, limit int) (bool, error) {
 	if w.images == nil {
 		w.images = map[string][]Image{}
 	}
-	if err := w.advanceAssembly(ctx, &state, limit); err != nil {
-		return false, err
+	reserve := time.Second
+	for step := 0; step < min(4, limit) && state.Phase != 2; step++ {
+		if deadline, ok := ctx.Deadline(); step > 0 && ok && time.Until(deadline) < reserve {
+			break
+		}
+		started := time.Now()
+		if err := w.advanceAssembly(ctx, &state, limit); err != nil {
+			return false, err
+		}
+		reserve = max(reserve, 2*time.Since(started))
 	}
 	state.Revision++
 	state.Pages, state.Counts, state.UniqueManifests = w.Snapshot.Pages, w.Snapshot.Counts, w.Snapshot.UniqueManifests
