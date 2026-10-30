@@ -62,6 +62,8 @@ Source scanning, image metadata/capture and snapshot assembly batch at most four
 
 Confirmed client manifest pushes save a durable notification for the affected repository. The next refresh reconciles its paginated tags and content links before retiring the captured notification revision. `TestInventoryClientPublicationReconcilesOnlyChangedRepository` exercises the real push path with an initially empty catalog, reloads every checkpoint and rejects a global rescan. Marker failure and older global notifications retain the checkpoint barrier before full reconciliation acknowledgement. Image construction can advance four images concurrently while preserving each metadata barrier; large progress buffers defer additional images without truncation. Parallel capture regressions cover partial immutable writes, checkpoint replay and deferred progress recovery.
 
+If a repository disappears before its notification is processed, a confirmed tags-list 404 completes that observation. Other repositories continue to progress. Tag pagination retains its cursor across restart, and acknowledgement preserves a newer publication notification received during the scan.
+
 The larger historical regression covers 20 roots, 104 manifests, 303 edges and 50 blob records, including checkpoint timeouts and unknown commits. Its initial/refresh targets are five/three minutes, with continued binding writes, checkpoint reloads and leader takeover during refresh. These local checks do not establish a production S3 latency guarantee. Validate first publication, refresh duration and expiry windows against the deployment's inventory size, ongoing writes and storage latency before closing the large-scale K1 performance issue.
 
 ## Conditional manual retries

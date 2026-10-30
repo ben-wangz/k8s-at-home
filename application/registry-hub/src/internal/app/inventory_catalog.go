@@ -20,6 +20,9 @@ func (s *Service) inventoryRegistryJSON(ctx context.Context, path string, query 
 		return err
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return storage.ErrNotFound
+	}
 	if response.StatusCode != http.StatusOK {
 		return storage.ErrUnavailable
 	}
@@ -89,7 +92,10 @@ func (s *Service) scanInventoryCatalog(ctx context.Context, state *inventoryScan
 	var tags struct {
 		Tags []string `json:"tags"`
 	}
-	if err := s.inventoryRegistryJSON(ctx, "/v2/"+state.CatalogRepository+"/tags/list", url.Values{"n": {"100"}, "last": {state.CatalogLast}}, &tags); err != nil {
+	if err := s.inventoryRegistryJSON(ctx, "/v2/"+state.CatalogRepository+"/tags/list", url.Values{"n": {"100"}, "last": {state.CatalogLast}}, &tags); errors.Is(err, storage.ErrNotFound) {
+		state.CatalogRepository, state.CatalogLast = "", ""
+		return nil
+	} else if err != nil {
 		return err
 	}
 	state.CatalogTags, state.CatalogDone = tags.Tags, len(tags.Tags) < 100
