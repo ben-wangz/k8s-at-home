@@ -178,7 +178,7 @@ func (s *Service) advanceStorageCollection(ctx context.Context, state *storageCo
 
 func (s *Service) publishStorageCollection(ctx context.Context, state *storageCollection) error {
 	if state.Snapshot.UsageVersion > 0 && state.UsageMerge.Phase != "done" {
-		return s.advanceStorageUsageMerge(ctx, state)
+		return s.advanceStorageUsageMergeUnit(ctx, state)
 	}
 	if state.Snapshot.CompletedAt.IsZero() {
 		state.Snapshot.CompletedAt = time.Now().UTC()

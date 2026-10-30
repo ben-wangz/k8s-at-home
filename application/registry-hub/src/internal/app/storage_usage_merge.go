@@ -4,7 +4,26 @@ import (
 	"context"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
+	"time"
 )
+
+func (s *Service) advanceStorageUsageMergeUnit(ctx context.Context, state *storageCollection) error {
+	reserve := time.Second
+	for step := 0; step < 4 && state.UsageMerge.Phase != "done"; step++ {
+		if deadline, ok := ctx.Deadline(); step > 0 && ok && time.Until(deadline) < reserve {
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		started := time.Now()
+		if err := s.advanceStorageUsageMerge(ctx, state); err != nil {
+			return err
+		}
+		reserve = max(reserve, 2*time.Since(started))
+	}
+	return nil
+}
 
 func (s *Service) advanceStorageUsageMerge(ctx context.Context, state *storageCollection) error {
 	m := &state.UsageMerge

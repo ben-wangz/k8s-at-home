@@ -2,18 +2,14 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"path"
 	"registry-hub/internal/artifact"
-	"registry-hub/internal/config"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/storage/filesystem"
-	"registry-hub/internal/storage/s3store"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -84,56 +80,7 @@ func TestInventoryRefreshWithAllStorageReadsDelayed(t *testing.T) {
 }
 
 func TestInventoryRefreshAgainstS3(t *testing.T) {
-	raw := os.Getenv("REGISTRY_HUB_TEST_INVENTORY_S3_CONFIG")
-	if raw == "" {
-		t.Skip("set REGISTRY_HUB_TEST_INVENTORY_S3_CONFIG to a dedicated test bucket configuration")
-	}
-	var cfg config.S3
-	if json.Unmarshal([]byte(raw), &cfg) != nil || cfg.Bucket == "" {
-		t.Fatal("invalid dedicated S3 acceptance configuration")
-	}
-	cfg.Prefix = path.Join(cfg.Prefix, "inventory-acceptance", requestID())
-	cfg.ReplayDirectory = t.TempDir()
-	if cfg.MultipartThreshold == 0 {
-		cfg.MultipartThreshold = 64 << 20
-	}
-	if cfg.PartSize == 0 {
-		cfg.PartSize = 16 << 20
-	}
-	if cfg.Timeout == 0 {
-		cfg.Timeout = 30 * time.Second
-	}
-	if cfg.MaxConnections == 0 {
-		cfg.MaxConnections = 16
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
-	remote, err := s3store.New(ctx, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		cleanup, finish := context.WithTimeout(context.Background(), time.Minute)
-		defer finish()
-		for {
-			entries, _, err := remote.List(cleanup, "", "", 100)
-			if err != nil {
-				t.Errorf("list dedicated S3 acceptance prefix for cleanup: %v", err)
-				break
-			}
-			if len(entries) == 0 {
-				break
-			}
-			for _, entry := range entries {
-				if err := remote.Delete(cleanup, entry.Key); err != nil {
-					t.Errorf("clean dedicated S3 acceptance prefix: %v", err)
-					_ = remote.Close()
-					return
-				}
-			}
-		}
-		_ = remote.Close()
-	})
+	remote := newDedicatedS3AcceptanceStore(t, "REGISTRY_HUB_TEST_INVENTORY_S3_CONFIG")
 	store := &inventoryLatencyStore{Store: remote}
 	f := newStagedAcceptanceFixtureWithStore(t, 1<<20, store)
 	verifyInventoryStorageLatency(t, f, store, 20)

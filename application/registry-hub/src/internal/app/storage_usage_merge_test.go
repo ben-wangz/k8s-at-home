@@ -10,12 +10,31 @@ import (
 	"registry-hub/internal/inventory"
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestStorageUsageExceedsLegacyCapWithBoundedReplayAndPagination(t *testing.T) {
 	f := newStagedAcceptanceFixture(t, 1<<20)
+	verifyStorageUsageMergeAndPagination(t, context.Background(), f)
+}
+
+func TestStorageUsageMergeAgainstS3(t *testing.T) {
+	remote := newDedicatedS3AcceptanceStore(t, "REGISTRY_HUB_TEST_STORAGE_USAGE_S3_CONFIG")
+	store := &inventoryLatencyStore{Store: remote}
+	f := newStagedAcceptanceFixtureWithStore(t, 1<<20, store)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	started, calls := time.Now(), store.calls.Load()
+	verifyStorageUsageMergeAndPagination(t, ctx, f)
+	if time.Since(started) > 15*time.Minute {
+		t.Fatalf("4,227-group merge and paginated API exceeded 15 minutes: elapsed=%s calls=%d", time.Since(started), store.calls.Load()-calls)
+	}
+	t.Logf("4,227 groups, 1,056 image owners: elapsed=%s calls=%d", time.Since(started), store.calls.Load()-calls)
+}
+
+func verifyStorageUsageMergeAndPagination(t *testing.T, ctx context.Context, f *stagedAcceptanceFixture) {
+	t.Helper()
 	enableInventory(f)
-	ctx := context.Background()
 	f.service.cfg.AdminAuth = config.Auth{Basic: []config.Credential{{Username: "observer", Password: "secret", Permissions: []string{auth.Observe}}}}
 	state := newStorageCollection()
 	shared := true
@@ -33,7 +52,7 @@ func TestStorageUsageExceedsLegacyCapWithBoundedReplayAndPagination(t *testing.T
 			}
 		}
 	}
-	finishTestUsageMerge(t, f.service, &state)
+	finishTestUsageMerge(t, ctx, f.service, &state)
 	if len(state.Usage) != 0 || slices.Contains(state.Snapshot.Reasons, "usage_group_limit") {
 		t.Fatal("usage remained in the checkpoint or was truncated")
 	}
@@ -59,6 +78,9 @@ func TestStorageUsageExceedsLegacyCapWithBoundedReplayAndPagination(t *testing.T
 	base := "/api/v1/storage/usage?category=cache_payloads&repository=team%2Fimage&dimension=image&limit=32"
 	path, seen := base, map[string]bool{}
 	for pages := 0; path != ""; pages++ {
+		if err := ctx.Err(); err != nil {
+			t.Fatal(err)
+		}
 		if pages > 500 {
 			t.Fatal("usage cursor did not terminate")
 		}
@@ -88,7 +110,7 @@ func TestStorageUsageExceedsLegacyCapWithBoundedReplayAndPagination(t *testing.T
 	}
 }
 
-func finishTestUsageMerge(t *testing.T, s *Service, state *storageCollection) {
+func finishTestUsageMerge(t *testing.T, ctx context.Context, s *Service, state *storageCollection) {
 	t.Helper()
 	for step := 0; state.UsageMerge.Phase != "done"; step++ {
 		if step > 20000 {
@@ -98,7 +120,7 @@ func finishTestUsageMerge(t *testing.T, s *Service, state *storageCollection) {
 		if err != nil || len(checkpoint) > 16000 {
 			t.Fatalf("checkpoint grew with total group cardinality: bytes=%d err=%v", len(checkpoint), err)
 		}
-		if err := s.advanceStorageUsageMerge(context.Background(), state); err != nil {
+		if err := s.advanceStorageUsageMergeUnit(ctx, state); err != nil {
 			t.Fatal(err)
 		}
 		if step%23 == 0 {
@@ -106,7 +128,7 @@ func finishTestUsageMerge(t *testing.T, s *Service, state *storageCollection) {
 			if err := json.Unmarshal(checkpoint, &replay); err != nil {
 				t.Fatal(err)
 			}
-			if err := s.advanceStorageUsageMerge(context.Background(), &replay); err != nil {
+			if err := s.advanceStorageUsageMergeUnit(ctx, &replay); err != nil {
 				t.Fatalf("replaying a committed step failed: %v", err)
 			}
 			actual, _ := json.Marshal(state)
