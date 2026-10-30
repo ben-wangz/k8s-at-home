@@ -165,7 +165,7 @@ func (s *Service) advanceInventory(ctx context.Context, leader lease.Lease, stat
 			state.ScanStartedAt = time.Now().UTC()
 		}
 		s.inventoryDirty.Store(false)
-		if err := s.scanInventoryPage(ctx, &state.Scan); err != nil {
+		if err := s.scanInventoryUnit(ctx, &state.Scan); err != nil {
 			return err
 		}
 		if state.Scan.Phase == 0 && state.Scan.Complete {

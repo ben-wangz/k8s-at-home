@@ -22,7 +22,19 @@ func TestInventoryMetadataUnitCheckpointsBeforeImmutableCapture(t *testing.T) {
 	if _, err := f.service.store.Head(context.Background(), key); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatalf("image capture started before checkpoint: %v", err)
 	}
-	if _, err := f.service.advanceInventoryImageUnit(context.Background(), writer, &p); err != nil || p.Capture.Phase != 1 {
-		t.Fatalf("capture did not resume as one independently recoverable step: phase=%d error=%v", p.Capture.Phase, err)
+	checkpoint := p
+	if _, err := f.service.advanceInventoryImageUnit(context.Background(), writer, &p); err != nil || p.Capture.Phase != 4 {
+		t.Fatalf("capture did not resume as a bounded unit: phase=%d error=%v", p.Capture.Phase, err)
+	}
+	// A lost outer checkpoint replays immutable payloads from the frozen metadata.
+	p = checkpoint
+	if _, err := f.service.advanceInventoryImageUnit(context.Background(), writer, &p); err != nil || p.Capture.Phase != 4 {
+		t.Fatalf("capture replay changed immutable payloads: phase=%d error=%v", p.Capture.Phase, err)
+	}
+	if ready, err := writer.HasImage(context.Background(), p.Image.ID); err != nil || ready {
+		t.Fatalf("capture published a ready marker before its bounded payload unit completed: %v", err)
+	}
+	if done, err := f.service.advanceInventoryImageUnit(context.Background(), writer, &p); err != nil || !done {
+		t.Fatalf("replayed capture did not complete: done=%v error=%v", done, err)
 	}
 }
