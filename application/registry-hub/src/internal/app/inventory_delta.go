@@ -91,7 +91,16 @@ func (s *Service) projectInventoryChange(ctx context.Context, p *inventoryDeltaP
 	}
 	key := p.Changes[p.Offset].Key
 	graph := strings.HasPrefix(key, "solidification/graphs/")
-	if strings.HasPrefix(key, "tasks/state/") || graph {
+	if internal, publication := strings.CutPrefix(key, "distribution/repositories/"); publication {
+		if p.Links.CatalogRepository == "" {
+			p.Links.CatalogRepository = internal
+		}
+		if err := s.scanInventoryCatalog(ctx, &p.Links); err != nil {
+			return false, err
+		}
+		p.Projected = p.Links.CatalogRepository == ""
+		return false, nil
+	} else if strings.HasPrefix(key, "tasks/state/") || graph {
 		if p.Source == nil {
 			var err error
 			id := strings.TrimSuffix(strings.TrimPrefix(key, "tasks/state/"), ".json")

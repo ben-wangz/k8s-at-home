@@ -12,11 +12,12 @@ import (
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/route"
 	"registry-hub/internal/storage"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
-func TestInventoryClientPublicationForcesDurableCatalogReconciliation(t *testing.T) {
+func TestInventoryClientPublicationReconcilesOnlyChangedRepository(t *testing.T) {
 	f := newStagedAcceptanceFixture(t, 1<<20)
 	enableInventory(f)
 	f.service.pushSlots = make(chan struct{}, 1)
@@ -25,6 +26,7 @@ func TestInventoryClientPublicationForcesDurableCatalogReconciliation(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	var catalogReads atomic.Int64
 	f.service.registry = newLocalRegistry(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v2/_catalog" || r.URL.Path == "/v2/"+routed.Internal+"/tags/list" {
 			f.mu.Lock()
@@ -33,6 +35,7 @@ func TestInventoryClientPublicationForcesDurableCatalogReconciliation(t *testing
 			values := []string{}
 			field := "repositories"
 			if r.URL.Path == "/v2/_catalog" {
+				catalogReads.Add(1)
 				if published && r.URL.Query().Get("last") == "" {
 					values = append(values, routed.Internal)
 				}
@@ -76,6 +79,7 @@ func TestInventoryClientPublicationForcesDurableCatalogReconciliation(t *testing
 	if !state.NextReconcileAt.After(time.Now().Add(4 * time.Minute)) {
 		t.Fatal("test requires a future periodic reconciliation deadline")
 	}
+	initialCatalogReads, reconcileAt := catalogReads.Load(), state.NextReconcileAt
 	configBody := []byte(`{"os":"linux","architecture":"amd64"}`)
 	config := artifact.Descriptor{Digest: artifact.CalculateSHA256(configBody), MediaType: "application/vnd.oci.image.config.v1+json", Size: int64(len(configBody))}
 	body, _ := json.Marshal(artifact.Manifest{SchemaVersion: 2, MediaType: ociManifestMediaType, Config: &config, Layers: []artifact.Descriptor{}})
@@ -89,28 +93,26 @@ func TestInventoryClientPublicationForcesDurableCatalogReconciliation(t *testing
 	if response.Code != http.StatusCreated {
 		t.Fatalf("manifest push: status=%d body=%s", response.Code, response.Body.String())
 	}
-	change, _, err := inventory.Read[inventoryChange](ctx, f.service.store, inventoryChangeKey("distribution/catalog"))
+	change, _, err := inventory.Read[inventoryChange](ctx, f.service.store, inventoryChangeKey("distribution/repositories/"+routed.Internal))
 	if err != nil || change.Revision == "" {
 		t.Fatalf("publication notification missing: %+v error=%v", change, err)
 	}
 	state.NextScanAt = time.Time{}
 	initialPublication := state.LastPublishedAt
-	sawBarrier := false
 	for step := 0; state.LastPublishedAt.Equal(initialPublication); step++ {
 		if step == 1000 {
 			t.Fatal("publication was not discovered before periodic reconciliation")
 		}
 		advance()
 		_, _, markerErr := inventory.Read[inventoryChange](ctx, f.service.store, inventoryChangeKey(change.Key))
-		if state.NextReconcileAt.IsZero() && markerErr == nil {
-			sawBarrier = true
-		}
-		if errors.Is(markerErr, storage.ErrNotFound) && !sawBarrier {
-			t.Fatal("publication notification retired before checkpointing reconciliation")
+		if errors.Is(markerErr, storage.ErrNotFound) {
+			if _, _, err := inventory.Read[inventory.Binding](ctx, f.service.store, inventory.Prefix+"bindings/"+inventoryIdentity("ghcr.io", "team/image", "latest").ID()+".json"); err != nil {
+				t.Fatalf("notification retired before projecting publication: %v", err)
+			}
 		}
 	}
-	if !sawBarrier {
-		t.Fatal("reconciliation checkpoint barrier was not exercised")
+	if catalogReads.Load() != initialCatalogReads || !state.NextReconcileAt.Equal(reconcileAt) {
+		t.Fatal("repository publication forced global source reconciliation")
 	}
 	snapshot, err := f.service.inventory.Snapshot(ctx, "", time.Minute)
 	if err != nil {
@@ -126,15 +128,15 @@ func TestInventoryCatalogMarkerFailureCheckpointsReconciliationBeforeAcknowledge
 	f := newStagedAcceptanceFixture(t, 1<<20)
 	enableInventory(f)
 	ctx := context.Background()
-	f.service.inventoryDistributionChanged(ctx)
-	change, _, err := inventory.Read[inventoryChange](ctx, f.service.store, inventoryChangeKey("distribution/catalog"))
+	f.service.inventoryDistributionChanged(ctx, "local-image")
+	change, _, err := inventory.Read[inventoryChange](ctx, f.service.store, inventoryChangeKey("distribution/repositories/local-image"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	observed := f.service.store.(*observedStore)
 	original := observed.Store
 	observed.Store = inventoryMarkerFailureStore{Store: original}
-	f.service.inventoryDistributionChanged(ctx)
+	f.service.inventoryDistributionChanged(ctx, "local-image")
 	observed.Store = original
 	if !f.service.inventoryDirty.Load() || !f.service.inventoryReconcile.Load() {
 		t.Fatal("failed catalog notification did not request reconciliation")

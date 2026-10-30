@@ -54,6 +54,8 @@ type inventoryBuildStatus struct {
 	Incremental              *inventoryDeltaStatus  `json:"incremental,omitempty"`
 	NextReconcileAt          time.Time              `json:"nextReconcileAt,omitempty"`
 	FragmentValidationOffset int                    `json:"fragmentValidationOffset"`
+	ImageConcurrency         int                    `json:"imageConcurrency"`
+	ImagesInProgress         int                    `json:"imagesInProgress"`
 }
 
 type inventoryBuildError struct {
@@ -71,6 +73,13 @@ func (s *Service) inventoryStatus(ctx context.Context) (inventoryBuildStatus, er
 	status.LocalDirtyHint = s.inventoryDirty.Load()
 	status.SourceCoverage = "durable change markers with bounded fanout; non-atomic periodic reconciliation recovers missed markers and legacy sources; localDirtyHint is process-local"
 	status.NextReconcileAt = state.NextReconcileAt
+	status.ImageConcurrency = 1
+	if s.inventoryConfig().BatchSize >= 4 {
+		status.ImageConcurrency = 4
+	}
+	if state.ImageBuild != nil {
+		status.ImagesInProgress = 1 + len(state.ParallelImages) + len(state.DeferredImages)
+	}
 	if delta := state.Delta; delta != nil {
 		status.Building = true
 		status.Incremental = &inventoryDeltaStatus{Phase: delta.Phase, BufferedChanges: len(delta.Changes), SourceOffset: delta.Offset, JournalOffset: delta.Cursor.Offset, FanoutOffset: delta.Fanout.Offset}

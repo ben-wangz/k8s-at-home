@@ -25,7 +25,13 @@ func (s *Service) buildInventoryPage(ctx context.Context, state *inventoryCheckp
 		state.Build = &writer.Snapshot
 		return err
 	}
+	if state.ImageBuild == nil && len(state.DeferredImages) > 0 {
+		return s.resumeDeferredInventoryImage(ctx, state)
+	}
 	if state.ImageBuild != nil {
+		if state.ImagesEnrolled {
+			return s.advanceInventoryImages(ctx, state)
+		}
 		done, err := s.advanceInventoryImageUnit(ctx, writer, state.ImageBuild)
 		if err == nil && done {
 			state.ImageBuild = nil
@@ -51,6 +57,9 @@ func (s *Service) buildInventoryPage(ctx context.Context, state *inventoryCheckp
 				page.Advance()
 			}
 		} else {
+			if s.inventoryConfig().BatchSize >= 4 {
+				return s.enrollInventoryImages(ctx, state, writer, inventory.Prefix+prefixes[state.BuildPhase])
+			}
 			err = s.startInventoryImage(ctx, state, writer, entry.Key)
 		}
 		if err != nil && !errors.Is(err, storage.ErrNotFound) {

@@ -12,27 +12,30 @@ import (
 )
 
 type inventoryCheckpoint struct {
-	SchemaVersion      int                     `json:"schemaVersion"`
-	Fence              uint64                  `json:"fence"`
-	Scan               inventoryScan           `json:"scan"`
-	Build              *inventory.Snapshot     `json:"build"`
-	BuildPhase         int                     `json:"buildPhase"`
-	BuildToken         string                  `json:"buildToken"`
-	BuildPage          *inventory.Cursor       `json:"buildPage,omitempty"`
-	ImageBuild         *inventoryImageProgress `json:"imageBuild,omitempty"`
-	ProgressAt         time.Time               `json:"progressAt"`
-	Steps              uint64                  `json:"steps"`
-	ScanStartedAt      time.Time               `json:"scanStartedAt,omitempty"`
-	LastPublishedAt    time.Time               `json:"lastPublishedAt,omitempty"`
-	LastCompleteAt     time.Time               `json:"lastCompleteAt,omitempty"`
-	LastBuildSeconds   float64                 `json:"lastBuildSeconds"`
-	LastRefreshSeconds float64                 `json:"lastRefreshSeconds"`
-	Batch              inventoryBatchProgress  `json:"batch"`
-	NextScanAt         time.Time               `json:"nextScanAt"`
-	NextMaintenanceAt  time.Time               `json:"nextMaintenanceAt"`
-	MaintenancePhase   int                     `json:"maintenancePhase,omitempty"`
-	NextReconcileAt    time.Time               `json:"nextReconcileAt,omitempty"`
-	Delta              *inventoryDeltaProgress `json:"delta,omitempty"`
+	SchemaVersion      int                       `json:"schemaVersion"`
+	Fence              uint64                    `json:"fence"`
+	Scan               inventoryScan             `json:"scan"`
+	Build              *inventory.Snapshot       `json:"build"`
+	BuildPhase         int                       `json:"buildPhase"`
+	BuildToken         string                    `json:"buildToken"`
+	BuildPage          *inventory.Cursor         `json:"buildPage,omitempty"`
+	ImageBuild         *inventoryImageProgress   `json:"imageBuild,omitempty"`
+	ParallelImages     []*inventoryImageProgress `json:"parallelImages,omitempty"`
+	ImagesEnrolled     bool                      `json:"imagesEnrolled,omitempty"`
+	DeferredImages     []string                  `json:"deferredImages,omitempty"`
+	ProgressAt         time.Time                 `json:"progressAt"`
+	Steps              uint64                    `json:"steps"`
+	ScanStartedAt      time.Time                 `json:"scanStartedAt,omitempty"`
+	LastPublishedAt    time.Time                 `json:"lastPublishedAt,omitempty"`
+	LastCompleteAt     time.Time                 `json:"lastCompleteAt,omitempty"`
+	LastBuildSeconds   float64                   `json:"lastBuildSeconds"`
+	LastRefreshSeconds float64                   `json:"lastRefreshSeconds"`
+	Batch              inventoryBatchProgress    `json:"batch"`
+	NextScanAt         time.Time                 `json:"nextScanAt"`
+	NextMaintenanceAt  time.Time                 `json:"nextMaintenanceAt"`
+	MaintenancePhase   int                       `json:"maintenancePhase,omitempty"`
+	NextReconcileAt    time.Time                 `json:"nextReconcileAt,omitempty"`
+	Delta              *inventoryDeltaProgress   `json:"delta,omitempty"`
 }
 
 func (s *Service) inventoryConfig() config.Inventory {
@@ -156,6 +159,8 @@ func (s *Service) advanceInventory(ctx context.Context, leader lease.Lease, stat
 				state.BuildPhase = 0
 				state.BuildToken = ""
 				state.BuildPage, state.ImageBuild = nil, nil
+				state.ParallelImages, state.ImagesEnrolled = nil, false
+				state.DeferredImages = nil
 				state.Scan.Complete = false
 				state.NextScanAt = time.Time{}
 			} else {
@@ -182,6 +187,8 @@ func (s *Service) advanceInventory(ctx context.Context, leader lease.Lease, stat
 			state.BuildPhase = 0
 			state.BuildToken = ""
 			state.BuildPage, state.ImageBuild = nil, nil
+			state.ParallelImages, state.ImagesEnrolled = nil, false
+			state.DeferredImages = nil
 			state.NextScanAt = time.Now().Add(s.inventoryConfig().RefreshInterval)
 		}
 	}

@@ -134,7 +134,7 @@ func (s *Service) pushManifest(writer http.ResponseWriter, request *http.Request
 		registryapi.WriteError(writer, http.StatusBadGateway, "UNKNOWN", "internal Registry returned a different manifest digest")
 		return
 	}
-	defer s.inventoryDistributionChanged(request.Context())
+	defer s.inventoryDistributionChanged(request.Context(), routed.Internal)
 	accepted, nativeSubjectHeader, ok := s.publishManifestTags(writer, request, routed, mediaType, data, digest, tags, leases, nativeSubjectHeader)
 	if !ok {
 		return
