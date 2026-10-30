@@ -152,3 +152,11 @@ backend:
 ```
 
 The Secret supplies `REGISTRY_HUB_REGISTRY_INSPECTION_ACCESS_KEY_ID` and `REGISTRY_HUB_REGISTRY_INSPECTION_SECRET_ACCESS_KEY`. Connection defaults inherit the state S3 configuration, while bucket and prefix must be configured separately. Existing workload/default credential providers remain available when no static credential is supplied. Grant List/Get metadata access, with no write/delete privileges. The inspection wrapper rejects writes; collection never reads registry payload bodies. Backend configuration is also available directly through `REGISTRY_HUB_REGISTRY_INSPECTION_CONFIG` JSON. Inspection failures affect the registry domain report independently from state accounting and request handling.
+
+## Verification
+
+The independent `feature-diagnostics` and `feature-diagnostics-s3` cluster scenarios require completed accounting for both domains. They reconcile object/category pages, verify the uploaded fixture, independently count registry file bytes, and check retained report identity after a backend restart. The S3 scenario stores backend state in a dedicated fixture; registry inspection uses a read-only filesystem mount. See the [test guide](../tests/features/minimal/README.md).
+
+The backend regression `TestInventoryRefreshWithAllStorageReadsDelayed` measures initial publication and a refresh of 20 completed roots, with one millisecond added to each GET, HEAD, PUT and LIST. It changes a reference during construction and reloads the committed checkpoint after every step. Its targets are 180 seconds for initial publication and 120 seconds for refresh. It does not simulate every S3 latency distribution or the larger historical graph fixture.
+
+`TestInventoryRefreshAgainstS3` runs the same workload against a dedicated test bucket when `REGISTRY_HUB_TEST_INVENTORY_S3_CONFIG` contains a JSON `config.S3` value. Supply credentials through the standard AWS environment/provider chain. The test creates and deletes only a unique prefix below the configured prefix; it never clears the bucket. Without the variable, it skips. These measurements do not establish a capacity guarantee for arbitrary inventories.

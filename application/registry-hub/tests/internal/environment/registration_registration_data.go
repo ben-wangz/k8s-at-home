@@ -51,6 +51,8 @@ var scenarioReleaseKeys = map[string]string{
 	"feature-client-auth-catalog":     "authcat",
 	"feature-upstream-auth-transport": "upauth",
 	"feature-backend-s3":              "backs3",
+	"feature-diagnostics":             "diag",
+	"feature-diagnostics-s3":          "diags3",
 	"feature-registry-s3":             "regs3",
 	"feature-storage-redirect":        "strdr",
 	"feature-referrers-fallback":      "reffb",

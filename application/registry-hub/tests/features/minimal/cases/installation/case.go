@@ -98,7 +98,7 @@ func verifyPVCs(ctx context.Context, environment testkit.CaseContext) (string, e
 	if environment.ScenarioID != "feature-registry-s3" && environment.ScenarioID != "feature-storage-redirect" {
 		expected[environment.Fullname+"-registry"] = "100Gi"
 	}
-	if environment.ScenarioID != "feature-backend-s3" {
+	if environment.ScenarioID != "feature-backend-s3" && environment.ScenarioID != "feature-diagnostics-s3" {
 		expected[environment.Fullname+"-backend"] = "20Gi"
 	}
 	var storageClass string

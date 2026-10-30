@@ -44,6 +44,14 @@ func scenarioRegistry() map[string]ScenarioDefinition {
 			ID: "feature-backend-s3", ConfigPath: "tests/features/backend-s3/config.yaml",
 			CaseIDs: []string{"default-render", "installation", "upstream-mirror", "feature-backend-s3", "image-inventory", "registry-roundtrip", "admin-auth", "initialization-secrets"}, BackendS3: true,
 		},
+		"feature-diagnostics": {
+			ID: "feature-diagnostics", ConfigPath: "tests/features/diagnostics/config.yaml",
+			CaseIDs: []string{"default-render", "installation", "admin-auth", "initialization-secrets", "registry-roundtrip", "image-inventory", "feature-diagnostics"},
+		},
+		"feature-diagnostics-s3": {
+			ID: "feature-diagnostics-s3", ConfigPath: "tests/features/diagnostics-s3/config.yaml",
+			CaseIDs: []string{"default-render", "installation", "admin-auth", "initialization-secrets", "registry-roundtrip", "image-inventory", "feature-diagnostics"}, BackendS3: true,
+		},
 		"feature-registry-s3": {
 			ID: "feature-registry-s3", ConfigPath: "tests/features/registry-s3/config.yaml",
 			CaseIDs: []string{"default-render", "installation", "upstream-mirror", "feature-registry-s3", "image-inventory", "registry-roundtrip", "admin-auth", "initialization-secrets"}, RegistryS3: true,

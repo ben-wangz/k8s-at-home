@@ -1,0 +1,24 @@
+storage:
+  backend: s3
+  s3:
+    endpoint: __RUN_S3_ENDPOINT__
+    region: us-east-1
+    bucket: __RUN_BACKEND_S3_BUCKET__
+    prefix: registry-hub-backend
+    forcePathStyle: true
+    allowHTTP: true
+    credentialsSecret: __RUN_BACKEND_S3_SECRET__
+backend:
+  registryInspection:
+    config:
+      backend: filesystem
+      filesystemRoot: /inspection/registry
+  extraVolumes:
+    - name: registry-inspection
+      persistentVolumeClaim:
+        claimName: '{{ include "registry-hub.fullname" . }}-registry'
+        readOnly: true
+  extraVolumeMounts:
+    - name: registry-inspection
+      mountPath: /inspection/registry
+      readOnly: true

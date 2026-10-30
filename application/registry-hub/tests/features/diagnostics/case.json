@@ -1,0 +1,11 @@
+{
+  "id": "feature-diagnostics",
+  "description": "Reconcile physical storage reports and retained pagination across a backend restart.",
+  "dependsOn": ["registry-roundtrip", "image-inventory"],
+  "timeoutSeconds": 1800,
+  "preconditions": ["State and read-only Distribution inspection are configured for this isolated release."],
+  "assertions": ["A completed report is required; unavailable accounting is a failure.", "Object and category totals agree for each observed domain, including the uploaded manifest, config and layer.", "Registry totals match an independent filesystem metadata scan.", "Retained reports remain immutable across restart."],
+  "checks": [{"id":"feature-diagnostics.accounting","description":"Enumerate both domains and reconcile every observed physical object and category."},{"id":"feature-diagnostics.restart","description":"Read the same immutable report after a backend restart."}],
+  "outputs": ["Snapshot identity, domain totals, enumerated objects, usage groups and restart evidence."],
+  "requirements": ["docs/diagnostics.md", "docs/inventory.md"]
+}

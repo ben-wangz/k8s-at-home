@@ -29,7 +29,7 @@ Reuse recalculates and runs the full dependency set for the selected cases. Crea
 
     application/registry-hub/tests/features/minimal/run.sh environment create --id <id>
 
-Available scenarios are feature-minimal, feature-client-auth-catalog, feature-upstream-auth-transport, feature-backend-s3, feature-registry-s3, feature-storage-redirect, feature-referrers-fallback, and feature-gc. They share one runner, dependency DAG, and develop namespace. Each scenario has its own Helm values, release, and state directory:
+Available scenarios are feature-minimal, feature-client-auth-catalog, feature-upstream-auth-transport, feature-backend-s3, feature-diagnostics, feature-diagnostics-s3, feature-registry-s3, feature-storage-redirect, feature-referrers-fallback, and feature-gc. They share one runner, dependency DAG, and test namespace. Each scenario has its own Helm values, release, and state directory:
 
     application/registry-hub/tests/features/minimal/run.sh list --scenario feature-minimal
     application/registry-hub/tests/features/minimal/run.sh plan --scenario feature-minimal
@@ -65,6 +65,13 @@ feature-referrers-fallback pins Distribution to the Registry 2.8.3 manifest-list
 
 feature-gc enables the Kubernetes GC Job and verifies draining, single-writer enforcement, PVC and ingress isolation, Job failure and explicit retry, failed_unknown recovery after a backend restart, object reclamation, and GC metrics.
 
+feature-diagnostics enables read-only inspection of the Distribution PVC. It requires a completed report for both storage domains, enumerates every object and category usage page, reconciles their totals, checks the uploaded manifest/config/layer, and compares registry totals with an independent filesystem metadata scan. It restarts the backend and reads the same retained report again. Unavailable accounting fails this case. The backend and registry must be able to mount the same test PVC.
+
+feature-diagnostics-s3 runs the same strict accounting and restart checks with backend state in the isolated S3 fixture. Distribution storage remains on the inspected PVC. This scenario does not verify S3 provider disk overhead, historical versions, delete markers, or storage-server durability.
+
+    application/registry-hub/tests/features/minimal/run.sh run --scenario feature-diagnostics
+    application/registry-hub/tests/features/minimal/run.sh run --scenario feature-diagnostics-s3
+
 referrers-migration uses the same empty Helm configuration as feature-minimal. It creates a run-specific Zot OCI Distribution 1.1 fixture pinned by digest, temporarily switches the Registry Service selector, and verifies migration from a legacy fallback index to native Referrers. It also checks read authority before and after migration, generation handling, and fallback tag protection. The case restores the original Service selector and removes the fixture. It is a minimal case, not part of feature-referrers-fallback.
 
 upstream-mirror configures an HTTP proxy for external upstreams and adds localhost, .svc, and .cluster.local to NO_PROXY so in-cluster Service requests, including the S3 backend, remain direct. The case verifies Docker/OCI manifest discovery Accept values. If an upstream first returns an OCI index when the client requests a Docker manifest list, it makes one exact Accept retry and checks the response bytes, digest, original discovery root, nested three-level index, platform child manifest, config graph, and verified checkpoints. A client blob GET supplies the missing config and allows the root to complete; compatibility retries do not replace the discovered representation.
@@ -94,6 +101,7 @@ See the [environment guide](environment/README.md) for prerequisites and environ
 | startup-wait | Init container blocks startup while initialization is pending; Deployment becomes Ready after recovery | installation |
 | registry-roundtrip | OCI content upload/read and digest consistency | admin-auth, initialization-secrets |
 | image-inventory | Inventory discovery of pushed images, local closure proof, authentication, immutable pagination, and query validation | registry-roundtrip |
+| feature-diagnostics | Complete physical accounting, independent registry totals, pagination, and retained reports after restart | registry-roundtrip, image-inventory |
 | client-interop | Real Podman image and Helm OCI chart round trips | installation |
 | restart-reuse | Job recreation, repeated Helm upgrades, Pod restart, release reinstall, and credential stability | registry-roundtrip |
 | external-combinations | Automatic/external Secret combinations, cleanup simulation, reuse-values upgrade from old references, and restore to empty values | restart-reuse |

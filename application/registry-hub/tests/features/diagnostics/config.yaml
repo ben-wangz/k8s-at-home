@@ -1,0 +1,14 @@
+backend:
+  registryInspection:
+    config:
+      backend: filesystem
+      filesystemRoot: /inspection/registry
+  extraVolumes:
+    - name: registry-inspection
+      persistentVolumeClaim:
+        claimName: '{{ include "registry-hub.fullname" . }}-registry'
+        readOnly: true
+  extraVolumeMounts:
+    - name: registry-inspection
+      mountPath: /inspection/registry
+      readOnly: true

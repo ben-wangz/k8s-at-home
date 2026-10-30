@@ -3,6 +3,7 @@ package cases
 import (
 	backends3 "github.com/ben-wangz/registry-hub-tests/features/backend-s3"
 	clientauthcatalog "github.com/ben-wangz/registry-hub-tests/features/client-auth-catalog"
+	"github.com/ben-wangz/registry-hub-tests/features/diagnostics"
 	featuregc "github.com/ben-wangz/registry-hub-tests/features/gc"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/admin-api"
@@ -83,6 +84,7 @@ func Registry() ([]testkit.Case, error) {
 		clientauthcatalog.New,
 		upstreamauthtransport.New,
 		backends3.New,
+		diagnostics.New,
 		registrys3.New,
 		storageredirect.New,
 		referrersfallback.New,

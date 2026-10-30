@@ -139,6 +139,7 @@ func WriteResult(environment testkit.CaseContext, details map[string]any) error 
 }
 
 var defaultChecks = map[string][]string{
+	"feature-diagnostics":             {"feature-diagnostics.accounting", "feature-diagnostics.restart"},
 	"image-inventory":                 {"image-inventory.auth", "image-inventory.reference", "image-inventory.snapshot", "image-inventory.validation"},
 	"default-render":                  {"default-render.closure-limits-defaulted", "default-render.service-readiness-routing"},
 	"registry-protocol":               {"registry-protocol.version", "registry-protocol.errors", "registry-protocol.head", "registry-protocol.listeners"},
