@@ -23,6 +23,7 @@ func (runtime *Runtime) executeCases(ctx context.Context, leaseErrors <-chan err
 		}
 		report.Cases[caseID] = result
 		failCurrent := func(failure error) (string, error) {
+			failure = errors.Join(failure, checkLease(ctx, leaseErrors))
 			finished := time.Now().UTC()
 			result.Status = "failed"
 			if errors.Is(failure, context.DeadlineExceeded) {
@@ -96,6 +97,7 @@ func (runtime *Runtime) executeCases(ctx context.Context, leaseErrors <-chan err
 			Requirements: append([]string(nil), item.Definition.Requirements...),
 		}
 		if err != nil {
+			err = errors.Join(err, checkLease(ctx, leaseErrors))
 			result.Status = "failed"
 			result.Error = err.Error()
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -214,10 +216,8 @@ func checkLease(ctx context.Context, leaseErrors <-chan error) error {
 	select {
 	case err := <-leaseErrors:
 		return err
-	case <-ctx.Done():
-		return ctx.Err()
 	default:
-		return nil
+		return ctx.Err()
 	}
 }
 

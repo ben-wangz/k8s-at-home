@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/ben-wangz/registry-hub-tests/internal/environment"
 	"github.com/ben-wangz/registry-hub-tests/internal/testkit"
@@ -131,6 +132,7 @@ func (runtime *Runtime) Run(ctx context.Context, options RunOptions) error {
 		return preserve(err, "failed")
 	}
 	if err := runtime.prepareEnvironment(leaseContext, leaseErrors, scenarioValues, id, stateDir, source, options.Image, &report, &registration); err != nil {
+		err = errors.Join(err, checkLease(leaseContext, leaseErrors))
 		return preserve(err, stateForError(leaseContext, err))
 	}
 	if err := copyFile(configPath, filepath.Join(stateDir, "config.yaml")); err != nil {
