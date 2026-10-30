@@ -39,7 +39,7 @@ func verifySolidificationCancellationGC(ctx context.Context, environment testkit
 	if err != nil {
 		return nil, err
 	}
-	cacheCleanup, err := cleanupSolidificationCache(ctx, environment)
+	cacheCleanup, err := cleanupSolidificationCache(ctx, environment, testkit.String(testkit.Map(tasks["rootTask"])["id"]), manifest.Config.Digest)
 	if err != nil {
 		return nil, err
 	}
@@ -118,9 +118,10 @@ func verifySolidificationCancellationGC(ctx context.Context, environment testkit
 	return map[string]any{
 		"reference": reference, "taskID": testkit.String(testkit.Map(tasks["rootTask"])["id"]), "taskStatusAfterCancel": "cancelled",
 		"cancelResponseStatus": testkit.Int(cancelled["cancelResponseStatus"]), "cancelledTasks": cancelled["taskIDs"],
-		"cancelResponses": cancelled["responses"],
-		"duplicateCacheEntriesRemovedWhileProtected": testkit.Int(cacheCleanup["cacheRemoved"]),
-		"protectionSessionBlockedGC":                 blocked, "cancellationQuiesced": cancelled["quiesced"] == true,
+		"cancelResponses":                         cancelled["responses"],
+		"manualCacheEntriesRemovedWhileProtected": testkit.Int(cacheCleanup["cacheRemoved"]),
+		"duplicateCacheMissingWhileProtected":     cacheCleanup["targetCacheMissing"] == true,
+		"protectionSessionBlockedGC":              blocked, "cancellationQuiesced": cancelled["quiesced"] == true,
 		"gcGateOpenAfterCancellation": true,
 		"gcAfterCancelID":             testkit.String(gcFinished["id"]), "unanchoredBlobDigest": manifest.Config.Digest,
 		"distributionBlobMissesAfterGC": distributionMisses, "upstreamBlobRequestsBefore": upstreamBefore,

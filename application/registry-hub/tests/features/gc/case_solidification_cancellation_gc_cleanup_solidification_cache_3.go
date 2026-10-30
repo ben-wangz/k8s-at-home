@@ -12,25 +12,6 @@ import (
 	"time"
 )
 
-func cleanupSolidificationCache(ctx context.Context, environment testkit.CaseContext) (map[string]any, error) {
-	response, err := support.AdminRequest(ctx, environment, http.MethodPost, "/api/v1/tasks/cleanup", nil, nil)
-	if err != nil {
-		return nil, err
-	}
-	if response.StatusCode != http.StatusOK {
-		response.Body.Close()
-		return nil, fmt.Errorf("cache cleanup returned %d, want 200", response.StatusCode)
-	}
-	var result map[string]any
-	if _, err := support.DecodeJSON(response, 2<<20, &result); err != nil {
-		return nil, err
-	}
-	if testkit.Int(result["cacheRemoved"]) == 0 {
-		return nil, fmt.Errorf("protected blob duplicate cache data was not physically removed")
-	}
-	return result, nil
-}
-
 func cancelSolidificationTasks(ctx context.Context, environment testkit.CaseContext, repository, reference, digest string, since time.Time) (map[string]any, error) {
 	query := url.Values{
 		"authority": {"github.com"}, "repository": {repositoryPath(repository)},
