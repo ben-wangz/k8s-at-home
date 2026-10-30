@@ -195,7 +195,7 @@ func (runtime *Runtime) startLease(parent context.Context, id, owner string) (co
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				renewContext, renewCancel := context.WithTimeout(ctx, 10*time.Second)
+				renewContext, renewCancel := context.WithTimeout(ctx, environment.RunnerLeaseDuration/3)
 				err := runtime.Environment.RenewLease(renewContext, id, owner)
 				renewCancel()
 				if err != nil {

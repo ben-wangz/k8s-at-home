@@ -9,7 +9,10 @@ import (
 	"time"
 )
 
-const runnerManagedBy = "registry-hub-test-runner"
+const (
+	runnerManagedBy     = "registry-hub-test-runner"
+	RunnerLeaseDuration = 90 * time.Second
+)
 
 type Registration struct {
 	ID                      string    `json:"id"`
@@ -178,7 +181,7 @@ func (environment Environment) ClaimRegistration(ctx context.Context, id, owner,
 		return Registration{}, testkit.ResourceIdentity{}, fmt.Errorf("test ID %s is active on another runner until %s", id, registration.LeaseUntil.UTC().Format(time.RFC3339))
 	}
 	registration.ActiveOwner = owner
-	registration.LeaseUntil = time.Now().UTC().Add(90 * time.Second)
+	registration.LeaseUntil = time.Now().UTC().Add(RunnerLeaseDuration)
 	metadata := testkit.Map(object["metadata"])
 	object["data"] = registrationData(registration)
 	encoded, err := json.Marshal(object)
@@ -193,15 +196,35 @@ func (environment Environment) ClaimRegistration(ctx context.Context, id, owner,
 }
 
 func (environment Environment) RenewLease(ctx context.Context, id, owner string) error {
-	registration, _, err := environment.GetRegistration(ctx, id)
-	if err != nil {
-		return err
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		object, err := testkit.KubectlGet(ctx, Namespace, "configmap", RegistrationName(id))
+		if err != nil {
+			return err
+		}
+		registration, _, err := parseRegistration(object, id)
+		if err != nil {
+			return err
+		}
+		if registration.ActiveOwner != owner || !registration.LeaseUntil.After(time.Now().UTC()) {
+			return fmt.Errorf("test ID %s lease expired or was taken by another runner", id)
+		}
+		registration.LeaseUntil = time.Now().UTC().Add(RunnerLeaseDuration)
+		object["data"] = registrationData(registration)
+		encoded, err := json.Marshal(object)
+		if err != nil {
+			return err
+		}
+		_, err = testkit.CommandInput(ctx, encoded, "kubectl", "-n", Namespace, "replace", "-f", "-")
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !strings.Contains(strings.ToLower(err.Error()), "conflict") {
+			return err
+		}
 	}
-	if registration.ActiveOwner != owner {
-		return fmt.Errorf("test ID %s lease was taken by another runner", id)
-	}
-	registration.LeaseUntil = time.Now().UTC().Add(90 * time.Second)
-	return environment.UpdateRegistration(ctx, registration)
+	return fmt.Errorf("renew test ID %s after resourceVersion conflicts: %w", id, lastErr)
 }
 
 func (environment Environment) ReleaseLease(ctx context.Context, id, owner string) error {

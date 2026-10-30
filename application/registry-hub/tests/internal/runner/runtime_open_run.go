@@ -42,7 +42,7 @@ func (runtime *Runtime) openRun(ctx context.Context, options RunOptions, scenari
 	registration := environment.Registration{
 		ID: id, ScenarioID: scenario.ID, Release: release, Fullname: fullname, KubeContext: contextName,
 		ConfigSHA256: configHash, SourceSHA256: source.SHA256, State: "preparing",
-		ActiveOwner: owner, LeaseUntil: now.Add(90 * time.Second), StartedAt: now,
+		ActiveOwner: owner, LeaseUntil: now.Add(environment.RunnerLeaseDuration), StartedAt: now,
 	}
 	identity, err := runtime.Environment.Reserve(ctx, registration)
 	if err != nil {
