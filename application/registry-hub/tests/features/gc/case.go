@@ -37,6 +37,9 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		return fmt.Errorf("prepare controlled upstream fixture: %w", err)
 	}
 	registry := support.NewRegistryClient(environment)
+	if err := useBackendPodForGC(ctx, environment, registry); err != nil {
+		return err
+	}
 	repository := support.LocalRepository(environment.CaseID, environment.RunID)
 	retained, err := support.BuildImageFixture(ctx, registry, repository, "retained", environment.RunID)
 	if err != nil {
@@ -148,55 +151,14 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err := verifyGCMetrics(ctx, environment, 1, 1, 2); err != nil {
 		return err
 	}
-	unknownStarted, err := startGC(ctx, environment)
+	restart, err := verifyGCRestartRecovery(ctx, environment, registry, repository, retained)
 	if err != nil {
 		return err
-	}
-	unknownJob, err := waitForGCJob(ctx, environment, testkit.String(unknownStarted["id"]))
-	if err != nil {
-		return err
-	}
-	unknownJobName := testkit.String(unknownJob["jobName"])
-	if err := setGCJobSuspended(ctx, environment, unknownJobName, true); err != nil {
-		return fmt.Errorf("pause the GC Job before restarting backend: %w", err)
-	}
-	if err := restartBackendPod(ctx, environment); err != nil {
-		return err
-	}
-	unknown, err := waitForGCUnknown(ctx, environment)
-	if err != nil {
-		return err
-	}
-	if err := verifyGCWriteAdmission(ctx, registry, repository); err != nil {
-		return fmt.Errorf("unknown GC state did not keep writes closed: %w", err)
-	}
-	if err := verifyGCReadAdmission(ctx, registry, repository, retained); err != nil {
-		return fmt.Errorf("Registry reads failed during unknown GC state: %w", err)
-	}
-	if err := verifyGCRecoveryRemainsLocked(ctx, environment, testkit.String(unknown["id"])); err != nil {
-		return err
-	}
-	if err := setGCJobSuspended(ctx, environment, unknownJobName, false); err != nil {
-		return fmt.Errorf("resume the GC Job after backend restart: %w", err)
-	}
-	if err := waitForGCJobSuccess(ctx, environment, unknownJobName); err != nil {
-		return err
-	}
-	recovered, err := recoverGC(ctx, environment, testkit.String(unknown["id"]))
-	if err != nil {
-		return err
-	}
-	recoveryJob, err := verifyGCJob(ctx, environment, unknownStarted, recovered)
-	if err != nil {
-		return err
-	}
-	if err := verifyGCReadAdmission(ctx, registry, repository, retained); err != nil {
-		return fmt.Errorf("Registry reads failed after GC recovery: %w", err)
 	}
 	if err := cleanupGCJob(ctx, environment, testkit.String(jobDetails["name"]), testkit.String(jobDetails["uid"])); err != nil {
 		return err
 	}
-	if err := cleanupGCJob(ctx, environment, testkit.String(recoveryJob["name"]), testkit.String(recoveryJob["uid"])); err != nil {
+	if err := cleanupGCJob(ctx, environment, testkit.String(restart.Job["name"]), testkit.String(restart.Job["uid"])); err != nil {
 		return err
 	}
 	if err := verifyPVCConsumers(ctx, environment, ""); err != nil {
@@ -212,11 +174,11 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		"failedJobUID": failedJobDetails["uid"], "failedJobPodName": failedJobDetails["podName"],
 		"failedJobPodCount": failedJobDetails["podCount"], "failedJobCleaned": true,
 		"gcRetryID": testkit.String(retried["id"]), "gcState": testkit.String(finished["state"]),
-		"gcUnknownID": testkit.String(unknown["id"]), "gcUnknownState": testkit.String(unknown["state"]),
-		"gcUnknownClass": testkit.String(unknown["errorClass"]), "gcRecoveryID": testkit.String(recovered["id"]),
-		"gcRecoveryState": testkit.String(recovered["state"]), "gcForcedRecoveryRejected": true, "unknownJobCleaned": true,
+		"gcUnknownID": testkit.String(restart.Unknown["id"]), "gcUnknownState": testkit.String(restart.Unknown["state"]),
+		"gcUnknownClass": testkit.String(restart.Unknown["errorClass"]), "gcRecoveryID": testkit.String(restart.Recovered["id"]),
+		"gcRecoveryState": testkit.String(restart.Recovered["state"]), "gcForcedRecoveryRejected": true, "unknownJobCleaned": true,
 		"writeDuringUnknownStatus": http.StatusServiceUnavailable, "readDuringUnknownStatus": http.StatusOK,
-		"recoveryJobName": recoveryJob["name"], "recoveryJobUID": recoveryJob["uid"],
+		"recoveryJobName": restart.Job["name"], "recoveryJobUID": restart.Job["uid"],
 		"gateState":    testkit.String(finished["_gateState"]),
 		"configDigest": testkit.String(finished["configDigest"]),
 		"jobName":      jobDetails["name"], "jobUID": jobDetails["uid"], "jobImage": jobDetails["image"],
