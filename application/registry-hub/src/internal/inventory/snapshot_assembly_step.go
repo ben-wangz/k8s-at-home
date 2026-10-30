@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"maps"
-	"reflect"
 	"registry-hub/internal/storage"
 )
 
@@ -26,24 +26,23 @@ func (w *Writer) AssembleStep(ctx context.Context, limit int) (bool, error) {
 		return false, err
 	}
 	key := w.key("assembly.json")
-	if err := Update(ctx, w.r.Store, key, func(state *assemblyState) error {
-		if state.Revision == 0 {
-			*state = assemblyState{Revision: 1, Pages: map[string]int{}, Counts: map[string]int64{}}
+	state, version, err := Read[assemblyState](ctx, w.r.Store, key)
+	if errors.Is(err, storage.ErrNotFound) {
+		if err = Update(ctx, w.r.Store, key, func(current *assemblyState) error {
+			if current.Revision == 0 {
+				*current = assemblyState{Revision: 1, Pages: map[string]int{}, Counts: map[string]int64{}}
+			}
+			return nil
+		}); err != nil {
+			return false, err
 		}
-		return nil
-	}); err != nil {
-		return false, err
+		state, version, err = Read[assemblyState](ctx, w.r.Store, key)
 	}
-	state, _, err := Read[assemblyState](ctx, w.r.Store, key)
 	if err != nil {
 		return false, err
 	}
 	if state.Revision == 0 || state.Phase < 0 || state.Phase > 2 || state.Pages == nil || state.Counts == nil {
 		return false, storage.ErrCorruptObject
-	}
-	before, err := json.Marshal(state)
-	if err != nil {
-		return false, err
 	}
 	w.Snapshot.Pages, w.Snapshot.Counts = maps.Clone(state.Pages), maps.Clone(state.Counts)
 	w.Snapshot.UniqueManifests = state.UniqueManifests
@@ -60,21 +59,36 @@ func (w *Writer) AssembleStep(ctx context.Context, limit int) (bool, error) {
 	state.Revision++
 	state.Pages, state.Counts, state.UniqueManifests = w.Snapshot.Pages, w.Snapshot.Counts, w.Snapshot.UniqueManifests
 	state.Images, state.Objects = w.images, w.objects
-	err = Update(ctx, w.r.Store, key, func(current *assemblyState) error {
-		if reflect.DeepEqual(*current, state) {
-			return nil
-		}
-		actual, err := json.Marshal(current)
-		if err != nil {
+	err = w.saveAssemblyStep(ctx, key, version, state)
+	return state.Phase == 2, err
+}
+
+func (w *Writer) saveAssemblyStep(ctx context.Context, key, version string, state assemblyState) error {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	if len(data) > 16<<20 || version == "" {
+		return storage.ErrCorruptObject
+	}
+	if guard, ok := ctx.Value(writeGuardKey{}).(func(context.Context) error); ok {
+		if err := guard(ctx); err != nil {
 			return err
 		}
-		if !bytes.Equal(actual, before) {
-			return storage.ErrConditionFailed
-		}
-		*current = state
+	}
+	_, err = w.r.Store.Put(ctx, key, bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfMatch: version})
+	if err == nil {
 		return nil
-	})
-	return state.Phase == 2, err
+	}
+	if !errors.Is(err, storage.ErrUnknownCommit) && !errors.Is(err, storage.ErrConditionFailed) {
+		return err
+	}
+	actual, _, readErr := Read[assemblyState](ctx, w.r.Store, key)
+	encoded, encodeErr := json.Marshal(actual)
+	if readErr == nil && encodeErr == nil && bytes.Equal(encoded, data) {
+		return nil
+	}
+	return errors.Join(err, readErr, encodeErr)
 }
 
 func (w *Writer) advanceAssembly(ctx context.Context, state *assemblyState, limit int) error {
