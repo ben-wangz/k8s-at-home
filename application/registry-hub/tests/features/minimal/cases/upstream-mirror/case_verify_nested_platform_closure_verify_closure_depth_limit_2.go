@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func verifyClosureDepthLimit(ctx context.Context, environment testkit.CaseContext, registry *support.RegistryClient, repository, upstreamRepository string) (map[string]any, error) {
@@ -25,7 +26,7 @@ func verifyClosureDepthLimit(ctx context.Context, environment testkit.CaseContex
 	if string(rootBody) != string(root.body) || rootHeaders.Get("Docker-Content-Digest") != rootDigest {
 		return nil, fmt.Errorf("closure-depth root bytes or digest differ from the fixture")
 	}
-	task, err := waitForTaskStatus(ctx, environment, "github.com", upstreamRepository, "minimal-depth-limit", "failed")
+	task, err := waitForTaskStatusWithin(ctx, environment, "github.com", upstreamRepository, "minimal-depth-limit", "failed", 5*time.Minute)
 	if err != nil {
 		return nil, err
 	}

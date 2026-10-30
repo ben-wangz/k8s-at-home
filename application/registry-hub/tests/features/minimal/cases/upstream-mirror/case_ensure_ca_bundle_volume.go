@@ -81,56 +81,7 @@ func waitForFailedTask(ctx context.Context, environment testkit.CaseContext, aut
 }
 
 func waitForTaskStatus(ctx context.Context, environment testkit.CaseContext, authority, repository, reference, expectedStatus string) (map[string]any, error) {
-	query := url.Values{
-		"authority":  {authority},
-		"repository": {repository},
-		"digest":     {reference},
-		"limit":      {"100"},
-	}
-	deadline := time.NewTimer(2 * time.Minute)
-	defer deadline.Stop()
-	for {
-		response, err := support.AdminRequest(ctx, environment, http.MethodGet, "/api/v1/tasks?"+query.Encode(), nil, nil)
-		if err != nil {
-			return nil, err
-		}
-		var page map[string]any
-		if _, err := support.DecodeJSON(response, 4<<20, &page); err != nil {
-			return nil, err
-		}
-		for _, item := range testkit.Slice(page["items"]) {
-			task := testkit.Map(item)
-			if testkit.String(task["reference"]) != reference {
-				continue
-			}
-			status := testkit.String(task["status"])
-			if status == expectedStatus {
-				id := testkit.String(task["id"])
-				if id == "" {
-					return nil, fmt.Errorf("upstream import task %q has no ID", reference)
-				}
-				detailResponse, err := support.AdminRequest(ctx, environment, http.MethodGet, "/api/v1/tasks/"+url.PathEscape(id), nil, nil)
-				if err != nil {
-					return nil, err
-				}
-				var detail map[string]any
-				if _, err := support.DecodeJSON(detailResponse, 4<<20, &detail); err != nil {
-					return nil, err
-				}
-				return detail, nil
-			}
-			if status == "failed" || status == "cancelled" || status == "solidified" {
-				return nil, fmt.Errorf("upstream import task ended in %s, want %s (%s)", status, expectedStatus, testkit.String(task["errorClass"]))
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-deadline.C:
-			return nil, fmt.Errorf("upstream import task did not reach %s", expectedStatus)
-		case <-time.After(time.Second):
-		}
-	}
+	return waitForTaskStatusWithin(ctx, environment, authority, repository, reference, expectedStatus, 2*time.Minute)
 }
 
 func countTasksForReference(ctx context.Context, environment testkit.CaseContext, authority, repository, reference string) (int, error) {
