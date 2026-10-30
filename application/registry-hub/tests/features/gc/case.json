@@ -4,7 +4,7 @@
   "dependsOn": [
     "installation"
   ],
-  "timeoutSeconds": 900,
+  "timeoutSeconds": 1500,
   "preconditions": [
     "The feature configuration is deployed and all declared dependencies have passed."
   ],
