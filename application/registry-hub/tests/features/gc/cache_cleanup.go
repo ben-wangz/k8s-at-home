@@ -47,7 +47,7 @@ func cleanupSolidificationCache(ctx context.Context, environment testkit.CaseCon
 }
 
 func protectedBlobCacheMissing(ctx context.Context, environment testkit.CaseContext, taskID, digest string) (bool, error) {
-	response, err := support.AdminRequest(ctx, environment, http.MethodGet, "/api/v1/tasks/"+url.PathEscape(taskID)+"/dependencies?limit=100", nil, nil)
+	response, err := support.AdminRequest(ctx, environment, http.MethodGet, "/api/v1/tasks/"+url.PathEscape(taskID)+"/dependencies?limit=32", nil, nil)
 	if err != nil {
 		return false, err
 	}
