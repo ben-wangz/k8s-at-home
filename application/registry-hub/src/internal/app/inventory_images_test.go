@@ -116,6 +116,12 @@ func TestInventoryParallelImagesSpillLargeProgressWithoutTruncation(t *testing.T
 		t.Fatal(err)
 	}
 	state.ImageBuild = nil
+	if err := inventory.Update(ctx, f.service.store, inventory.Prefix+"checkpoint.json", func(value *inventoryCheckpoint) error { *value = state; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if status, err := f.service.inventoryStatus(ctx); err != nil || status.ImagesInProgress != 1 || !status.Building {
+		t.Fatalf("deferred image disappeared from progress: pending=%d building=%t error=%v", status.ImagesInProgress, status.Building, err)
+	}
 	if err := f.service.buildInventoryPage(ctx, &state); err != nil {
 		t.Fatal(err)
 	}

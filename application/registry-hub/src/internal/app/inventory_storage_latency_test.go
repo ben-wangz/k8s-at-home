@@ -126,6 +126,12 @@ func verifyInventoryStorageLatency(t *testing.T, f *stagedAcceptanceFixture, sto
 				}
 			}
 			phase := fmt.Sprintf("source/%d", state.Scan.Phase)
+			if state.Delta != nil {
+				phase = fmt.Sprintf("delta/%d", state.Delta.Phase)
+				if state.Delta.Source != nil {
+					phase += fmt.Sprintf("/graph/%d", state.Delta.Source.Phase)
+				}
+			}
 			if state.Build != nil {
 				phase = fmt.Sprintf("build/%d", state.BuildPhase)
 			}

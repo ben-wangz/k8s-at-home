@@ -77,8 +77,9 @@ func (s *Service) inventoryStatus(ctx context.Context) (inventoryBuildStatus, er
 	if s.inventoryConfig().BatchSize >= 4 {
 		status.ImageConcurrency = 4
 	}
+	status.ImagesInProgress = len(state.ParallelImages) + len(state.DeferredImages)
 	if state.ImageBuild != nil {
-		status.ImagesInProgress = 1 + len(state.ParallelImages) + len(state.DeferredImages)
+		status.ImagesInProgress++
 	}
 	if delta := state.Delta; delta != nil {
 		status.Building = true

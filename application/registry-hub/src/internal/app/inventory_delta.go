@@ -49,21 +49,8 @@ func (s *Service) advanceInventoryDelta(ctx context.Context, p *inventoryDeltaPr
 		}
 		return false, err
 	case 2:
-		entry, ok, err := p.Fanout.Peek(ctx, s.store, inventory.Prefix+"fragments/image/", 32)
-		if err != nil {
+		if err := s.invalidateInventoryFragments(ctx, p); err != nil {
 			return false, err
-		}
-		if ok {
-			fragment, _, err := inventory.Read[inventoryFragment](ctx, s.store, entry.Key)
-			if err != nil && !errors.Is(err, storage.ErrNotFound) {
-				return false, err
-			}
-			if err == nil {
-				if err := s.invalidateInventoryFragment(ctx, fragment, p.Changes, p.Fence); err != nil {
-					return false, err
-				}
-			}
-			p.Fanout.Advance()
 		}
 		if p.Fanout.Done {
 			p.Phase = 3
@@ -110,9 +97,6 @@ func (s *Service) projectInventoryChange(ctx context.Context, p *inventoryDeltaP
 			p.Source, err = s.newInventoryProjection(ctx, id)
 			if errors.Is(err, storage.ErrNotFound) {
 				return true, nil
-			}
-			if err == nil && graph {
-				p.Source.Complete = false
 			}
 			// Persist the capture identity before any immutable graph writes.
 			return false, err
