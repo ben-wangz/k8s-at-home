@@ -9,14 +9,24 @@ import (
 )
 
 func (s *Service) advanceInventorySources(ctx context.Context, state *inventoryCheckpoint) (bool, error) {
-	if s.inventoryReconcile.Swap(false) {
+	if s.inventoryReconcile.Swap(false) && !state.NextReconcileAt.IsZero() {
 		state.NextReconcileAt = time.Time{}
+		return false, nil
 	}
 	if state.Delta != nil || state.Scan.Complete && state.Scan.Phase == 0 && time.Now().Before(state.NextReconcileAt) {
 		if state.Delta == nil {
 			state.Delta = &inventoryDeltaProgress{}
 		}
 		state.Delta.Fence = state.Fence
+		if !state.NextReconcileAt.IsZero() {
+			for _, change := range state.Delta.Changes {
+				if change.Key == "distribution/catalog" {
+					// Commit the reconciliation requirement before retiring its notification.
+					state.NextReconcileAt = time.Time{}
+					return false, nil
+				}
+			}
+		}
 		reserve := min(5*time.Second, s.inventoryConfig().BatchTimeout/4)
 		for step := 0; step < min(4, s.inventoryConfig().BatchSize); step++ {
 			if deadline, ok := ctx.Deadline(); step > 0 && ok && time.Until(deadline) < reserve {
@@ -33,10 +43,20 @@ func (s *Service) advanceInventorySources(ctx context.Context, state *inventoryC
 			}
 			if done {
 				state.Delta = nil
+				if !time.Now().Before(state.NextReconcileAt) {
+					state.Scan.Complete = false
+					return false, nil
+				}
 				return true, nil
 			}
 			if state.Delta.Source != nil && state.Delta.Source.Prefix != prefix {
 				break
+			}
+			for _, change := range state.Delta.Changes {
+				if change.Key == "distribution/catalog" && !state.NextReconcileAt.IsZero() {
+					state.NextReconcileAt = time.Time{}
+					return false, nil
+				}
 			}
 			reserve = max(reserve, 2*time.Since(started))
 		}

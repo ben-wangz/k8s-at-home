@@ -16,6 +16,19 @@ type inventoryChange struct {
 	ChangedAt     time.Time `json:"changedAt"`
 }
 
+func (s *Service) inventoryDistributionChanged(ctx context.Context) {
+	if s.inventory == nil {
+		return
+	}
+	s.inventoryDirty.Store(true)
+	if err := s.recordInventoryChange(ctx, "distribution/catalog", ""); err != nil {
+		if s.metrics != nil {
+			s.metrics.recordEvent("inventory_change_marker_failed")
+		}
+		s.inventoryFailure(err)
+	}
+}
+
 func inventoryChangeKey(key string) string {
 	return inventory.Prefix + "changes/" + inventory.ID("source", key) + ".json"
 }

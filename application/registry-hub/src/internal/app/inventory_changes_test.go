@@ -35,6 +35,9 @@ func TestInventoryMarkerFailureRetainsSourceOutcomeAndRejectsStaleFragment(t *te
 		t.Fatal("failed change marker allowed reuse of an old source version")
 	}
 	state := inventoryCheckpoint{Scan: inventoryScan{Complete: true}, NextReconcileAt: time.Now().Add(-time.Second)}
+	if _, err := f.service.advanceInventorySources(context.Background(), &state); err != nil || !state.NextReconcileAt.IsZero() || !state.Scan.Complete {
+		t.Fatalf("missed marker reconciliation was not checkpointed before advancing: state=%+v error=%v", state, err)
+	}
 	if _, err := f.service.advanceInventorySources(context.Background(), &state); err != nil || state.Delta != nil || state.Scan.Complete {
 		t.Fatalf("periodic reconciliation did not recover missed markers: state=%+v error=%v", state, err)
 	}
