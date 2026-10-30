@@ -46,6 +46,7 @@ func newStagedAcceptanceFixture(t *testing.T, maxBytes int64) *stagedAcceptanceF
 
 func newStagedAcceptanceFixtureWithStore(t *testing.T, maxBytes int64, store storage.Store) *stagedAcceptanceFixture {
 	t.Helper()
+	store = newObservedStore(store, newMetrics(), nil)
 	ctx := context.Background()
 	gate, err := newWriteGate(ctx, store)
 	if err != nil {
@@ -70,6 +71,13 @@ func newStagedAcceptanceFixtureWithStore(t *testing.T, maxBytes int64, store sto
 		records: tasks.NewRecords(store), tasks: manager, metrics: newMetrics(), solidificationSlots: make(chan struct{}, 1)}
 	f.processor = &solidifier{service: f.service, cfg: cfg, cache: cache, store: store,
 		registry: registry, gate: gate, tasks: manager}
+	store.(*observedStore).inventoryChange = func(ctx context.Context, key, version string) error {
+		if f.service.inventory == nil {
+			return nil
+		}
+		return f.service.recordInventoryChange(ctx, key, version)
+	}
+	store.(*observedStore).inventoryNotify = func() { f.service.inventoryDirty.Store(true) }
 	return f
 }
 

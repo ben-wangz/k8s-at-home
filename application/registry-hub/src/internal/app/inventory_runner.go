@@ -31,6 +31,8 @@ type inventoryCheckpoint struct {
 	NextScanAt         time.Time               `json:"nextScanAt"`
 	NextMaintenanceAt  time.Time               `json:"nextMaintenanceAt"`
 	MaintenancePhase   int                     `json:"maintenancePhase,omitempty"`
+	NextReconcileAt    time.Time               `json:"nextReconcileAt,omitempty"`
+	Delta              *inventoryDeltaProgress `json:"delta,omitempty"`
 }
 
 func (s *Service) inventoryConfig() config.Inventory {
@@ -165,10 +167,11 @@ func (s *Service) advanceInventory(ctx context.Context, leader lease.Lease, stat
 			state.ScanStartedAt = time.Now().UTC()
 		}
 		s.inventoryDirty.Store(false)
-		if err := s.scanInventoryUnit(ctx, &state.Scan); err != nil {
+		ready, err := s.advanceInventorySources(ctx, state)
+		if err != nil {
 			return err
 		}
-		if state.Scan.Phase == 0 && state.Scan.Complete {
+		if ready {
 			writer := s.inventory.NewWriter(time.Now().UTC(), s.inventoryConfig().SnapshotRetention, leader.FencingToken)
 			state.Build = &writer.Snapshot
 			gate, err := s.inventoryEpoch(ctx)

@@ -24,6 +24,7 @@ type inventoryGraphProjection struct {
 	Restart  bool                     `json:"restart,omitempty"`
 	Complete bool                     `json:"complete,omitempty"`
 	Restarts uint64                   `json:"restarts,omitempty"`
+	Changes  []inventoryChange        `json:"changes,omitempty"`
 }
 
 func (s *Service) newInventoryProjection(ctx context.Context, id string) (*inventoryGraphProjection, error) {
@@ -40,7 +41,18 @@ func (s *Service) newInventoryProjection(ctx context.Context, id string) (*inven
 	if s.gate != nil {
 		p.Epoch = s.gate.State().Epoch
 	}
+	if err := s.captureInventoryProjectionChanges(ctx, p); err != nil {
+		return nil, err
+	}
 	p.Complete, err = s.reuseInventoryProjection(ctx, p)
+	for _, change := range p.Changes {
+		if strings.HasPrefix(change.Key, "solidification/graphs/") {
+			p.Complete = false
+		}
+	}
+	if err == nil && p.Complete {
+		err = s.acknowledgeInventoryProjection(ctx, p)
+	}
 	return p, err
 }
 
@@ -55,6 +67,9 @@ func (s *Service) advanceInventoryProjection(ctx context.Context, p *inventoryGr
 			return err
 		}
 		if done || p.Task.Kind != tasks.RootKind {
+			if err := s.acknowledgeInventoryProjection(ctx, p); err != nil {
+				return err
+			}
 			p.Complete = true
 			return nil
 		}
@@ -97,11 +112,14 @@ func (s *Service) advanceInventoryProjection(ctx context.Context, p *inventoryGr
 			p.Cursor.Advance()
 		}
 		if p.Cursor.Done {
-			p.Complete = !p.Restart
-			if p.Complete {
+			if !p.Restart {
 				if err := s.saveInventoryProjectionReceipt(ctx, p); err != nil {
 					return err
 				}
+				if err := s.acknowledgeInventoryProjection(ctx, p); err != nil {
+					return err
+				}
+				p.Complete = true
 			}
 			if p.Complete && p.Task.CleanupStarted {
 				if err := inventory.Update(ctx, s.store, inventory.Prefix+"handoffs/"+p.Task.ID+".json", func(value *bool) error { *value = true; return nil }); err != nil {

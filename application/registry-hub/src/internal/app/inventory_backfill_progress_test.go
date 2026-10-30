@@ -31,6 +31,7 @@ func TestInventoryHistoricalBackfillResumesAndReadsEdgesLinearly(t *testing.T) {
 	}
 	defer f.service.tasks.Leases().Release(ctx, leader)
 	state := inventoryCheckpoint{Fence: leader.FencingToken}
+	started := time.Now()
 	failed, unknown := false, false
 	for n := 0; n < 20000; n++ {
 		if root := state.Scan.Root; root != nil && root.Node != nil && len(root.Node.Content.Children) == 1 && !failed {
@@ -50,6 +51,9 @@ func TestInventoryHistoricalBackfillResumesAndReadsEdgesLinearly(t *testing.T) {
 		}
 		if state.Build == nil && state.Scan.Complete {
 			break
+		}
+		if time.Since(started) > 5*time.Minute {
+			t.Fatal("historical initial publication exceeded five minutes")
 		}
 		if n == 19999 {
 			t.Fatal("historical backfill did not converge")
@@ -85,4 +89,6 @@ func TestInventoryHistoricalBackfillResumesAndReadsEdgesLinearly(t *testing.T) {
 	if err != nil || len(staging) != 0 {
 		t.Fatalf("staging survived completed backfill: entries=%d err=%v", len(staging), err)
 	}
+	t.Logf("historical initial publication=%s; manifests=104 edges=303 blob records=50", time.Since(started))
+	verifyInventoryHistoricalRefresh(t, f.service, leader, state)
 }

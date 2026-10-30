@@ -31,16 +31,20 @@ func TestInventoryLeaderTakeoverPreservesBuildAndFencesPublication(t *testing.T)
 	state := inventoryCheckpoint{Fence: first.FencingToken, Build: &writer.Snapshot, Scan: inventoryScan{Complete: true}}
 	for n := 0; n < 1000; n++ {
 		if err := f.service.advanceInventory(ctx, first, &state); err != nil {
-			t.Fatal(err)
+			t.Fatalf("step=%d build=%d image=%+v: %v", n, state.BuildPhase, state.ImageBuild, err)
 		}
-		if state.ImageBuild != nil && state.ImageBuild.Offset > 0 {
+		if state.ImageBuild != nil && (state.ImageBuild.Offset > 0 || state.ImageBuild.Reuse != nil && state.ImageBuild.Reuse.Offset > 0) {
 			break
 		}
 	}
-	if state.ImageBuild == nil || state.ImageBuild.Offset == 0 {
+	if state.ImageBuild == nil || state.ImageBuild.Offset == 0 && (state.ImageBuild.Reuse == nil || state.ImageBuild.Reuse.Offset == 0) {
 		t.Fatal("did not capture partial image progress")
 	}
 	id, offset := state.Build.SnapshotID, state.ImageBuild.Offset
+	reuseOffset := 0
+	if state.ImageBuild.Reuse != nil {
+		reuseOffset = state.ImageBuild.Reuse.Offset
+	}
 	if err := f.service.tasks.Leases().Release(ctx, first); err != nil {
 		t.Fatal(err)
 	}
@@ -54,6 +58,9 @@ func TestInventoryLeaderTakeoverPreservesBuildAndFencesPublication(t *testing.T)
 	}
 	if state.Build.SnapshotID != id || state.ImageBuild.Offset != offset || state.Build.BuilderFence != second.FencingToken {
 		t.Fatal("takeover discarded partial capture")
+	}
+	if reuseOffset > 0 && (state.ImageBuild.Reuse == nil || state.ImageBuild.Reuse.Offset != reuseOffset) {
+		t.Fatal("takeover discarded fragment validation progress")
 	}
 	oldWriter := f.service.inventory.ResumeWriter(oldSnapshot)
 	if err := oldWriter.Publish(ctx, true, nil); !errors.Is(err, inventory.ErrSuperseded) {

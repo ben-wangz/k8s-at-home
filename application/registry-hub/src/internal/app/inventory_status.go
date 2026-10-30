@@ -51,6 +51,9 @@ type inventoryBuildStatus struct {
 	ErrorAt                  time.Time              `json:"errorAt,omitempty"`
 	ErrorClass               string                 `json:"errorClass,omitempty"`
 	NextAttemptAt            time.Time              `json:"nextAttemptAt,omitempty"`
+	Incremental              *inventoryDeltaStatus  `json:"incremental,omitempty"`
+	NextReconcileAt          time.Time              `json:"nextReconcileAt,omitempty"`
+	FragmentValidationOffset int                    `json:"fragmentValidationOffset"`
 }
 
 type inventoryBuildError struct {
@@ -66,7 +69,15 @@ func (s *Service) inventoryStatus(ctx context.Context) (inventoryBuildStatus, er
 	status.ScanStartedAt, status.LastPublishedAt, status.LastCompletePublishedAt = state.ScanStartedAt, state.LastPublishedAt, state.LastCompleteAt
 	status.LastBuildSeconds, status.LastRefreshSeconds = state.LastBuildSeconds, state.LastRefreshSeconds
 	status.LocalDirtyHint = s.inventoryDirty.Load()
-	status.SourceCoverage = "non-atomic source sweeps; localDirtyHint is process-local and does not enumerate unseen source commits"
+	status.SourceCoverage = "durable change markers with bounded fanout; non-atomic periodic reconciliation recovers missed markers and legacy sources; localDirtyHint is process-local"
+	status.NextReconcileAt = state.NextReconcileAt
+	if delta := state.Delta; delta != nil {
+		status.Building = true
+		status.Incremental = &inventoryDeltaStatus{Phase: delta.Phase, BufferedChanges: len(delta.Changes), SourceOffset: delta.Offset, JournalOffset: delta.Cursor.Offset, FanoutOffset: delta.Fanout.Offset}
+		if delta.Source != nil {
+			status.TaskID, status.GraphPhase = delta.Source.Task.ID, delta.Source.Phase
+		}
+	}
 	if !state.ScanStartedAt.IsZero() {
 		status.RefreshElapsedSeconds = max(0, time.Since(state.ScanStartedAt).Seconds())
 	}
@@ -104,6 +115,9 @@ func (s *Service) inventoryStatus(ctx context.Context) (inventoryBuildStatus, er
 		status.ImageID, status.ImagePhase, status.ObjectOffset = image.Image.ID, image.Phase, image.Offset
 		status.CapturePhase, status.CaptureOffset = image.Capture.Phase, image.Capture.Offset
 		status.ClosureDepth = len(image.Closure.Frames)
+		if image.Reuse != nil {
+			status.FragmentValidationOffset = image.Reuse.Offset
+		}
 		if image.Audit != nil {
 			status.AuditOffset = image.Audit.Offset
 		}
@@ -128,6 +142,14 @@ func (s *Service) inventoryStatus(ctx context.Context) (inventoryBuildStatus, er
 		status.GraphToken = inventory.ID("checkpoint-token", status.GraphToken)
 	}
 	return status, nil
+}
+
+type inventoryDeltaStatus struct {
+	Phase           int `json:"phase"`
+	BufferedChanges int `json:"bufferedChanges"`
+	SourceOffset    int `json:"sourceOffset"`
+	JournalOffset   int `json:"journalOffset"`
+	FanoutOffset    int `json:"fanoutOffset"`
 }
 
 func (s *Service) inventoryErrorStatus(ctx context.Context, cause error, delay time.Duration) {

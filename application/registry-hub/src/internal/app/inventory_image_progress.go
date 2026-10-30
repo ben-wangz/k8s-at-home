@@ -22,6 +22,10 @@ type inventoryImageProgress struct {
 	Audit         *inventoryAuditProgress   `json:"audit,omitempty"`
 	ClosureReuse  *inventoryClosureReuse    `json:"closureReuse,omitempty"`
 	TopologySaved bool                      `json:"topologySaved,omitempty"`
+	Dependencies  inventoryDependencies     `json:"dependencies"`
+	Reuse         *inventoryFragmentReuse   `json:"reuse,omitempty"`
+	DirtyRevision string                    `json:"dirtyRevision,omitempty"`
+	Fence         uint64                    `json:"fence,omitempty"`
 }
 
 func (s *Service) newInventoryImageProgress(ctx context.Context, image inventory.Image, content inventory.Content) (*inventoryImageProgress, error) {
@@ -45,6 +49,13 @@ func (s *Service) newInventoryImageProgress(ctx context.Context, image inventory
 		return nil, err
 	}
 	p := &inventoryImageProgress{Image: image, Content: content, Epoch: gate.Epoch, Closure: newInventoryClosureProgress(image.ResolvedDigest), Objects: []inventory.Object{}}
+	p.DirtyRevision, err = s.inventoryImageDirtyRevision(ctx, image.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.loadInventoryFragment(ctx, p); err != nil || p.Reuse != nil {
+		return p, err
+	}
 	if err := s.loadClosureReuse(ctx, p); err != nil {
 		return nil, err
 	}
@@ -52,6 +63,11 @@ func (s *Service) newInventoryImageProgress(ctx context.Context, image inventory
 }
 
 func (s *Service) advanceInventoryImage(ctx context.Context, writer *inventory.Writer, p *inventoryImageProgress) (bool, error) {
+	p.Fence = writer.Snapshot.BuilderFence
+	if p.Reuse != nil {
+		return false, s.advanceInventoryFragment(ctx, p)
+	}
+	ctx = context.WithValue(ctx, inventoryDependenciesKey{}, &p.Dependencies)
 	image := &p.Image
 	switch p.Phase {
 	case 0:
@@ -92,6 +108,9 @@ func (s *Service) advanceInventoryImage(ctx context.Context, writer *inventory.W
 			return false, nil
 		}
 		image.Cache, image.Availability, p.Anchored = summarizeInventoryObjects(p.Objects, p.Closure.Complete)
+		if err := s.saveInventoryFragment(ctx, p, "content"); err != nil {
+			return false, err
+		}
 		p.Closure.Objects = nil
 		p.Offset, p.Phase = 0, 2
 	case 2:
@@ -118,7 +137,14 @@ func (s *Service) advanceInventoryImage(ctx context.Context, writer *inventory.W
 	case 6:
 		return false, s.advanceInventoryRequirements(ctx, writer, p)
 	case 7:
-		return writer.CaptureImage(ctx, image, p.Objects, p.Closure.Platforms, &p.Capture)
+		done, err := writer.CaptureImage(ctx, image, p.Objects, p.Closure.Platforms, &p.Capture)
+		if err == nil && done {
+			err = s.saveInventoryFragment(ctx, p, "image")
+		}
+		if err == nil && done {
+			err = s.acknowledgeInventoryImage(ctx, p)
+		}
+		return done && err == nil, err
 	default:
 		return false, storage.ErrCorruptObject
 	}

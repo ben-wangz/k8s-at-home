@@ -78,7 +78,7 @@ func (s *Service) runInventoryBatch(ctx context.Context, leader lease.Lease, sta
 }
 
 func (s *Service) inventoryIdle(state *inventoryCheckpoint) bool {
-	return state.Build == nil && state.Scan.Phase == 0 && state.Scan.Token == "" && state.Scan.Page == nil && state.Scan.Root == nil && len(state.Scan.Links) == 0 && state.NextScanAt.After(time.Now()) && !s.inventoryDirty.Load()
+	return state.Build == nil && state.Delta == nil && state.Scan.Phase == 0 && state.Scan.Token == "" && state.Scan.Page == nil && state.Scan.Root == nil && len(state.Scan.Links) == 0 && state.NextScanAt.After(time.Now()) && !s.inventoryDirty.Load()
 }
 
 func (s *Service) maintainInventory(ctx context.Context, state *inventoryCheckpoint) {
@@ -91,7 +91,7 @@ func (s *Service) maintainInventory(ctx context.Context, state *inventoryCheckpo
 	defer cancel()
 	var err error
 	reserve := budget / 4
-	snapshotsDone, workDone := false, false
+	complete := [3]bool{}
 	for step := 0; step < s.inventoryConfig().BatchSize; step++ {
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < reserve {
 			if s.metrics != nil {
@@ -100,14 +100,20 @@ func (s *Service) maintainInventory(ctx context.Context, state *inventoryCheckpo
 			break
 		}
 		started := time.Now()
-		if state.MaintenancePhase == 0 && !snapshotsDone {
-			snapshotsDone, err = s.cleanupInventorySnapshots(ctx, "")
-		} else if !workDone {
-			workDone, err = s.cleanupInventoryWork(ctx)
+		phase := state.MaintenancePhase % len(complete)
+		if !complete[phase] {
+			switch phase {
+			case 0:
+				complete[phase], err = s.cleanupInventorySnapshots(ctx, "")
+			case 1:
+				complete[phase], err = s.cleanupInventoryWork(ctx)
+			case 2:
+				complete[phase], err = s.cleanupInventoryFragments(ctx)
+			}
 		}
-		state.MaintenancePhase = (state.MaintenancePhase + 1) % 2
+		state.MaintenancePhase = (phase + 1) % len(complete)
 		reserve = max(reserve, 2*time.Since(started))
-		if err != nil || snapshotsDone && workDone {
+		if err != nil || complete[0] && complete[1] && complete[2] {
 			break
 		}
 	}

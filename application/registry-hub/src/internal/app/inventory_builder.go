@@ -76,6 +76,8 @@ func (s *Service) buildInventoryPage(ctx context.Context, state *inventoryCheckp
 }
 
 func (s *Service) startInventoryImage(ctx context.Context, state *inventoryCheckpoint, writer *inventory.Writer, key string) error {
+	dependencies := inventoryDependencies{}
+	ctx = context.WithValue(ctx, inventoryDependenciesKey{}, &dependencies)
 	var image inventory.Image
 	var content inventory.Content
 	var err error
@@ -128,6 +130,9 @@ func (s *Service) startInventoryImage(ctx context.Context, state *inventoryCheck
 		return nil
 	}
 	state.ImageBuild, err = s.newInventoryImageProgress(ctx, image, content)
+	if err == nil {
+		state.ImageBuild.Dependencies = dependencies
+	}
 	return err
 }
 

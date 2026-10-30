@@ -71,6 +71,11 @@ func TestInventoryClosureTopologyReuseRejectsChangedSourceVersion(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, kind := range []string{"image", "content"} {
+		if err := f.service.store.Delete(ctx, inventoryFragmentKey(image, kind)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	p, err := f.service.newInventoryImageProgress(ctx, image, content)
 	if err != nil || p.ClosureReuse == nil {
 		t.Fatalf("complete closure was not reusable: %+v %v", p, err)

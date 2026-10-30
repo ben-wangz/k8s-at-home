@@ -124,6 +124,7 @@ func expectedStorageError(err error) bool {
 type observedStore struct {
 	diagnosticFailure func(context.Context, string, error, time.Time)
 	inventoryNotify   func()
+	inventoryChange   func(context.Context, string, string) error
 	storage.Store
 	metrics *metrics
 	logger  *slog.Logger

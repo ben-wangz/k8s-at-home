@@ -40,6 +40,7 @@ type Service struct {
 	records                 *tasks.Records
 	inventory               *inventory.Repository
 	inventoryDirty          atomic.Bool
+	inventoryReconcile      atomic.Bool
 	inventoryInstalledAt    time.Time
 	gate                    *writeGate
 	uploads                 *uploadSessions
@@ -165,6 +166,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	remote.SetHTTPAttemptObserver(service.recordUpstreamHTTPAttempt)
 	if observed, ok := store.(*observedStore); ok {
 		observed.inventoryNotify = func() { service.inventoryDirty.Store(true) }
+		observed.inventoryChange = service.recordInventoryChange
 		observed.diagnosticFailure = service.recordDiagnosticStorageFailure
 	}
 	for index := range service.upstreamPerKey {

@@ -67,6 +67,7 @@ func TestInventoryBuilderResumesSourceCheckpointAndRepeatsFullScan(t *testing.T)
 		t.Fatal("historical coverage limit omitted")
 	}
 	restored.NextScanAt = time.Time{}
+	restored.NextReconcileAt = time.Time{}
 	if err := f.service.advanceInventory(ctx, leader, &restored); err != nil {
 		t.Fatal(err)
 	}
