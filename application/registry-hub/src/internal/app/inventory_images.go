@@ -11,7 +11,11 @@ import (
 
 func (s *Service) enrollInventoryImages(ctx context.Context, state *inventoryCheckpoint, writer *inventory.Writer, prefix string) error {
 	images := []*inventoryImageProgress{}
-	for range 4 {
+	if state.ImageBuild != nil {
+		images = append(images, state.ImageBuild)
+		images = append(images, state.ParallelImages...)
+	}
+	for len(images) < 4 {
 		entry, ok, err := state.BuildPage.Peek(ctx, s.store, prefix, s.inventoryConfig().BatchSize)
 		if err != nil || !ok {
 			if err != nil {

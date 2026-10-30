@@ -18,109 +18,130 @@ import (
 )
 
 func TestInventoryClientPublicationReconcilesOnlyChangedRepository(t *testing.T) {
-	f := newStagedAcceptanceFixture(t, 1<<20)
-	enableInventory(f)
-	f.service.pushSlots = make(chan struct{}, 1)
-	ctx := context.Background()
-	routed, err := route.Parse("/v2/ghcr.io/team/image/manifests/latest")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var catalogReads atomic.Int64
-	f.service.registry = newLocalRegistry(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v2/_catalog" || r.URL.Path == "/v2/"+routed.Internal+"/tags/list" {
-			f.mu.Lock()
-			_, published := f.objects["latest"]
-			f.mu.Unlock()
-			values := []string{}
-			field := "repositories"
-			if r.URL.Path == "/v2/_catalog" {
-				catalogReads.Add(1)
-				if published && r.URL.Query().Get("last") == "" {
-					values = append(values, routed.Internal)
+	for _, duringBuild := range []bool{false, true} {
+		t.Run(map[bool]string{false: "idle", true: "during_build"}[duringBuild], func(t *testing.T) {
+			f := newStagedAcceptanceFixture(t, 1<<20)
+			enableInventory(f)
+			f.service.pushSlots = make(chan struct{}, 1)
+			ctx := context.Background()
+			routed, err := route.Parse("/v2/ghcr.io/team/image/manifests/latest")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var catalogReads atomic.Int64
+			f.service.registry = newLocalRegistry(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v2/_catalog" || r.URL.Path == "/v2/"+routed.Internal+"/tags/list" {
+					f.mu.Lock()
+					_, published := f.objects["latest"]
+					f.mu.Unlock()
+					values := []string{}
+					field := "repositories"
+					if r.URL.Path == "/v2/_catalog" {
+						catalogReads.Add(1)
+						if published && r.URL.Query().Get("last") == "" {
+							values = append(values, routed.Internal)
+						}
+					} else {
+						field = "tags"
+						if published {
+							values = append(values, "latest")
+						}
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(w).Encode(map[string][]string{field: values})
+					return
 				}
-			} else {
-				field = "tags"
-				if published {
-					values = append(values, "latest")
+				f.serveHTTP(w, r)
+			}))
+			leader, err := f.service.tasks.Leases().Acquire(ctx, "inventory/builder", "test", time.Minute)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.service.tasks.Leases().Release(ctx, leader)
+			state := inventoryCheckpoint{SchemaVersion: 1, Fence: leader.FencingToken}
+			advance := func() {
+				t.Helper()
+				if err := f.service.advanceInventory(ctx, leader, &state); err != nil {
+					t.Fatal(err)
+				}
+				state, _, err = inventory.Read[inventoryCheckpoint](ctx, f.service.store, inventory.Prefix+"checkpoint.json")
+				if err != nil {
+					t.Fatal(err)
+				}
+				// Model another replica resuming solely from durable checkpoints and notifications.
+				f.service.inventoryDirty.Store(false)
+				f.service.inventoryReconcile.Store(false)
+			}
+			for step := 0; state.LastPublishedAt.IsZero(); step++ {
+				if step == 1000 {
+					t.Fatal("initial inventory did not converge")
+				}
+				advance()
+			}
+			if !state.NextReconcileAt.After(time.Now().Add(4 * time.Minute)) {
+				t.Fatal("test requires a future periodic reconciliation deadline")
+			}
+			initialCatalogReads, reconcileAt := catalogReads.Load(), state.NextReconcileAt
+			if duringBuild {
+				state.NextScanAt = time.Time{}
+				for step := 0; state.Build == nil; step++ {
+					if step == 1000 {
+						t.Fatal("test draft did not start before client publication")
+					}
+					advance()
+				}
+				if err := f.service.recordInventoryChange(ctx, "tasks/state/unrelated.json", "unrelated-version"); err != nil {
+					t.Fatal(err)
 				}
 			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string][]string{field: values})
-			return
-		}
-		f.serveHTTP(w, r)
-	}))
-	leader, err := f.service.tasks.Leases().Acquire(ctx, "inventory/builder", "test", time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.service.tasks.Leases().Release(ctx, leader)
-	state := inventoryCheckpoint{SchemaVersion: 1, Fence: leader.FencingToken}
-	advance := func() {
-		t.Helper()
-		if err := f.service.advanceInventory(ctx, leader, &state); err != nil {
-			t.Fatal(err)
-		}
-		state, _, err = inventory.Read[inventoryCheckpoint](ctx, f.service.store, inventory.Prefix+"checkpoint.json")
-		if err != nil {
-			t.Fatal(err)
-		}
-		// Model another replica resuming solely from durable checkpoints and notifications.
-		f.service.inventoryDirty.Store(false)
-		f.service.inventoryReconcile.Store(false)
-	}
-	for step := 0; state.LastPublishedAt.IsZero(); step++ {
-		if step == 1000 {
-			t.Fatal("initial inventory did not converge")
-		}
-		advance()
-	}
-	if !state.NextReconcileAt.After(time.Now().Add(4 * time.Minute)) {
-		t.Fatal("test requires a future periodic reconciliation deadline")
-	}
-	initialCatalogReads, reconcileAt := catalogReads.Load(), state.NextReconcileAt
-	configBody := []byte(`{"os":"linux","architecture":"amd64"}`)
-	config := artifact.Descriptor{Digest: artifact.CalculateSHA256(configBody), MediaType: "application/vnd.oci.image.config.v1+json", Size: int64(len(configBody))}
-	body, _ := json.Marshal(artifact.Manifest{SchemaVersion: 2, MediaType: ociManifestMediaType, Config: &config, Layers: []artifact.Descriptor{}})
-	digest := artifact.CalculateSHA256(body)
-	f.objects[config.Digest] = stagedAcceptanceObject{body: configBody, mediaType: config.MediaType}
-	f.objects[digest] = stagedAcceptanceObject{body: body, mediaType: ociManifestMediaType}
-	request := httptest.NewRequest(http.MethodPut, "/v2/ghcr.io/team/image/manifests/latest", bytes.NewReader(body))
-	request.Header.Set("Content-Type", ociManifestMediaType)
-	response := httptest.NewRecorder()
-	f.service.pushManifest(response, request, routed, url.Values{}, &requestMeta{})
-	if response.Code != http.StatusCreated {
-		t.Fatalf("manifest push: status=%d body=%s", response.Code, response.Body.String())
-	}
-	change, _, err := inventory.Read[inventoryChange](ctx, f.service.store, inventoryChangeKey("distribution/repositories/"+routed.Internal))
-	if err != nil || change.Revision == "" {
-		t.Fatalf("publication notification missing: %+v error=%v", change, err)
-	}
-	state.NextScanAt = time.Time{}
-	initialPublication := state.LastPublishedAt
-	for step := 0; state.LastPublishedAt.Equal(initialPublication); step++ {
-		if step == 1000 {
-			t.Fatal("publication was not discovered before periodic reconciliation")
-		}
-		advance()
-		_, _, markerErr := inventory.Read[inventoryChange](ctx, f.service.store, inventoryChangeKey(change.Key))
-		if errors.Is(markerErr, storage.ErrNotFound) {
-			if _, _, err := inventory.Read[inventory.Binding](ctx, f.service.store, inventory.Prefix+"bindings/"+inventoryIdentity("ghcr.io", "team/image", "latest").ID()+".json"); err != nil {
-				t.Fatalf("notification retired before projecting publication: %v", err)
+			configBody := []byte(`{"os":"linux","architecture":"amd64"}`)
+			config := artifact.Descriptor{Digest: artifact.CalculateSHA256(configBody), MediaType: "application/vnd.oci.image.config.v1+json", Size: int64(len(configBody))}
+			body, _ := json.Marshal(artifact.Manifest{SchemaVersion: 2, MediaType: ociManifestMediaType, Config: &config, Layers: []artifact.Descriptor{}})
+			digest := artifact.CalculateSHA256(body)
+			f.objects[config.Digest] = stagedAcceptanceObject{body: configBody, mediaType: config.MediaType}
+			f.objects[digest] = stagedAcceptanceObject{body: body, mediaType: ociManifestMediaType}
+			request := httptest.NewRequest(http.MethodPut, "/v2/ghcr.io/team/image/manifests/latest", bytes.NewReader(body))
+			request.Header.Set("Content-Type", ociManifestMediaType)
+			response := httptest.NewRecorder()
+			f.service.pushManifest(response, request, routed, url.Values{}, &requestMeta{})
+			if response.Code != http.StatusCreated {
+				t.Fatalf("manifest push: status=%d body=%s", response.Code, response.Body.String())
 			}
-		}
-	}
-	if catalogReads.Load() != initialCatalogReads || !state.NextReconcileAt.Equal(reconcileAt) {
-		t.Fatal("repository publication forced global source reconciliation")
-	}
-	snapshot, err := f.service.inventory.Snapshot(ctx, "", time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	image := inventoryTestImage(t, f.service, snapshot, inventoryIdentity("ghcr.io", "team/image", "latest").ID())
-	if image.Category != "solidified" || image.ResolvedDigest != digest || image.Availability.State != "complete" {
-		t.Fatalf("published manifest missing from refreshed inventory: %+v", image)
+			change, _, err := inventory.Read[inventoryChange](ctx, f.service.store, inventoryChangeKey("distribution/repositories/"+routed.Internal))
+			if err != nil || change.Revision == "" {
+				t.Fatalf("publication notification missing: %+v error=%v", change, err)
+			}
+			state.NextScanAt = time.Time{}
+			initialPublication := state.LastPublishedAt
+			for step := 0; state.LastPublishedAt.Equal(initialPublication); step++ {
+				if step == 1000 {
+					t.Fatal("publication was not discovered before periodic reconciliation")
+				}
+				advance()
+				_, _, markerErr := inventory.Read[inventoryChange](ctx, f.service.store, inventoryChangeKey(change.Key))
+				if errors.Is(markerErr, storage.ErrNotFound) {
+					if _, _, err := inventory.Read[inventory.Binding](ctx, f.service.store, inventory.Prefix+"bindings/"+inventoryIdentity("ghcr.io", "team/image", "latest").ID()+".json"); err != nil {
+						t.Fatalf("notification retired before projecting publication: %v", err)
+					}
+				}
+			}
+			if catalogReads.Load() != initialCatalogReads || !state.NextReconcileAt.Equal(reconcileAt) {
+				t.Fatal("repository publication forced global source reconciliation")
+			}
+			if duringBuild {
+				if _, _, err := inventory.Read[inventoryChange](ctx, f.service.store, inventoryChangeKey("tasks/state/unrelated.json")); err != nil {
+					t.Fatalf("publication-only pass retired unrelated source work: %v", err)
+				}
+			}
+			snapshot, err := f.service.inventory.Snapshot(ctx, "", time.Minute)
+			if err != nil {
+				t.Fatal(err)
+			}
+			image := inventoryTestImage(t, f.service, snapshot, inventoryIdentity("ghcr.io", "team/image", "latest").ID())
+			if image.Category != "solidified" || image.ResolvedDigest != digest || image.Availability.State != "complete" {
+				t.Fatalf("published manifest missing from refreshed inventory: %+v", image)
+			}
+		})
 	}
 }
 

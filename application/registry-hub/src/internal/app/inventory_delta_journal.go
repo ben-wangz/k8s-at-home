@@ -5,6 +5,7 @@ import (
 	"errors"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
+	"strings"
 	"sync"
 )
 
@@ -44,7 +45,10 @@ func (s *Service) acknowledgeInventoryChanges(ctx context.Context, p *inventoryD
 	var workers sync.WaitGroup
 	for index := range failures {
 		workers.Go(func() {
-			failures[index] = s.acknowledgeInventoryChange(ctx, p.Changes[p.Offset+index])
+			change := p.Changes[p.Offset+index]
+			if !p.PublicationsOnly || strings.HasPrefix(change.Key, "distribution/repositories/") {
+				failures[index] = s.acknowledgeInventoryChange(ctx, change)
+			}
 		})
 	}
 	workers.Wait()

@@ -25,11 +25,18 @@ func (s *Service) buildInventoryPage(ctx context.Context, state *inventoryCheckp
 		state.Build = &writer.Snapshot
 		return err
 	}
+	if state.BuildPhase == 1 && !state.PublicationsCaptured {
+		return s.captureInventoryBuildPublications(ctx, state)
+	}
 	if state.ImageBuild == nil && len(state.DeferredImages) > 0 {
 		return s.resumeDeferredInventoryImage(ctx, state)
 	}
 	if state.ImageBuild != nil {
 		if state.ImagesEnrolled {
+			if state.BuildPage != nil && !state.BuildPage.Done && len(state.ParallelImages) < 3 && len(state.DeferredImages) == 0 {
+				prefixes := []string{"contents/", "bindings/", "cache/", "snapshots/" + state.Build.SnapshotID + "/pending/"}
+				return s.enrollInventoryImages(ctx, state, writer, inventory.Prefix+prefixes[state.BuildPhase])
+			}
 			return s.advanceInventoryImages(ctx, state)
 		}
 		done, err := s.advanceInventoryImageUnit(ctx, writer, state.ImageBuild)

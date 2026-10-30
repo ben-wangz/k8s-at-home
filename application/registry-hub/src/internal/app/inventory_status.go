@@ -9,53 +9,54 @@ import (
 )
 
 type inventoryBuildStatus struct {
-	Background               *backgroundStatus      `json:"background,omitempty"`
-	Building                 bool                   `json:"building"`
-	ScanStartedAt            time.Time              `json:"scanStartedAt,omitempty"`
-	BuildStartedAt           time.Time              `json:"buildStartedAt,omitempty"`
-	RefreshElapsedSeconds    float64                `json:"refreshElapsedSeconds"`
-	BuildElapsedSeconds      float64                `json:"buildElapsedSeconds"`
-	LastPublishedAt          time.Time              `json:"lastPublishedAt,omitempty"`
-	LastCompletePublishedAt  time.Time              `json:"lastCompletePublishedAt,omitempty"`
-	LastBuildSeconds         float64                `json:"lastBuildSeconds"`
-	LastRefreshSeconds       float64                `json:"lastRefreshSeconds"`
-	SnapshotExpiresInSeconds *float64               `json:"snapshotExpiresInSeconds"`
-	LocalDirtyHint           bool                   `json:"localDirtyHint"`
-	SourceCoverage           string                 `json:"sourceCoverage"`
-	ReadErrors               map[string]string      `json:"readErrors,omitempty"`
-	Fence                    uint64                 `json:"fence"`
-	ProgressAt               time.Time              `json:"progressAt"`
-	Steps                    uint64                 `json:"steps"`
-	Batch                    inventoryBatchProgress `json:"batch"`
-	SourcePhase              int                    `json:"sourcePhase"`
-	SourceToken              string                 `json:"sourceToken,omitempty"`
-	SourceOffset             int                    `json:"sourceOffset"`
-	TaskID                   string                 `json:"taskID,omitempty"`
-	GraphPhase               int                    `json:"graphPhase"`
-	GraphStage               string                 `json:"graphStage,omitempty"`
-	GraphToken               string                 `json:"graphToken,omitempty"`
-	GraphOffset              int                    `json:"graphOffset"`
-	ParentDigest             string                 `json:"parentDigest,omitempty"`
-	ChildOffset              int                    `json:"childOffset"`
-	NodePhase                int                    `json:"nodePhase"`
-	GraphRestarts            uint64                 `json:"graphRestarts"`
-	SnapshotID               string                 `json:"snapshotID,omitempty"`
-	BuildPhase               int                    `json:"buildPhase"`
-	ImageID                  string                 `json:"imageID,omitempty"`
-	ImagePhase               int                    `json:"imagePhase"`
-	ObjectOffset             int                    `json:"objectOffset"`
-	AuditOffset              int64                  `json:"auditOffset"`
-	CapturePhase             int                    `json:"capturePhase"`
-	CaptureOffset            int                    `json:"captureOffset"`
-	ClosureDepth             int                    `json:"closureDepth"`
-	ErrorAt                  time.Time              `json:"errorAt,omitempty"`
-	ErrorClass               string                 `json:"errorClass,omitempty"`
-	NextAttemptAt            time.Time              `json:"nextAttemptAt,omitempty"`
-	Incremental              *inventoryDeltaStatus  `json:"incremental,omitempty"`
-	NextReconcileAt          time.Time              `json:"nextReconcileAt,omitempty"`
-	FragmentValidationOffset int                    `json:"fragmentValidationOffset"`
-	ImageConcurrency         int                    `json:"imageConcurrency"`
-	ImagesInProgress         int                    `json:"imagesInProgress"`
+	Background                *backgroundStatus      `json:"background,omitempty"`
+	Building                  bool                   `json:"building"`
+	ScanStartedAt             time.Time              `json:"scanStartedAt,omitempty"`
+	BuildStartedAt            time.Time              `json:"buildStartedAt,omitempty"`
+	RefreshElapsedSeconds     float64                `json:"refreshElapsedSeconds"`
+	BuildElapsedSeconds       float64                `json:"buildElapsedSeconds"`
+	LastPublishedAt           time.Time              `json:"lastPublishedAt,omitempty"`
+	LastCompletePublishedAt   time.Time              `json:"lastCompletePublishedAt,omitempty"`
+	LastBuildSeconds          float64                `json:"lastBuildSeconds"`
+	LastRefreshSeconds        float64                `json:"lastRefreshSeconds"`
+	SnapshotExpiresInSeconds  *float64               `json:"snapshotExpiresInSeconds"`
+	LocalDirtyHint            bool                   `json:"localDirtyHint"`
+	SourceCoverage            string                 `json:"sourceCoverage"`
+	ReadErrors                map[string]string      `json:"readErrors,omitempty"`
+	Fence                     uint64                 `json:"fence"`
+	ProgressAt                time.Time              `json:"progressAt"`
+	Steps                     uint64                 `json:"steps"`
+	Batch                     inventoryBatchProgress `json:"batch"`
+	SourcePhase               int                    `json:"sourcePhase"`
+	SourceToken               string                 `json:"sourceToken,omitempty"`
+	SourceOffset              int                    `json:"sourceOffset"`
+	TaskID                    string                 `json:"taskID,omitempty"`
+	GraphPhase                int                    `json:"graphPhase"`
+	GraphStage                string                 `json:"graphStage,omitempty"`
+	GraphToken                string                 `json:"graphToken,omitempty"`
+	GraphOffset               int                    `json:"graphOffset"`
+	ParentDigest              string                 `json:"parentDigest,omitempty"`
+	ChildOffset               int                    `json:"childOffset"`
+	NodePhase                 int                    `json:"nodePhase"`
+	GraphRestarts             uint64                 `json:"graphRestarts"`
+	SnapshotID                string                 `json:"snapshotID,omitempty"`
+	BuildPhase                int                    `json:"buildPhase"`
+	ImageID                   string                 `json:"imageID,omitempty"`
+	ImagePhase                int                    `json:"imagePhase"`
+	ObjectOffset              int                    `json:"objectOffset"`
+	AuditOffset               int64                  `json:"auditOffset"`
+	CapturePhase              int                    `json:"capturePhase"`
+	CaptureOffset             int                    `json:"captureOffset"`
+	ClosureDepth              int                    `json:"closureDepth"`
+	ErrorAt                   time.Time              `json:"errorAt,omitempty"`
+	ErrorClass                string                 `json:"errorClass,omitempty"`
+	NextAttemptAt             time.Time              `json:"nextAttemptAt,omitempty"`
+	Incremental               *inventoryDeltaStatus  `json:"incremental,omitempty"`
+	NextReconcileAt           time.Time              `json:"nextReconcileAt,omitempty"`
+	FragmentValidationOffset  int                    `json:"fragmentValidationOffset"`
+	ImageConcurrency          int                    `json:"imageConcurrency"`
+	ImagesInProgress          int                    `json:"imagesInProgress"`
+	PublicationReconciliation *inventoryDeltaStatus  `json:"publicationReconciliation,omitempty"`
 }
 
 type inventoryBuildError struct {
@@ -73,6 +74,9 @@ func (s *Service) inventoryStatus(ctx context.Context) (inventoryBuildStatus, er
 	status.LocalDirtyHint = s.inventoryDirty.Load()
 	status.SourceCoverage = "durable change markers with bounded fanout; non-atomic periodic reconciliation recovers missed markers and legacy sources; localDirtyHint is process-local"
 	status.NextReconcileAt = state.NextReconcileAt
+	if p := state.Publications; p != nil {
+		status.PublicationReconciliation = &inventoryDeltaStatus{Phase: p.Phase, BufferedChanges: len(p.Changes), SourceOffset: p.Offset, JournalOffset: p.Cursor.Offset}
+	}
 	status.ImageConcurrency = 1
 	if s.inventoryConfig().BatchSize >= 4 {
 		status.ImageConcurrency = 4

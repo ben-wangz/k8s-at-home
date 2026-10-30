@@ -9,15 +9,16 @@ import (
 )
 
 type inventoryDeltaProgress struct {
-	Fence     uint64                    `json:"fence,omitempty"`
-	Cursor    inventory.Cursor          `json:"cursor"`
-	Changes   []inventoryChange         `json:"changes,omitempty"`
-	Offset    int                       `json:"offset"`
-	Phase     int                       `json:"phase"`
-	Fanout    inventory.Cursor          `json:"fanout"`
-	Source    *inventoryGraphProjection `json:"source,omitempty"`
-	Links     inventoryScan             `json:"links"`
-	Projected bool                      `json:"projected,omitempty"`
+	Fence            uint64                    `json:"fence,omitempty"`
+	Cursor           inventory.Cursor          `json:"cursor"`
+	Changes          []inventoryChange         `json:"changes,omitempty"`
+	Offset           int                       `json:"offset"`
+	Phase            int                       `json:"phase"`
+	Fanout           inventory.Cursor          `json:"fanout"`
+	Source           *inventoryGraphProjection `json:"source,omitempty"`
+	Links            inventoryScan             `json:"links"`
+	Projected        bool                      `json:"projected,omitempty"`
+	PublicationsOnly bool                      `json:"publicationsOnly,omitempty"`
 }
 
 type inventoryDirtyEntity struct {
@@ -49,6 +50,10 @@ func (s *Service) advanceInventoryDelta(ctx context.Context, p *inventoryDeltaPr
 		}
 		return false, err
 	case 2:
+		if p.PublicationsOnly {
+			p.Phase = 3
+			return false, nil
+		}
 		if err := s.invalidateInventoryFragments(ctx, p); err != nil {
 			return false, err
 		}
@@ -77,6 +82,9 @@ func (s *Service) projectInventoryChange(ctx context.Context, p *inventoryDeltaP
 		return true, nil
 	}
 	key := p.Changes[p.Offset].Key
+	if p.PublicationsOnly && !strings.HasPrefix(key, "distribution/repositories/") {
+		return true, nil
+	}
 	graph := strings.HasPrefix(key, "solidification/graphs/")
 	if internal, publication := strings.CutPrefix(key, "distribution/repositories/"); publication {
 		if p.Links.CatalogRepository == "" {
