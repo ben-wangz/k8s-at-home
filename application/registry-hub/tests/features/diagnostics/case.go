@@ -37,6 +37,7 @@ type domain struct {
 
 type report struct {
 	SnapshotID  string            `json:"snapshotID"`
+	StartedAt   time.Time         `json:"startedAt"`
 	CompletedAt time.Time         `json:"completedAt"`
 	Domains     map[string]domain `json:"domains"`
 }
@@ -49,9 +50,6 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	}
 	objects, err := verifyObjects(ctx, environment, snapshot)
 	if err != nil {
-		return err
-	}
-	if err := verifyRegistryFiles(ctx, environment, snapshot); err != nil {
 		return err
 	}
 	groups, err := verifyUsage(ctx, environment, snapshot)
@@ -83,6 +81,7 @@ func read(ctx context.Context, environment testkit.CaseContext, path string, res
 }
 
 func awaitReport(ctx context.Context, environment testkit.CaseContext) (report, error) {
+	var pending error
 	for {
 		var snapshot report
 		status, err := read(ctx, environment, "/api/v1/storage/summary", &snapshot)
@@ -90,13 +89,15 @@ func awaitReport(ctx context.Context, environment testkit.CaseContext) (report, 
 			return report{}, err
 		}
 		if status == http.StatusOK {
-			if snapshot.SnapshotID == "" || snapshot.CompletedAt.IsZero() || len(snapshot.Domains) != 2 {
+			if snapshot.SnapshotID == "" || snapshot.StartedAt.IsZero() || snapshot.CompletedAt.IsZero() || len(snapshot.Domains) != 2 {
 				return report{}, fmt.Errorf("storage report lacks publication evidence")
 			}
+			ready := true
 			for name, value := range snapshot.Domains {
-				if value.State != "observed" || value.ObjectBytes == nil || value.Objects == nil || *value.Objects == 0 {
-					return report{}, fmt.Errorf("storage domain %s is not observed and nonempty: %+v", name, value)
+				if value.State != "observed" || value.ObjectBytes == nil || value.Objects == nil {
+					return report{}, fmt.Errorf("storage domain %s is not observed", name)
 				}
+				ready = ready && *value.Objects > 0
 				var bytes, objects int64
 				for _, category := range value.Categories {
 					bytes, objects = bytes+category.ObjectBytes, objects+category.Objects
@@ -105,14 +106,24 @@ func awaitReport(ctx context.Context, environment testkit.CaseContext) (report, 
 					return report{}, fmt.Errorf("category totals do not reconcile for %s", name)
 				}
 			}
-			return snapshot, nil
+			if ready {
+				pending = verifyRegistryFiles(ctx, environment, snapshot)
+				if pending == nil {
+					return snapshot, nil
+				}
+			} else {
+				pending = fmt.Errorf("report predates the uploaded fixture")
+			}
+			if snapshot.StartedAt.After(environment.DependencyResults["registry-roundtrip"].Finished) {
+				return report{}, fmt.Errorf("post-upload collection is inconsistent: %w", pending)
+			}
 		}
-		if status != http.StatusServiceUnavailable {
+		if status != http.StatusServiceUnavailable && status != http.StatusOK {
 			return report{}, fmt.Errorf("storage summary returned %d", status)
 		}
 		select {
 		case <-ctx.Done():
-			return report{}, fmt.Errorf("completed accounting report was not published: %w", ctx.Err())
+			return report{}, fmt.Errorf("completed accounting report for the uploaded fixture was not published: %w; last observation: %v", ctx.Err(), pending)
 		case <-time.After(2 * time.Second):
 		}
 	}
