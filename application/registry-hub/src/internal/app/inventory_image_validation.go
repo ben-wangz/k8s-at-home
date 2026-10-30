@@ -118,6 +118,9 @@ func (s *Service) advanceInventoryRequirements(ctx context.Context, writer *inve
 		p.Offset++
 		return nil
 	}
+	if err := s.validateCapturedProjection(ctx, &p.Image); err != nil {
+		return err
+	}
 	p.Offset, p.Phase = 0, 7
 	return nil
 }

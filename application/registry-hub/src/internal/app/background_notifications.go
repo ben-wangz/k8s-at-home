@@ -25,8 +25,10 @@ type blobNotification struct {
 }
 
 type notificationProgress struct {
-	Phase  int              `json:"phase"`
-	Cursor inventory.Cursor `json:"cursor"`
+	Phase            int              `json:"phase"`
+	Cursor           inventory.Cursor `json:"cursor"`
+	WaitingWorkID    string           `json:"waitingWorkID,omitempty"`
+	ConfirmedTargets uint64           `json:"confirmedTargets"`
 }
 
 func (s *Service) deferBlobNotification(ctx context.Context, intentID, excluded string) error {
@@ -37,9 +39,18 @@ func (s *Service) deferBlobNotification(ctx context.Context, intentID, excluded 
 		return err
 	}
 	source := blobNotification{IntentID: intent.ID, Identity: intent.Identity, State: intent.State, Generation: intent.Generation, CacheVersion: intent.CacheVersion, DemandRevision: intent.DemandRevision, ExcludedRootID: excluded}
-	key := inventory.ID("notify", intent.ID, string(intent.State), intent.CacheVersion, strconv.FormatUint(intent.DemandRevision, 10), excluded)
-	_, err = (workqueue.Queue{Store: s.store}).Enqueue(bounded, "notify", key, source, intent.UpdatedAt)
+	key := notificationSource(intent, excluded)
+	job, err := (workqueue.Queue{Store: s.store}).Enqueue(bounded, "notify", key, source, intent.UpdatedAt)
+	if err == nil {
+		if indexErr := s.indexNotificationJob(bounded, job); indexErr != nil {
+			s.backgroundEvent("notify", "association_deferred", indexErr)
+		}
+	}
 	return err
+}
+
+func notificationSource(intent tasks.BlobIntent, excluded string) string {
+	return inventory.ID("notify", intent.ID, string(intent.State), intent.CacheVersion, strconv.FormatUint(intent.DemandRevision, 10), excluded)
 }
 
 func (s *Service) notificationStep(ctx context.Context, job *workqueue.Job) (any, bool, error) {
@@ -50,12 +61,14 @@ func (s *Service) notificationStep(ctx context.Context, job *workqueue.Job) (any
 	}
 	current, err := s.records.GetBlobIntent(ctx, source.IntentID)
 	if errors.Is(err, storage.ErrNotFound) {
+		job.Superseded = true
 		return p, true, nil
 	}
 	if err != nil {
 		return p, false, err
 	}
 	if current.DemandRevision != source.DemandRevision || current.State != source.State || current.CacheVersion != source.CacheVersion || current.Generation != source.Generation {
+		job.Superseded = true
 		return p, true, nil
 	}
 	if p.Phase == 4 {
@@ -99,7 +112,13 @@ func (s *Service) notificationStep(ctx context.Context, job *workqueue.Job) (any
 				}
 				err = readErr
 				if err == nil && child.State != "done" {
+					p.WaitingWorkID = child.ID
+					job.WaitReason, job.ResponsibleWorkKind, job.ResponsibleWorkID = "dependency_notification", "wake_root", child.ID
 					return p, false, nil
+				}
+				if err == nil {
+					p.ConfirmedTargets++
+					p.WaitingWorkID = ""
 				}
 			}
 			if err != nil {

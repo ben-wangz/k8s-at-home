@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"time"
@@ -16,27 +17,10 @@ const Prefix = "background/v1/"
 
 var ErrSourceMissing = errors.New("background source is missing")
 
-type Job struct {
-	SchemaVersion int             `json:"schemaVersion"`
-	ID            string          `json:"id"`
-	Kind          string          `json:"kind"`
-	Payload       json.RawMessage `json:"payload"`
-	Progress      json.RawMessage `json:"progress,omitempty"`
-	State         string          `json:"state"`
-	CreatedAt     time.Time       `json:"createdAt"`
-	ProgressAt    time.Time       `json:"progressAt"`
-	LeaseUntil    time.Time       `json:"leaseUntil,omitempty"`
-	Fence         uint64          `json:"fence"`
-	RetryCount    int             `json:"retryCount"`
-	NextAttemptAt time.Time       `json:"nextAttemptAt,omitempty"`
-	ErrorAt       time.Time       `json:"errorAt,omitempty"`
-	ErrorClass    string          `json:"errorClass,omitempty"`
-	Phase         int             `json:"phase"`
-	ErrorPhase    int             `json:"errorPhase"`
-	Version       string          `json:"-"`
+type Queue struct {
+	Store               storage.Store
+	ValidateRetrySource func(context.Context, Job) error
 }
-
-type Queue struct{ Store storage.Store }
 
 func Key(kind, id string) string { return Prefix + "jobs/" + kind + "/" + id + ".json" }
 
@@ -52,7 +36,8 @@ func (q Queue) Enqueue(ctx context.Context, kind, source string, payload any, ob
 		return Job{}, errors.Join(storage.ErrCorruptObject, err)
 	}
 	now := time.Now().UTC()
-	job := Job{SchemaVersion: 1, ID: ID(kind, source), Kind: kind, Payload: data, State: "pending", CreatedAt: observed, ProgressAt: now}
+	job := Job{SchemaVersion: 1, ID: ID(kind, source), Kind: kind, Payload: data, State: "pending", CreatedAt: observed, EnqueuedAt: now, ProgressAt: now, RunnableAt: now}
+	diagnostics.Record(&job.DiagnosticOutbox, diagnostics.Event{Component: "background", Operation: kind, EntityID: job.ID, WorkID: job.ID, WorkKind: kind, Stage: "enqueue", Result: "pending", OccurredAt: now})
 	if receipt, _, readErr := inventory.Read[Job](ctx, q.Store, ReceiptKey(kind, job.ID)); readErr == nil {
 		if !bytes.Equal(receipt.Payload, data) {
 			return Job{}, storage.ErrCorruptObject
@@ -106,7 +91,17 @@ func (q Queue) Claim(ctx context.Context, job Job) (Job, error) {
 	} else if err != nil && !errors.Is(err, storage.ErrNotFound) {
 		return Job{}, err
 	}
+	if job.State == "running" {
+		diagnostics.Record(&job.DiagnosticOutbox, diagnostics.Event{Component: "background", Operation: job.Kind, EntityID: job.ID, WorkID: job.ID, WorkKind: job.Kind, Stage: "lease_takeover", Result: "recovered", AttemptID: job.AttemptID, RunID: job.RunID})
+	}
+	job.ParentAttemptID = job.AttemptID
 	job.State, job.LeaseUntil, job.Fence = "running", now.Add(time.Minute), job.Fence+1
+	job.AttemptID = ID("attempt", job.ID, now.Format(time.RFC3339Nano), job.RunID)
+	job.LastAttemptAt, job.AttemptFinishedAt = now, time.Time{}
+	if job.FirstAttemptAt.IsZero() {
+		job.FirstAttemptAt = now
+	}
+	job.WaitReason, job.ResponsibleWorkID, job.ResponsibleWorkKind = "", "", ""
 	err := q.save(ctx, &job)
 	return job, err
 }
@@ -133,7 +128,9 @@ func (q Queue) Finish(ctx context.Context, job *Job, progress any, done bool, ca
 	if !bytes.Equal(job.Progress, data) || done {
 		job.ProgressAt = time.Now().UTC()
 	}
+	job.AttemptFinishedAt = time.Now().UTC()
 	job.Progress, job.State, job.LeaseUntil = data, "pending", time.Time{}
+	job.Checkpoint = checkpointSummary(data)
 	var checkpoint struct {
 		Phase int `json:"phase"`
 	}
@@ -143,10 +140,20 @@ func (q Queue) Finish(ctx context.Context, job *Job, progress any, done bool, ca
 	job.NextAttemptAt = time.Time{}
 	if done {
 		job.State = "done"
+		job.CompletedAt = job.AttemptFinishedAt
+		if !job.ErrorAt.IsZero() {
+			job.RecoveredAt = time.Now().UTC()
+		}
 	}
 	if cause != nil {
 		job.RetryCount++
 		job.State, job.ErrorClass, job.ErrorAt = "retry_wait", "storage", time.Now().UTC()
+		if errors.Is(cause, context.DeadlineExceeded) || errors.Is(cause, storage.ErrTimeout) {
+			job.ErrorClass = "timeout"
+		}
+		if errors.Is(cause, context.Canceled) {
+			job.ErrorClass = "cancelled"
+		}
 		job.ErrorPhase = job.Phase
 		if errors.Is(cause, storage.ErrCorruptObject) {
 			job.State, job.ErrorClass = "failed", "corrupt_source"
@@ -156,6 +163,9 @@ func (q Queue) Finish(ctx context.Context, job *Job, progress any, done bool, ca
 		}
 		delay := min(time.Second*time.Duration(1<<min(job.RetryCount-1, 8)), 5*time.Minute)
 		job.NextAttemptAt = time.Now().UTC().Add(delay + time.Duration(time.Now().UnixNano()%int64(delay/4+1)))
+		job.RunnableAt = job.NextAttemptAt
+	} else if !done {
+		job.RunnableAt = job.AttemptFinishedAt
 	}
 	if err := q.save(ctx, job); err != nil {
 		return err
@@ -197,30 +207,17 @@ func (q Queue) Retry(ctx context.Context, kind, id string) error {
 	if err != nil {
 		return err
 	}
+	if err := q.finalizeRetryMarker(ctx, job); err != nil {
+		return err
+	}
 	if job.State != "failed" && job.State != "retry_wait" {
 		return storage.ErrConditionFailed
 	}
-	job.State, job.NextAttemptAt = "pending", time.Time{}
-	return q.save(ctx, &job)
-}
-
-func (q Queue) save(ctx context.Context, job *Job) error {
-	data, err := json.Marshal(job)
-	if err != nil {
-		return err
-	}
-	entry, err := q.Store.Put(ctx, Key(job.Kind, job.ID), bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfMatch: job.Version})
-	if errors.Is(err, storage.ErrUnknownCommit) {
-		actual, readErr := q.Read(ctx, job.Kind, job.ID)
-		encoded, _ := json.Marshal(actual)
-		if readErr == nil && bytes.Equal(encoded, data) {
-			job.Version = actual.Version
-			return nil
+	if q.ValidateRetrySource != nil {
+		if err := q.ValidateRetrySource(ctx, job); err != nil {
+			return err
 		}
-		return errors.Join(err, readErr)
 	}
-	if err == nil {
-		job.Version = entry.Version
-	}
-	return err
+	job.State, job.NextAttemptAt, job.RunnableAt = "pending", time.Time{}, time.Now().UTC()
+	return q.save(ctx, &job)
 }

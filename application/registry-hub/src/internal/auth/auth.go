@@ -16,6 +16,8 @@ const (
 	TaskAdmin     = "task-admin"
 	ReferrerPrune = "referrer-prune"
 	GCAdmin       = "gc-admin"
+	Observe       = "observe"
+	WorkRetry     = "work-retry"
 )
 
 type Principal struct {
@@ -70,6 +72,10 @@ func (p Principal) Allows(permission string) bool {
 		return true
 	}
 	_, allowed := p.Permissions[permission]
+	if permission == Observe || permission == WorkRetry {
+		_, legacy := p.Permissions[TaskAdmin]
+		allowed = allowed || legacy
+	}
 	return allowed
 }
 

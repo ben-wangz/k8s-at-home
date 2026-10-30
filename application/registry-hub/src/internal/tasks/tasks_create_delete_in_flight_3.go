@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"registry-hub/internal/diagnostics"
 	"time"
 )
 
@@ -77,4 +78,4 @@ func retryDelay(retry int) time.Duration {
 	return delay
 }
 
-func safeMessage(error) string { return "task operation failed; inspect classified logs" }
+func safeMessage(cause error) string { return diagnostics.SafeErrorText(cause) }

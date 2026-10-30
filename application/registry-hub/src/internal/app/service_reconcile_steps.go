@@ -82,6 +82,7 @@ func (s *Service) runProtectionRecovery(ctx context.Context) {
 	for ctx.Err() == nil {
 		if s.gate.State().RecoveryBarrier {
 			bounded, cancel := context.WithTimeout(ctx, time.Minute)
+			bounded = context.WithValue(bounded, backgroundParentKey{}, ctx)
 			if err := s.recoverSolidificationProtection(bounded); err != nil {
 				s.backgroundEvent("protection_recovery", "deferred", err)
 			}

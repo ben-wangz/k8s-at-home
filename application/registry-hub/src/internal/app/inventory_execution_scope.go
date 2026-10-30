@@ -25,6 +25,13 @@ func (s *Service) projectBlobExecutionScope(ctx context.Context, job *workqueue.
 				return p, false, err
 			}
 			if scope == p.Demand.ScopeID && node.ContentGeneration != nil {
+				var source inventoryExecutionFact
+				if json.Unmarshal(job.Payload, &source) != nil {
+					return p, false, storage.ErrCorruptObject
+				}
+				if err := s.indexBlobExecutionManifest(ctx, *job, source, root, *p.Demand, node.Digest, *node.ContentGeneration, false); err != nil {
+					return p, false, err
+				}
 				fact := inventoryExecutionFact{TaskID: root.ID, Identity: inventoryIdentity(root.Authority, root.Repository, root.Reference), RootDigest: root.RootDigest, Digest: node.Digest, Generation: root.Generation, ContentGeneration: *node.ContentGeneration}
 				at := job.CreatedAt
 				if p.Demand.CreatedAt.After(at) {

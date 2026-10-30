@@ -117,6 +117,9 @@ func (s *Service) scanInventoryCacheEntry(ctx context.Context, key string) error
 	if !inspection.Present && !inspection.Unknown || !inventoryManifestType(metadata.MediaType) {
 		return nil
 	}
+	if reused, err := s.reuseCachedManifestProjection(ctx, identity, metadata.Digest); err != nil || reused {
+		return err
+	}
 	representation := artifact.CachedRepresentation{Authority: metadata.Authority, Repository: metadata.Repository, Digest: metadata.Digest, MediaType: metadata.MediaType, Size: metadata.Size}
 	data, err := s.cache.ReadManifestForInventory(ctx, representation, s.cfg.Limits.ManifestBytes)
 	if errors.Is(err, storage.ErrNotFound) {

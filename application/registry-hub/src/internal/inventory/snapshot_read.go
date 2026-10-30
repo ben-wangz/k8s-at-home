@@ -21,7 +21,7 @@ func (r *Repository) Snapshot(ctx context.Context, id string, stale time.Duratio
 		if id != "" {
 			return value, ErrExpired
 		}
-		return value, storage.ErrUnavailable
+		return value, ErrNotObserved
 	}
 	if err != nil {
 		return value, err

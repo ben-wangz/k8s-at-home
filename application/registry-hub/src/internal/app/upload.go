@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/distribution"
 	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
@@ -26,15 +27,19 @@ type uploadSession struct {
 	InternalQuery      url.Values `json:"internalQuery"`
 	CreatedAt          time.Time  `json:"createdAt"`
 	UpdatedAt          time.Time  `json:"updatedAt"`
+	ReceivedBytes      *int64     `json:"receivedBytes,omitempty"`
+	RequestCount       uint64     `json:"requestCount"`
+	LastHTTPStatus     int        `json:"lastHTTPStatus,omitempty"`
 	version            string
 }
 
 type uploadSessions struct {
-	store       storage.Store
-	registry    *distribution.Client
-	leases      *lease.Manager
-	idleTimeout time.Duration
-	maxLifetime time.Duration
+	store           storage.Store
+	registry        *distribution.Client
+	leases          *lease.Manager
+	idleTimeout     time.Duration
+	maxLifetime     time.Duration
+	attemptObserver func(diagnostics.Event)
 }
 
 func (u *uploadSessions) AbortAll(ctx context.Context) error {
@@ -92,6 +97,7 @@ func (u *uploadSessions) abortState(ctx context.Context, state uploadSession) er
 	if response.StatusCode != http.StatusNoContent && response.StatusCode != http.StatusNotFound {
 		return errors.New("Distribution did not confirm upload cancellation")
 	}
+	u.recordUploadCompletion(ctx, state, "cancelled", "", "")
 	return u.store.DeleteIfMatch(ctx, uploadKey(state.ID), state.version)
 }
 

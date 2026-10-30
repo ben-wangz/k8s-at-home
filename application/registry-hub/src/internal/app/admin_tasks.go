@@ -15,8 +15,12 @@ import (
 
 func (s *Service) listTasks(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
 	query, err := url.ParseQuery(request.URL.RawQuery)
-	if err != nil || !onlyQueryKeys(query, "state", "authority", "repository", "digest", "since", "before", "limit", "token") {
+	if err != nil || !onlyQueryKeys(query, "state", "authority", "repository", "digest", "since", "before", "limit", "token", "kind", "waitReason", "errorClass", "retryable", "imageID", "blobDigest") {
 		writeAdminError(writer, http.StatusBadRequest, "UNSUPPORTED", "task query is invalid")
+		return
+	}
+	if v := query.Get("retryable"); v != "" && v != "true" && v != "false" {
+		writeAdminError(writer, http.StatusBadRequest, "UNSUPPORTED", "retryable must be true or false")
 		return
 	}
 	limit := 100
@@ -49,7 +53,10 @@ func (s *Service) listTasks(writer http.ResponseWriter, request *http.Request, c
 	}
 	filtered := make([]adminTaskView, 0, len(items))
 	for _, item := range items {
-		if query.Get("state") != "" && string(item.Status) != query.Get("state") || query.Get("authority") != "" && item.Authority != query.Get("authority") || query.Get("repository") != "" && item.Repository != query.Get("repository") || query.Get("digest") != "" && item.RootDigest != query.Get("digest") && item.Reference != query.Get("digest") {
+		if !matchesTaskDiagnostics(item, query) {
+			continue
+		}
+		if query.Get("state") != "" && string(item.Status) != query.Get("state") || query.Get("authority") != "" && item.Authority != query.Get("authority") || query.Get("repository") != "" && item.Repository != query.Get("repository") || query.Get("digest") != "" && item.RootDigest != query.Get("digest") && item.Reference != query.Get("digest") && item.BlobDigest != query.Get("digest") {
 			continue
 		}
 		if !since.IsZero() && item.CreatedAt.Before(since) || !before.IsZero() && !item.CreatedAt.Before(before) {
@@ -167,6 +174,7 @@ func (s *Service) retryTask(ctx context.Context, id string) (tasks.Task, error) 
 }
 
 func taskAdminView(task tasks.Task) adminTaskView {
+	task.DiagnosticOutbox = nil
 	protected := task.GCProtected || len(task.SessionIDs) > 0 || task.ProtectionSessionID != ""
 	return adminTaskView{Task: task, GCProtectionActive: protected}
 }

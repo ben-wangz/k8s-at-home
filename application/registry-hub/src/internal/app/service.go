@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"registry-hub/internal/artifact"
 	"registry-hub/internal/config"
+	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/distribution"
 	"registry-hub/internal/download"
 	"registry-hub/internal/inventory"
@@ -27,55 +28,61 @@ type upstreamRequester interface {
 }
 
 type Service struct {
-	cfg                  config.Config
-	logger               *slog.Logger
-	store                storage.Store
-	registry             *distribution.Client
-	upstream             upstreamRequester
-	cache                *artifact.Cache
-	downloader           *download.Manager
-	downloadOnce         sync.Once
-	tasks                *tasks.Manager
-	records              *tasks.Records
-	inventory            *inventory.Repository
-	inventoryDirty       atomic.Bool
-	inventoryInstalledAt time.Time
-	gate                 *writeGate
-	uploads              *uploadSessions
-	metrics              *metrics
-	cursorKey            []byte
-	ready                atomic.Bool
-	cacheProtectionReady atomic.Bool
-	ctx                  context.Context
-	cancel               context.CancelFunc
-	clientSlots          chan struct{}
-	noAuthSlots          chan struct{}
-	pushSlots            chan struct{}
-	upstreamSlots        chan struct{}
-	solidificationSlots  chan struct{}
-	blobIntentEvents     chan tasks.BlobIdentity
-	cacheIntentRescan    atomic.Bool
-	solidificationMu     sync.Mutex
-	protectionRecoveryMu sync.Mutex
-	newSolidifications   int
-	referrerRepairs      int
-	repairPending        bool
-	upstreamPerKey       [256]chan struct{}
-	limiter              *requestLimiter
-	gc                   *gcController
-	storageHealthy       atomic.Bool
-	registryHealthy      atomic.Bool
-	storageProbeAt       atomic.Int64
-	registryProbeAt      atomic.Int64
-	storageProbeSuccess  atomic.Int64
-	registryProbeSuccess atomic.Int64
-	nativeMu             sync.Mutex
-	nativeCache          map[string]nativeReferrerCapability
-	closeOnce            sync.Once
-	background           sync.WaitGroup
-	backgroundSlots      chan struct{}
-	backgroundPace       <-chan time.Time
-	projectionBacklog    atomic.Bool
+	cfg                     config.Config
+	logger                  *slog.Logger
+	store                   storage.Store
+	registry                *distribution.Client
+	upstream                upstreamRequester
+	cache                   *artifact.Cache
+	downloader              *download.Manager
+	downloadOnce            sync.Once
+	tasks                   *tasks.Manager
+	records                 *tasks.Records
+	inventory               *inventory.Repository
+	inventoryDirty          atomic.Bool
+	inventoryInstalledAt    time.Time
+	gate                    *writeGate
+	uploads                 *uploadSessions
+	metrics                 *metrics
+	cursorKey               []byte
+	ready                   atomic.Bool
+	cacheProtectionReady    atomic.Bool
+	ctx                     context.Context
+	cancel                  context.CancelFunc
+	clientSlots             chan struct{}
+	noAuthSlots             chan struct{}
+	pushSlots               chan struct{}
+	upstreamSlots           chan struct{}
+	solidificationSlots     chan struct{}
+	blobIntentEvents        chan tasks.BlobIdentity
+	cacheIntentRescan       atomic.Bool
+	solidificationMu        sync.Mutex
+	protectionRecoveryMu    sync.Mutex
+	newSolidifications      int
+	referrerRepairs         int
+	repairPending           bool
+	upstreamPerKey          [256]chan struct{}
+	limiter                 *requestLimiter
+	gc                      *gcController
+	storageHealthy          atomic.Bool
+	registryHealthy         atomic.Bool
+	storageProbeAt          atomic.Int64
+	registryProbeAt         atomic.Int64
+	storageProbeSuccess     atomic.Int64
+	registryProbeSuccess    atomic.Int64
+	nativeMu                sync.Mutex
+	nativeCache             map[string]nativeReferrerCapability
+	closeOnce               sync.Once
+	background              sync.WaitGroup
+	backgroundSlots         chan struct{}
+	backgroundPace          <-chan time.Time
+	projectionBacklog       atomic.Bool
+	workerMu                sync.Mutex
+	workerStates            map[string]workerStatus
+	startedAt               time.Time
+	instanceID              string
+	diagnosticEvents        chan diagnostics.Event
+	diagnosticEventsDropped atomic.Uint64
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
@@ -141,6 +148,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	service := &Service{
+		startedAt: time.Now().UTC(), instanceID: requestID(), diagnosticEvents: make(chan diagnostics.Event, 256),
 		cfg: cfg, logger: logger, store: store, registry: registry, upstream: remote,
 		cache: artifact.NewCache(store), gate: gate, metrics: serviceMetrics, cursorKey: cursorKey, ctx: ctx, cancel: cancel,
 		records:     tasks.NewRecords(store),
@@ -153,8 +161,11 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	service.inventory = &inventory.Repository{Store: store}
 	service.cache.EnableInventoryTracking()
 	service.initializeInventory(ctx)
+	service.initializeStorageAttemptObserver(store)
+	remote.SetHTTPAttemptObserver(service.recordUpstreamHTTPAttempt)
 	if observed, ok := store.(*observedStore); ok {
 		observed.inventoryNotify = func() { service.inventoryDirty.Store(true) }
+		observed.diagnosticFailure = service.recordDiagnosticStorageFailure
 	}
 	for index := range service.upstreamPerKey {
 		service.upstreamPerKey[index] = make(chan struct{}, 8)
@@ -164,8 +175,18 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	service.storageHealthy.Store(true)
 	service.registryHealthy.Store(true)
 	recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	service.updateWorker("index_repair", func(state *workerStatus) {
+		state.State, state.Phase, state.Resumability = "execution", "rebuild_representation_indexes", "full_rescan_on_restart"
+		state.LastStartedAt = time.Now().UTC()
+	})
 	err = service.cache.RebuildRepresentationIndexes(recoveryCtx)
 	recoveryCancel()
+	service.updateWorker("index_repair", func(state *workerStatus) {
+		state.State, state.LastFinishedAt = "completed", time.Now().UTC()
+		if err != nil {
+			state.State, state.ErrorClass = "failed", diagnosticReason(err)
+		}
+	})
 	if err != nil {
 		cancel()
 		remote.Close()
@@ -193,6 +214,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	service.tasks.SetMaxWaitingRoots(cfg.Solidification.MaxWaitingRoots)
 	service.tasks.SetIdleTimeout(cfg.Solidification.IdleTimeout)
 	solidificationRecoveryCtx, solidificationRecoveryCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	solidificationRecoveryCtx = context.WithValue(solidificationRecoveryCtx, backgroundParentKey{}, ctx)
 	if err := service.recoverSolidificationProtection(solidificationRecoveryCtx); err != nil {
 		logger.Warn("solidification startup recovery is blocked", "error_class", "recovery", "error", err)
 	}
@@ -207,6 +229,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	}
 	processor.tasks = service.tasks
 	service.uploads = newUploadSessions(store, registry, service.tasks.Leases(), cfg.Limits.UploadIdleTimeout, cfg.Limits.UploadMaxLifetime)
+	service.uploads.attemptObserver = service.emitDiagnosticEvent
 	service.cache.SetOrphanProtection(service.protectCacheObject)
 	service.tasks.Start(ctx)
 	service.startBackgroundWorkers(ctx)

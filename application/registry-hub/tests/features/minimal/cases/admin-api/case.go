@@ -194,7 +194,11 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if _, _, err := support.ReadManifest(ctx, registry, fixtureRepo, fixtureDigest, support.OCIManifestMediaType); err != nil {
 		return fmt.Errorf("cleanup removed retained fixture: %w", err)
 	}
-	return support.WriteResult(environment, map[string]any{"taskID": taskID, "taskStatus": testkit.String(task["status"]), "gcGate": "open", "repository": fixtureRepo, "manifestDigest": fixtureDigest})
+	diagnostics, err := verifyDiagnostics(ctx, environment, taskID)
+	if err != nil {
+		return err
+	}
+	return support.WriteResult(environment, map[string]any{"taskID": taskID, "taskStatus": testkit.String(task["status"]), "gcGate": "open", "repository": fixtureRepo, "manifestDigest": fixtureDigest, "diagnostics": diagnostics})
 }
 
 func persistenceFixture(results map[string]testkit.CaseResultFile) (string, string, error) {

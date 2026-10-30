@@ -123,7 +123,7 @@ func (r *Repository) Images(ctx context.Context, q Query, key []byte, stale time
 			return result, snapshotPageError(err)
 		}
 	}
-	for c.Page < pages {
+	for scanned := 0; c.Page < pages && scanned < 4; scanned++ {
 		var items []Image
 		if q.Kind == "platforms" {
 			ids, err := readPage[string](ctx, r, snapshot, kind, c.Page)
@@ -196,7 +196,7 @@ func (r *Repository) Objects(ctx context.Context, q Query, key []byte, stale tim
 			return result, snapshotPageError(err)
 		}
 	}
-	for c.Page < pages {
+	for scanned := 0; c.Page < pages && scanned < 4; scanned++ {
 		items, err := readPage[Object](ctx, r, snapshot, kind, c.Page)
 		if err != nil {
 			return result, err

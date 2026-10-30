@@ -107,11 +107,15 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 		return permanent("generation", err)
 	}
 	uploadPath := "/v2/" + internalRepository + "/blobs/uploads/"
+	observer := s.service.observeDistributionTransfer(*task, object.Size)
+	status, committed := 0, false
+	defer func() { observer.finish(result, status, committed) }()
 	create, err := s.registry.Do(ctx, http.MethodPost, uploadPath, nil, make(http.Header), nil, 0)
 	if err != nil {
 		return temporary("distribution", err)
 	}
 	initialLocation := create.Header.Get("Location")
+	status = create.StatusCode
 	_ = create.Body.Close()
 	if create.StatusCode != http.StatusAccepted {
 		return temporary("distribution", fmt.Errorf("Distribution upload creation returned status %d", create.StatusCode))
@@ -144,15 +148,17 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 		return err
 	}
 	writeStarted = true
-	put, err := s.registry.Do(ctx, http.MethodPut, locationPath, query, http.Header{"Content-Type": []string{"application/octet-stream"}}, object.Body, object.Size)
+	put, err := s.registry.Do(ctx, http.MethodPut, locationPath, query, http.Header{"Content-Type": []string{"application/octet-stream"}}, observedTransferReader{Reader: object.Body, observer: observer}, object.Size)
 	if err != nil {
 		return temporary("distribution", err)
 	}
 	_ = put.Body.Close()
+	status = put.StatusCode
 	if put.StatusCode != http.StatusCreated || put.Header.Get("Docker-Content-Digest") != blob.digest {
 		return temporary("distribution", fmt.Errorf("Distribution blob commit returned status %d", put.StatusCode))
 	}
 	uploadCommitted = true
+	committed = true
 	if err := s.markRemoteContentObserved(ctx, protectionSessionID); err != nil {
 		return temporary("protection_state", err)
 	}

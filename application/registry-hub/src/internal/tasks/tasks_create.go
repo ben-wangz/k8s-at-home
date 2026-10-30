@@ -13,6 +13,7 @@ func (m *Manager) create(ctx context.Context, task *Task) error {
 	if err := m.ensureRootCacheProtectionReference(ctx, task); err != nil {
 		return errors.Join(err, m.cleanupUncommittedCacheProtectionReferences(ctx, task.ID))
 	}
+	recordTaskEvent(task)
 	data, err := json.Marshal(task)
 	if err != nil {
 		return errors.Join(err, m.cleanupUncommittedCacheProtectionReferences(ctx, task.ID))
@@ -33,6 +34,7 @@ func (m *Manager) create(ctx context.Context, task *Task) error {
 		return errors.Join(err, readErr)
 	}
 	task.version = entry.Version
+	m.runtimeProgress(task.LastProgressAt)
 	return nil
 }
 
@@ -102,6 +104,7 @@ func (m *Manager) save(ctx context.Context, task *Task) error {
 	if err := m.ensureRootCacheProtectionReference(ctx, task); err != nil {
 		return err
 	}
+	recordTaskEvent(task)
 	data, err := json.Marshal(task)
 	if err != nil {
 		return err
@@ -111,6 +114,7 @@ func (m *Manager) save(ctx context.Context, task *Task) error {
 		return err
 	}
 	task.version = entry.Version
+	m.runtimeProgress(task.LastProgressAt)
 	return nil
 }
 

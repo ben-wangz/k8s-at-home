@@ -161,6 +161,7 @@ func (s *Service) taskAdminViewWithRetry(ctx context.Context, task tasks.Task, r
 				return adminTaskView{}, err
 			}
 			view.Task = normalizedTask
+			view.DiagnosticOutbox = nil
 			view.GCProtectionActive = normalizedTask.GCProtected || len(normalizedTask.SessionIDs) > 0 || normalizedTask.ProtectionSessionID != ""
 			for id := range releasedSessions {
 				view.ReleasedProtectionSessionIDs = append(view.ReleasedProtectionSessionIDs, id)

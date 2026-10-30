@@ -8,18 +8,20 @@ import (
 )
 
 type inventoryImageProgress struct {
-	Image    inventory.Image           `json:"image"`
-	Content  inventory.Content         `json:"content"`
-	Closure  inventoryClosureProgress  `json:"closure"`
-	Objects  []inventory.Object        `json:"objects"`
-	Phase    int                       `json:"phase"`
-	Offset   int                       `json:"offset"`
-	Epoch    uint64                    `json:"epoch"`
-	Anchored bool                      `json:"anchored"`
-	Invalid  bool                      `json:"invalid"`
-	Work     inventoryWorkProgress     `json:"work"`
-	Capture  inventory.CaptureProgress `json:"capture"`
-	Audit    *inventoryAuditProgress   `json:"audit,omitempty"`
+	Image         inventory.Image           `json:"image"`
+	Content       inventory.Content         `json:"content"`
+	Closure       inventoryClosureProgress  `json:"closure"`
+	Objects       []inventory.Object        `json:"objects"`
+	Phase         int                       `json:"phase"`
+	Offset        int                       `json:"offset"`
+	Epoch         uint64                    `json:"epoch"`
+	Anchored      bool                      `json:"anchored"`
+	Invalid       bool                      `json:"invalid"`
+	Work          inventoryWorkProgress     `json:"work"`
+	Capture       inventory.CaptureProgress `json:"capture"`
+	Audit         *inventoryAuditProgress   `json:"audit,omitempty"`
+	ClosureReuse  *inventoryClosureReuse    `json:"closureReuse,omitempty"`
+	TopologySaved bool                      `json:"topologySaved,omitempty"`
 }
 
 func (s *Service) newInventoryImageProgress(ctx context.Context, image inventory.Image, content inventory.Content) (*inventoryImageProgress, error) {
@@ -39,15 +41,28 @@ func (s *Service) newInventoryImageProgress(ctx context.Context, image inventory
 		image.Kind = "index"
 	}
 	content.Children = nil
-	return &inventoryImageProgress{Image: image, Content: content, Epoch: gate.Epoch, Closure: newInventoryClosureProgress(image.ResolvedDigest), Objects: []inventory.Object{}}, nil
+	if err := s.captureProjectionRevision(ctx, &image); err != nil {
+		return nil, err
+	}
+	p := &inventoryImageProgress{Image: image, Content: content, Epoch: gate.Epoch, Closure: newInventoryClosureProgress(image.ResolvedDigest), Objects: []inventory.Object{}}
+	if err := s.loadClosureReuse(ctx, p); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 func (s *Service) advanceInventoryImage(ctx context.Context, writer *inventory.Writer, p *inventoryImageProgress) (bool, error) {
 	image := &p.Image
 	switch p.Phase {
 	case 0:
+		if p.ClosureReuse != nil {
+			return false, s.advanceClosureReuse(ctx, p)
+		}
 		if len(p.Closure.Frames) != 0 {
 			return false, s.advanceInventoryClosure(ctx, image.Identity, &p.Closure)
+		}
+		if err := s.saveClosureReuse(ctx, p); err != nil {
+			return false, err
 		}
 		image.Evidence = inventory.Evidence{ClosureComplete: p.Closure.Complete, CheckedAt: time.Now().UTC(), Freshness: "fresh", Reasons: p.Closure.Reasons, GCEpoch: p.Epoch}
 		p.Closure.Seen, p.Closure.Active, p.Closure.Required = nil, nil, nil
@@ -68,6 +83,7 @@ func (s *Service) advanceInventoryImage(ctx context.Context, writer *inventory.W
 				return false, nil
 			}
 			object.Associated = true
+			p.attachParentEdges(&object)
 			p.Objects = append(p.Objects, object)
 			for _, reason := range object.Reasons {
 				image.Evidence.Reasons = appendReason(image.Evidence.Reasons, reason)
@@ -107,4 +123,17 @@ func (s *Service) advanceInventoryImage(ctx context.Context, writer *inventory.W
 		return false, storage.ErrCorruptObject
 	}
 	return false, nil
+}
+
+func (p *inventoryImageProgress) attachParentEdges(object *inventory.Object) {
+	key := closureParentKey(object.ObjectRef)
+	object.ParentDigests = p.Closure.Parents[key]
+	object.ParentEdgesTruncated = p.Closure.ParentsTruncated[key]
+	object.ParentEdgesScope = "captured_manifest_metadata"
+	if !p.Closure.Complete {
+		object.ParentEdgesScope = "partial_captured_manifest_metadata"
+	}
+	if p.Closure.Parents == nil && len(p.Closure.Objects) > 1 {
+		object.ParentEdgesScope = "unknown"
+	}
 }

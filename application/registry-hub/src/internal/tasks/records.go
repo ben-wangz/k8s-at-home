@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/storage"
 	"strings"
 	"sync"
@@ -36,29 +37,32 @@ type BlobIdentity struct {
 }
 
 type BlobIntent struct {
-	SchemaVersion       int             `json:"schemaVersion"`
-	ID                  string          `json:"id"`
-	Identity            BlobIdentity    `json:"identity"`
-	Round               uint64          `json:"round"`
-	Generation          uint64          `json:"generation"`
-	MediaType           string          `json:"mediaType,omitempty"`
-	State               BlobIntentState `json:"state"`
-	WakeAcknowledged    bool            `json:"wakeAcknowledged,omitempty"`
-	DemandRevision      uint64          `json:"demandRevision,omitempty"`
-	CacheVersion        string          `json:"cacheVersion,omitempty"`
-	ActualSize          int64           `json:"actualSize,omitempty"`
-	ProtectionSessionID string          `json:"protectionSessionID,omitempty"`
-	RetryCount          int             `json:"retryCount"`
-	NextAttemptAt       time.Time       `json:"nextAttemptAt,omitempty"`
-	LastProgressAt      time.Time       `json:"lastProgressAt"`
-	ExpiresAt           time.Time       `json:"expiresAt,omitempty"`
-	CreatedAt           time.Time       `json:"createdAt"`
-	UpdatedAt           time.Time       `json:"updatedAt"`
-	CancelRequested     bool            `json:"cancelRequested,omitempty"`
-	CancelPhase         string          `json:"cancelPhase,omitempty"`
-	FencingToken        uint64          `json:"fencingToken,omitempty"`
-	ErrorClass          string          `json:"errorClass,omitempty"`
-	ErrorMessage        string          `json:"errorMessage,omitempty"`
+	DiagnosticOutbox    []diagnostics.Event  `json:"diagnosticOutbox,omitempty"`
+	SchemaVersion       int                  `json:"schemaVersion"`
+	ID                  string               `json:"id"`
+	Identity            BlobIdentity         `json:"identity"`
+	Round               uint64               `json:"round"`
+	Generation          uint64               `json:"generation"`
+	MediaType           string               `json:"mediaType,omitempty"`
+	State               BlobIntentState      `json:"state"`
+	WakeAcknowledged    bool                 `json:"wakeAcknowledged,omitempty"`
+	DemandRevision      uint64               `json:"demandRevision,omitempty"`
+	CacheVersion        string               `json:"cacheVersion,omitempty"`
+	ActualSize          int64                `json:"actualSize,omitempty"`
+	ProtectionSessionID string               `json:"protectionSessionID,omitempty"`
+	RetryCount          int                  `json:"retryCount"`
+	NextAttemptAt       time.Time            `json:"nextAttemptAt,omitempty"`
+	LastProgressAt      time.Time            `json:"lastProgressAt"`
+	ExpiresAt           time.Time            `json:"expiresAt,omitempty"`
+	CreatedAt           time.Time            `json:"createdAt"`
+	UpdatedAt           time.Time            `json:"updatedAt"`
+	CancelRequested     bool                 `json:"cancelRequested,omitempty"`
+	CancelPhase         string               `json:"cancelPhase,omitempty"`
+	FencingToken        uint64               `json:"fencingToken,omitempty"`
+	ErrorClass          string               `json:"errorClass,omitempty"`
+	ErrorMessage        string               `json:"errorMessage,omitempty"`
+	LastError           *diagnostics.Failure `json:"lastError,omitempty"`
+	RecoveredAt         time.Time            `json:"recoveredAt,omitempty"`
 	version             string
 }
 

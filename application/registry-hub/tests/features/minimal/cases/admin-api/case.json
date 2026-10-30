@@ -5,7 +5,7 @@
   "timeoutSeconds": 360,
   "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
   "assertions": ["All case-specific behavior is verified by the declared checks."],
-  "checks": [{"id":"admin-api.auth","description":"Verify admin api auth."},{"id":"admin-api.tasks","description":"Verify admin api tasks."},{"id":"admin-api.reconcile","description":"Verify admin api reconcile."},{"id":"admin-api.gc","description":"Verify admin api gc."}],
+  "checks": [{"id":"admin-api.auth","description":"Verify admin api auth."},{"id":"admin-api.tasks","description":"Verify admin api tasks."},{"id":"admin-api.reconcile","description":"Verify admin api reconcile."},{"id":"admin-api.gc","description":"Verify admin api gc."},{"id":"admin-api.diagnostics","description":"Verify diagnostic authentication, response contracts, query validation and available storage snapshot pagination; record unavailable accounting explicitly."}],
   "outputs": ["Case result and declared check evidence."],
-  "requirements": ["docs/operations.md","docs/security.md"]
+  "requirements": ["docs/operations.md","docs/security.md","docs/diagnostics.md"]
 }

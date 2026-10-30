@@ -111,7 +111,7 @@ See the [environment guide](environment/README.md) for prerequisites and environ
 | referrers-migration | Successful migration from fallback index to native Referrers using a run-specific Zot fixture | installation |
 | delete-semantics | Tag, manifest, and blob deletion; non-cascading semantics | artifact-roundtrip |
 | security-defaults | Internal TLS/authentication, NetworkPolicy configuration, and SSRF failure tasks | routing-paths |
-| admin-api | Admin authentication, tasks, reconcile, disabled GC, and documentation endpoint | security-defaults, referrers-read |
+| admin-api | Admin authentication, tasks, reconcile, disabled GC, diagnostic API contracts and available storage snapshot pagination | security-defaults, referrers-read |
 | artifact-persistence | Persistence of content, referrers, failed tasks, Secrets, records, and PVCs across restart/upgrade | artifact-roundtrip, referrers-read, tag-publication, admin-api |
 | dependency-failure | Distribution scale-down, diagnostic Service, backend errors, and recovery | artifact-persistence |
 | default-limits | Default request-rate limits for manifests, descriptors, uploads, tags/list, and unauthenticated requests | manifest-validation, tags-pagination |

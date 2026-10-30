@@ -36,6 +36,9 @@ func (s *Service) demandExecutionWork(ctx context.Context, demand tasks.BlobDema
 	}
 	fact.Demand = &demand
 	job, err := q.Enqueue(ctx, "execution", inventory.ID(started.ID, demand.DemandID, demand.CreatedAt.String()), fact, started.CreatedAt)
+	if err == nil {
+		err = s.indexBlobDemandRoot(ctx, job, fact, demand)
+	}
 	return job, true, err
 }
 

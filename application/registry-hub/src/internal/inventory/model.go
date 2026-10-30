@@ -125,23 +125,24 @@ type Image struct {
 	ContentID string `json:"contentID"`
 	Scope     string `json:"scope"`
 	Identity
-	ResolvedDigest     string         `json:"resolvedDigest"`
-	BindingRevision    string         `json:"bindingRevision"`
-	BindingSource      string         `json:"bindingSource"`
-	BindingConfirmedAt time.Time      `json:"bindingConfirmedAt"`
-	Generation         uint64         `json:"generation"`
-	ContentGeneration  uint64         `json:"contentGeneration"`
-	MediaType          string         `json:"mediaType"`
-	Kind               string         `json:"kind"`
-	ArtifactType       string         `json:"artifactType,omitempty"`
-	Subject            string         `json:"subject,omitempty"`
-	Platform           *Platform      `json:"platform"`
-	Category           string         `json:"category"`
-	Cache              CacheState     `json:"cache"`
-	Availability       Availability   `json:"availability"`
-	Solidification     Solidification `json:"solidification"`
-	Evidence           Evidence       `json:"evidence"`
-	TagPublished       bool           `json:"tagPublished"`
+	ResolvedDigest             string         `json:"resolvedDigest"`
+	BindingRevision            string         `json:"bindingRevision"`
+	BindingSource              string         `json:"bindingSource"`
+	BindingConfirmedAt         time.Time      `json:"bindingConfirmedAt"`
+	Generation                 uint64         `json:"generation"`
+	ContentGeneration          uint64         `json:"contentGeneration"`
+	MediaType                  string         `json:"mediaType"`
+	Kind                       string         `json:"kind"`
+	ArtifactType               string         `json:"artifactType,omitempty"`
+	Subject                    string         `json:"subject,omitempty"`
+	Platform                   *Platform      `json:"platform"`
+	Category                   string         `json:"category"`
+	Cache                      CacheState     `json:"cache"`
+	Availability               Availability   `json:"availability"`
+	Solidification             Solidification `json:"solidification"`
+	Evidence                   Evidence       `json:"evidence"`
+	TagPublished               bool           `json:"tagPublished"`
+	CapturedProjectionRevision string         `json:"capturedProjectionRevision,omitempty"`
 }
 
 type Object struct {
@@ -160,4 +161,7 @@ type Object struct {
 	IntentID             string    `json:"intentID,omitempty"`
 	IntentState          string    `json:"intentState,omitempty"`
 	TaskIDs              []string  `json:"taskIDs"`
+	ParentDigests        []string  `json:"parentDigests,omitempty"`
+	ParentEdgesScope     string    `json:"parentEdgesScope,omitempty"`
+	ParentEdgesTruncated bool      `json:"parentEdgesTruncated"`
 }

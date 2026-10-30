@@ -174,6 +174,9 @@ func Load() (Config, error) {
 	if parseErrors != nil {
 		return cfg, parseErrors
 	}
+	if cfg.RegistryInspection, err = loadRegistryInspection(cfg); err != nil {
+		return cfg, err
+	}
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
 	}

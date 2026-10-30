@@ -72,9 +72,16 @@ func (u *uploadSessions) Proxy(request *http.Request, repository, uploadID strin
 			}
 		}
 	}
-	response, err := u.registry.Do(leaseCtx, request.Method, state.InternalPath, internalQuery, requestHeaders(request.Header), request.Body, request.ContentLength)
+	response, err := u.proxyUploadAttempt(leaseCtx, request, state, internalQuery)
 	if err != nil {
 		return nil, err
+	}
+	state.RequestCount++
+	state.LastHTTPStatus = response.StatusCode
+	if (request.Method == http.MethodPatch || request.Method == http.MethodGet || request.Method == http.MethodHead) && (response.StatusCode == http.StatusAccepted || response.StatusCode == http.StatusNoContent) {
+		if bytes, ok := acceptedUploadBytes(response.Header.Get("Range")); ok {
+			state.ReceivedBytes = &bytes
+		}
 	}
 	if request.Method == http.MethodPatch && response.StatusCode == http.StatusRequestedRangeNotSatisfiable {
 		if err := u.recoverRange(leaseCtx, &state, response); err != nil {
@@ -106,6 +113,7 @@ func (u *uploadSessions) Proxy(request *http.Request, repository, uploadID strin
 		}
 	}
 	if response.StatusCode == http.StatusCreated || request.Method == http.MethodDelete && response.StatusCode == http.StatusNoContent {
+		u.recordUploadCompletion(leaseCtx, state, uploadCompletionResult(request.Method, response.StatusCode), query.Get("digest"), response.Header.Get("Range"))
 		if err := u.store.DeleteIfMatch(leaseCtx, uploadKey(state.ID), state.version); err != nil && !errors.Is(err, storage.ErrNotFound) {
 			_ = response.Body.Close()
 			return nil, err

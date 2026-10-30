@@ -12,6 +12,9 @@ import (
 )
 
 func adminOperation(api huma.API, method, path, id, summary, permission string, responses map[string]*huma.Response, params []*huma.Param, body ...*huma.RequestBody) huma.Operation {
+	if method == http.MethodGet && (permission == auth.TaskAdmin || permission == auth.GCAdmin || permission == auth.ReferrerPrune) {
+		permission = auth.Observe
+	}
 	errorSchema := adminSchema[registryapi.ErrorEnvelope](api)
 	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
 		key := strconv.Itoa(status)
@@ -114,6 +117,12 @@ func adminTaskQueryParams() []*huma.Param {
 		adminStringQueryParam("authority", "Filter by upstream registry authority.", false),
 		adminStringQueryParam("repository", "Filter by repository.", false),
 		adminStringQueryParam("digest", "Filter by root digest or reference.", false),
+		adminStringQueryParam("kind", "Filter by root or blob task kind.", false, "root", "blob"),
+		adminStringQueryParam("waitReason", "Filter by stable wait reason.", false),
+		adminStringQueryParam("errorClass", "Filter by classified error.", false),
+		adminStringQueryParam("retryable", "Filter by task retryability.", false, "true", "false"),
+		adminStringQueryParam("imageID", "Filter by associated reference or content ID.", false),
+		adminStringQueryParam("blobDigest", "Filter by blob digest.", false),
 		since,
 		before,
 		adminIntegerQueryParam("limit", "Maximum number of tasks to return (default 100).", 1, 1000, 100),
@@ -160,7 +169,7 @@ func (s *Service) authorizeAdminDocumentation(writer http.ResponseWriter, reques
 		writeAdminError(writer, http.StatusUnauthorized, "UNAUTHORIZED", "management authentication is required")
 		return false
 	}
-	if !principal.Allows(auth.TaskAdmin) && !principal.Allows(auth.GCAdmin) && !principal.Allows(auth.ReferrerPrune) {
+	if !principal.Allows(auth.Observe) && !principal.Allows(auth.WorkRetry) && !principal.Allows(auth.GCAdmin) && !principal.Allows(auth.ReferrerPrune) {
 		writeAdminError(writer, http.StatusForbidden, "DENIED", "management permission is required")
 		return false
 	}

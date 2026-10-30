@@ -15,6 +15,9 @@ import (
 )
 
 func (c Config) Validate() error {
+	if err := c.RegistryInspection.validate(c); err != nil {
+		return err
+	}
 	if err := c.Inventory.validateOptional(); err != nil {
 		return err
 	}
@@ -220,31 +223,6 @@ func validateProxyURL(value string) error {
 	proxy, err := url.Parse(value)
 	if err != nil || proxy.Host == "" || (proxy.Scheme != "http" && proxy.Scheme != "https") || proxy.Path != "" && proxy.Path != "/" || proxy.RawQuery != "" || proxy.Fragment != "" {
 		return errors.New("proxy must be an absolute HTTP(S) URL")
-	}
-	return nil
-}
-
-func validateAuth(auth Auth) error {
-	const allowed = "pull catalog push delete task-admin referrer-prune gc-admin"
-	for _, credential := range append(append([]Credential{}, auth.Basic...), auth.Bearer...) {
-		if len(credential.Permissions) == 0 {
-			return errors.New("each credential must declare at least one permission")
-		}
-		for _, permission := range credential.Permissions {
-			if !strings.Contains(" "+allowed+" ", " "+permission+" ") {
-				return fmt.Errorf("unknown permission %q", permission)
-			}
-		}
-	}
-	for _, credential := range auth.Basic {
-		if credential.Username == "" || credential.Password == "" {
-			return errors.New("Basic credentials require username and password")
-		}
-	}
-	for _, credential := range auth.Bearer {
-		if credential.Token == "" {
-			return errors.New("Bearer credentials require token")
-		}
 	}
 	return nil
 }

@@ -95,6 +95,7 @@ func (m *Manager) run(ctx context.Context, worker int) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
+		m.runtimeHeartbeat()
 		if worker == 0 {
 			_ = m.reconcileWakeRequests(ctx)
 		}
@@ -109,6 +110,7 @@ func (m *Manager) run(ctx context.Context, worker int) {
 
 func (m *Manager) dispatch(ctx context.Context, worker int) {
 	tasks, err := m.listActive(ctx)
+	m.runtimeDispatch(err)
 	if err != nil {
 		return
 	}
@@ -129,6 +131,7 @@ func (m *Manager) dispatch(ctx context.Context, worker int) {
 		}
 		m.active[task.ID] = struct{}{}
 		m.mu.Unlock()
+		m.runtimeTask(task.ID, true)
 		m.wg.Add(1)
 		go func(item Task) {
 			defer m.wg.Done()
@@ -136,6 +139,7 @@ func (m *Manager) dispatch(ctx context.Context, worker int) {
 				m.mu.Lock()
 				delete(m.active, item.ID)
 				m.mu.Unlock()
+				m.runtimeTask(item.ID, false)
 			}()
 			m.process(ctx, worker, item)
 		}(task)

@@ -49,8 +49,11 @@ func (s *Service) inventoryStart(ctx context.Context, task *tasks.Task, digest s
 	}
 	fact := inventoryExecutionFact{TaskID: task.ID, Kind: task.Kind, Identity: inventoryIdentity(task.Authority, task.Repository, task.Reference), RootDigest: task.RootDigest, Digest: digest, Generation: task.Generation, ContentGeneration: generation.Generation, RootContentGeneration: rootGeneration}
 	key := executionSource(task.ID, digest, generation.Generation)
-	_, err = (workqueue.Queue{Store: s.store}).Enqueue(ctx, "execution", key, fact, time.Now().UTC())
+	job, err := (workqueue.Queue{Store: s.store}).Enqueue(ctx, "execution", key, fact, time.Now().UTC())
 	if err != nil {
+		return temporary("execution_state", err)
+	}
+	if err := s.indexExecutionSource(ctx, job, fact); err != nil {
 		return temporary("execution_state", err)
 	}
 	return nil
@@ -71,7 +74,11 @@ func (s *Service) projectExecutionStep(ctx context.Context, job *workqueue.Job) 
 		return p, false, err
 	}
 	if current.Tombstone || current.Generation != fact.ContentGeneration {
+		job.Superseded = true
 		return p, true, nil
+	}
+	if err := s.indexExecutionSource(ctx, *job, fact); err != nil {
+		return p, false, err
 	}
 	if fact.Kind == tasks.BlobKind {
 		return s.projectBlobExecutionStep(ctx, job, fact, p)
@@ -179,6 +186,9 @@ func (s *Service) projectBlobExecutionStep(ctx context.Context, job *workqueue.J
 			return p, false, nil
 		}
 		rootFact := inventoryExecutionFact{TaskID: root.ID, Identity: inventoryIdentity(root.Authority, root.Repository, root.Reference), RootDigest: root.RootDigest, Digest: root.RootDigest, Generation: root.Generation, ContentGeneration: *node.ContentGeneration, RootContentGeneration: *node.ContentGeneration}
+		if err := s.indexBlobExecutionManifest(ctx, *job, fact, root, *p.Demand, node.Digest, *node.ContentGeneration, true); err != nil {
+			return p, false, err
+		}
 		at := job.CreatedAt
 		if p.Demand.CreatedAt.After(at) {
 			at = p.Demand.CreatedAt

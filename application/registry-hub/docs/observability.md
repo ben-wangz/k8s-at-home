@@ -1,5 +1,7 @@
 # Observability
 
+See [diagnostics.md](diagnostics.md) for the read-only management APIs, worker/error history, conditional retries, transfer reservations and physical storage inventory configuration.
+
 Inventory backfill progress is available through authenticated `GET /api/v1/images/status`, independently of snapshot readiness. Monitor `registry_hub_inventory_last_progress_timestamp_seconds` and `registry_hub_inventory_checkpoint_steps` to detect stalled work. Budget yields increment the `inventory_budget_yield` event; genuine failures increment `inventory_projection_error`. Task and digest identifiers are available through management status, without becoming metric labels.
 
 Image inventory exports `registry_hub_inventory_images{scope,category}`, `registry_hub_inventory_last_publish_timestamp_seconds`, `registry_hub_inventory_observed_timestamp_seconds`, `registry_hub_inventory_coverage_complete`, and `registry_hub_inventory_batch_duration_seconds`. Compute snapshot age from the observation timestamp. Projection failures and successful publications also increment `registry_hub_events_total` with `inventory_projection_error` and `inventory_snapshot_published`. See [inventory.md](inventory.md) for coverage and freshness semantics.
@@ -47,7 +49,7 @@ Use request IDs to correlate request log entries, and the admin task list to ins
 
 ## Metrics
 
-The private admin listener exposes Prometheus metrics at `/metrics`. Use an admin credential with `task-admin` permission, such as the temporary netrc file prepared in [Security](security.md#generated-admin-credentials):
+The private admin listener exposes Prometheus metrics at `/metrics`. Use an admin credential with `observe` or `task-admin` permission, such as the temporary netrc file prepared in [Security](security.md#generated-admin-credentials):
 
 ```sh
 curl --fail --silent --show-error --netrc-file "$ADMIN_NETRC" \

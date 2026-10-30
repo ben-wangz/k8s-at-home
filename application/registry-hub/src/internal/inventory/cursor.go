@@ -7,11 +7,12 @@ import (
 
 // Cursor retains the current page because storage continuation tokens are opaque.
 type Cursor struct {
-	Token   string          `json:"token,omitempty"`
-	Next    string          `json:"next,omitempty"`
-	Entries []storage.Entry `json:"entries,omitempty"`
-	Offset  int             `json:"offset,omitempty"`
-	Done    bool            `json:"done,omitempty"`
+	Token    string          `json:"token,omitempty"`
+	Next     string          `json:"next,omitempty"`
+	Entries  []storage.Entry `json:"entries,omitempty"`
+	Offset   int             `json:"offset,omitempty"`
+	Done     bool            `json:"done,omitempty"`
+	Entities uint64          `json:"entities,omitempty"`
 }
 
 func (c *Cursor) Peek(ctx context.Context, store storage.Store, prefix string, limit int) (storage.Entry, bool, error) {
@@ -36,6 +37,7 @@ func (c *Cursor) Peek(ctx context.Context, store storage.Store, prefix string, l
 }
 
 func (c *Cursor) Advance() {
+	c.Entities++
 	c.Offset++
 	if c.Offset == len(c.Entries) {
 		c.Token, c.Done = c.Next, c.Next == ""

@@ -198,5 +198,6 @@ func newMetrics() *metrics {
 		result.events.WithLabelValues(event).Add(0)
 	}
 	result.initInventoryMetrics()
+	result.initBackgroundBudgetMetrics()
 	return result
 }

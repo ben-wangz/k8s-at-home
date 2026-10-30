@@ -20,7 +20,11 @@ commands:
       - >-
         bash -n setup/forgekit.sh .github/scripts/release-plan.sh
   - name: gofmt check
-    cmd: sh
+    cmd: bash
     args:
+      - -o
+      - pipefail
       - -c
-      - test -z "$(gofmt -l .)"
+      - >-
+        unformatted="$(git ls-files -z --cached --others --exclude-standard -- '*.go' |
+        xargs -0 -r gofmt -l)" && test -z "$unformatted"

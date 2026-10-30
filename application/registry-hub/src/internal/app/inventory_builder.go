@@ -157,6 +157,15 @@ func (s *Service) publishInventory(ctx context.Context, state *inventoryCheckpoi
 	if err := writer.Publish(ctx, state.Scan.Complete && !writer.Snapshot.ProjectionPending, reasons); err != nil {
 		return err
 	}
+	state.LastPublishedAt = time.Now().UTC()
+	state.LastBuildSeconds = state.LastPublishedAt.Sub(writer.Snapshot.BuildStartedAt).Seconds()
+	if !state.ScanStartedAt.IsZero() {
+		state.LastRefreshSeconds = state.LastPublishedAt.Sub(state.ScanStartedAt).Seconds()
+	}
+	if writer.Snapshot.Coverage == "complete" {
+		state.LastCompleteAt = state.LastPublishedAt
+	}
+	state.ScanStartedAt = time.Time{}
 	state.Build = nil
 	state.Scan.Reasons = nil
 	if s.metrics != nil {

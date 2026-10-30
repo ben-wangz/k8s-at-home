@@ -15,6 +15,7 @@ import (
 	"registry-hub/internal/route"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -37,21 +38,24 @@ type HTTPStatusError struct {
 	RetryAfter string
 }
 
+func (e *HTTPStatusError) HTTPStatusCode() int { return e.StatusCode }
+
 func (e *HTTPStatusError) Error() string {
 	return fmt.Sprintf("upstream token endpoint returned status %d", e.StatusCode)
 }
 
 type Client struct {
-	auth          map[string]config.UpstreamAuth
-	rules         map[string]config.TransportRule
-	caPools       map[string]*tls.Config
-	proxies       config.ProxyConfig
-	lookupIP      func(context.Context, string, string) ([]netip.Addr, error)
-	transport     *http.Transport
-	client        *http.Client
-	proxyMu       sync.RWMutex
-	proxiesByHost map[string]struct{}
-	observer      func(string)
+	auth            map[string]config.UpstreamAuth
+	rules           map[string]config.TransportRule
+	caPools         map[string]*tls.Config
+	proxies         config.ProxyConfig
+	lookupIP        func(context.Context, string, string) ([]netip.Addr, error)
+	transport       *http.Transport
+	client          *http.Client
+	proxyMu         sync.RWMutex
+	proxiesByHost   map[string]struct{}
+	observer        func(string)
+	attemptObserver atomic.Pointer[HTTPAttemptObserver]
 }
 
 func New(cfg config.Config) (*Client, error) {
@@ -103,7 +107,7 @@ func New(cfg config.Config) (*Client, error) {
 		ResponseHeaderTimeout: 30 * time.Second,
 	}
 	client.transport = transport
-	client.client = &http.Client{Transport: transport, CheckRedirect: client.checkRedirect}
+	client.client = &http.Client{Transport: attemptTransport{base: transport, client: client}, CheckRedirect: client.checkRedirect}
 	return client, nil
 }
 
@@ -156,6 +160,7 @@ func (c *Client) Do(ctx context.Context, authority, repository, method, requestP
 	}
 	ctx = context.WithValue(ctx, authorityContextKey{}, authority)
 	ctx = context.WithValue(ctx, transportAuthorityContextKey{}, requestURL.Host)
+	ctx = c.attemptContext(ctx, authority, repository, requestPath)
 	request, err := http.NewRequestWithContext(ctx, method, requestURL.String(), nil)
 	if err != nil {
 		return nil, err

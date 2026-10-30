@@ -31,6 +31,7 @@ func TestS3SDKAttemptsAndTaskBackoffRemainSeparateAcrossRestart(t *testing.T) {
 			_, _ = io.Copy(io.Discard, r.Body)
 			attempts.Add(1)
 			w.Header().Set("Content-Type", "application/xml")
+			w.Header().Set("X-Amz-Request-Id", "retry-observation")
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = io.WriteString(w, `<Error><Code>InternalError</Code></Error>`)
 			return
@@ -46,6 +47,12 @@ func TestS3SDKAttemptsAndTaskBackoffRemainSeparateAcrossRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s3.Close()
+	observations := []storage.HTTPAttempt{}
+	s3.SetHTTPAttemptObserver(func(_ context.Context, attempt storage.HTTPAttempt) {
+		if attempt.Method == http.MethodPut {
+			observations = append(observations, attempt)
+		}
+	})
 	stateStore, err := filesystem.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -102,6 +109,14 @@ func TestS3SDKAttemptsAndTaskBackoffRemainSeparateAcrossRestart(t *testing.T) {
 	second, err := restarted.Get(ctx, task.ID)
 	if err != nil || second.Status != RetryWait || second.RetryCount != 2 || attempts.Load() != 6 {
 		t.Fatalf("second logical attempt = %#v, %v, HTTP attempts=%d; want two task retries and six SDK attempts", second, err, attempts.Load())
+	}
+	if len(observations) != 6 {
+		t.Fatalf("HTTP attempt observations=%d; want six separately from two task retries", len(observations))
+	}
+	for index, observed := range observations {
+		if observed.Number != uint64(index%3+1) || observed.Status != 500 || observed.RequestID != "retry-observation" || observed.FinishedAt.Before(observed.StartedAt) {
+			t.Fatalf("HTTP attempt %d lost retry identity: %+v", index, observed)
+		}
 	}
 }
 

@@ -24,6 +24,7 @@ type Store struct {
 	partSize           int64
 	multipartThreshold int64
 	httpClient         *http.Client
+	attempts           *attemptTransport
 	replayMu           sync.Mutex
 	replay             *replayManager
 	replayClosed       bool
@@ -56,9 +57,19 @@ func New(ctx context.Context, cfg config.S3) (*Store, error) {
 		ResponseHeaderTimeout: 30 * time.Second,
 	}
 	httpClient := &http.Client{Transport: transport, Timeout: cfg.Timeout}
+	attempts := &attemptTransport{base: transport}
+	sdkHTTPClient := &http.Client{Transport: attempts, Timeout: cfg.Timeout}
 	loadOptions := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(cfg.Region),
-		awsconfig.WithHTTPClient(httpClient),
+		awsconfig.WithHTTPClient(sdkHTTPClient),
+	}
+	if cfg.AccessKeyID != "" || cfg.SecretAccessKey != "" {
+		if cfg.AccessKeyID == "" || cfg.SecretAccessKey == "" {
+			return nil, errors.New("both S3 inspection credential fields are required")
+		}
+		loadOptions = append(loadOptions, awsconfig.WithCredentialsProvider(aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+			return aws.Credentials{AccessKeyID: cfg.AccessKeyID, SecretAccessKey: cfg.SecretAccessKey, Source: "registry-inspection"}, nil
+		})))
 	}
 	if strings.HasPrefix(cfg.Endpoint, "http://") {
 		loadOptions = append(loadOptions, awsconfig.WithRequestChecksumCalculation(aws.RequestChecksumCalculationWhenRequired))
@@ -94,6 +105,7 @@ func New(ctx context.Context, cfg config.S3) (*Store, error) {
 		partSize:           cfg.PartSize,
 		multipartThreshold: cfg.MultipartThreshold,
 		httpClient:         httpClient,
+		attempts:           attempts,
 		replay:             replay,
 	}, nil
 }

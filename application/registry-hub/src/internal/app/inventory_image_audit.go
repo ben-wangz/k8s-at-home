@@ -16,6 +16,7 @@ func (s *Service) advanceInventoryImageAudit(ctx context.Context, p *inventoryIm
 	}
 	object := p.Audit.Object
 	object.Associated = true
+	p.attachParentEdges(&object)
 	object.DistributionVerified = done && err == nil
 	if err != nil {
 		object.Reasons = appendReason(object.Reasons, "local_evidence_stale")

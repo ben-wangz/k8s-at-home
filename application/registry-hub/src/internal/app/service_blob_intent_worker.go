@@ -21,15 +21,13 @@ func (s *Service) runBlobIntentReconciliation(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case identity := <-s.blobIntentEvents:
-			bounded, cancel := context.WithTimeout(ctx, 15*time.Second)
-			release, ok := s.backgroundBudget(bounded)
+			bounded, release, ok := s.beginBackgroundUnit(ctx, "activation_events", 15*time.Second)
 			if ok {
 				if err := s.processCachedBlobIntent(bounded, identity); err != nil {
 					s.backgroundEvent("activation", "deferred", err)
 				}
 				release()
 			}
-			cancel()
 		}
 	}
 }

@@ -2,11 +2,8 @@ package filesystem
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"golang.org/x/sys/unix"
-	"io"
 	"os"
 	"path/filepath"
 	"registry-hub/internal/storage"
@@ -35,6 +32,9 @@ func (s *Store) list(ctx context.Context, prefix, token string, limit int, versi
 	}
 	var keys []string
 	err := filepath.WalkDir(base, func(path string, d os.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			if errors.Is(walkErr, os.ErrNotExist) {
 				return nil
@@ -177,6 +177,9 @@ func (s *Store) head(path, key string) (storage.Entry, error) {
 
 // CleanupOrphans removes stale FileSystem staging files left by interrupted writes.
 func (s *Store) CleanupOrphans(ctx context.Context, olderThan time.Duration, limit int) (removed int, returnErr error) {
+	if s.readOnly {
+		return 0, storage.ErrPermissionDenied
+	}
 	defer func() { returnErr = mapError(returnErr) }()
 	if olderThan <= 0 {
 		return 0, errors.New("orphan retention must be positive")
@@ -230,21 +233,4 @@ func (s *Store) CleanupOrphans(ctx context.Context, olderThan time.Duration, lim
 		removed++
 	}
 	return removed, nil
-}
-
-func hashReader(reader io.Reader) (string, error) {
-	hash := sha256.New()
-	if _, err := io.Copy(hash, reader); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-func syncDir(path string) error {
-	dir, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
 }

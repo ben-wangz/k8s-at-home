@@ -30,6 +30,13 @@ func (s *Service) runCacheCleanup(ctx context.Context) {
 			if _, err := s.tasks.CancelIfExpired(ctx, task.ID, time.Now().UTC()); err != nil {
 				return err
 			}
+			task, err = s.tasks.Get(ctx, task.ID)
+			if err != nil {
+				return err
+			}
+			if err := s.handoffDiagnosticOutbox(ctx, entry.Key, task.DiagnosticOutbox); err != nil {
+				return err
+			}
 			return s.tasks.CleanupTaskStep(ctx, task.ID, 30*24*time.Hour)
 		}},
 		{"download_expiry", "downloads/v1/", func(ctx context.Context, entry storage.Entry) error {
@@ -39,7 +46,7 @@ func (s *Service) runCacheCleanup(ctx context.Context) {
 			if strings.Contains(entry.Key, "/execution/") || entry.ModTime == 0 || time.Since(time.Unix(0, entry.ModTime)) < 30*24*time.Hour {
 				return nil
 			}
-			return s.store.DeleteIfMatch(ctx, entry.Key, entry.Version)
+			return s.deleteDiagnosticObservation(ctx, entry)
 		}},
 	}
 	var group sync.WaitGroup

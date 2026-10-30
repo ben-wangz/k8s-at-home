@@ -59,6 +59,7 @@ func manifestReadHeaders() http.Header {
 
 func (s *solidifier) Process(ctx context.Context, task *tasks.Task, taskLease lease.Lease) (result error) {
 	ctx = context.WithValue(ctx, storageOperationIDKey{}, task.ID)
+	ctx = context.WithValue(ctx, diagnosticTaskKey{}, task)
 	if s.gate.State().RecoveryBarrier {
 		return tasks.WaitFor(tasks.WaitingDeps, "gc_admission")
 	}

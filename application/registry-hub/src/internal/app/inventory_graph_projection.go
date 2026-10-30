@@ -12,6 +12,7 @@ import (
 )
 
 type inventoryGraphProjection struct {
+	Epoch    uint64                   `json:"epoch"`
 	Fence    uint64                   `json:"fence,omitempty"`
 	Task     tasks.Task               `json:"task"`
 	Version  string                   `json:"version"`
@@ -34,10 +35,19 @@ func (s *Service) newInventoryProjection(ctx context.Context, id string) (*inven
 		return nil, storage.ErrCorruptObject
 	}
 	task.Graph, task.Checkpoints = nil, nil
-	return &inventoryGraphProjection{Task: task, Version: version, Prefix: inventory.Prefix + "projections/source/" + id + "/" + inventory.ID("source", version, requestID()) + "/"}, nil
+	task.DiagnosticOutbox = nil
+	p := &inventoryGraphProjection{Task: task, Version: version, Prefix: inventory.Prefix + "projections/source/" + id + "/" + inventory.ID("source", version, requestID()) + "/"}
+	if s.gate != nil {
+		p.Epoch = s.gate.State().Epoch
+	}
+	p.Complete, err = s.reuseInventoryProjection(ctx, p)
+	return p, err
 }
 
 func (s *Service) advanceInventoryProjection(ctx context.Context, p *inventoryGraphProjection) error {
+	if p.Complete {
+		return nil
+	}
 	switch p.Phase {
 	case 0:
 		done, _, err := inventory.Read[bool](ctx, s.store, inventory.Prefix+"handoffs/"+p.Task.ID+".json")
@@ -88,6 +98,11 @@ func (s *Service) advanceInventoryProjection(ctx context.Context, p *inventoryGr
 		}
 		if p.Cursor.Done {
 			p.Complete = !p.Restart
+			if p.Complete {
+				if err := s.saveInventoryProjectionReceipt(ctx, p); err != nil {
+					return err
+				}
+			}
 			if p.Complete && p.Task.CleanupStarted {
 				if err := inventory.Update(ctx, s.store, inventory.Prefix+"handoffs/"+p.Task.ID+".json", func(value *bool) error { *value = true; return nil }); err != nil {
 					return err

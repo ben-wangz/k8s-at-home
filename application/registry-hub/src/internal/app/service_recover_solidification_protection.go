@@ -13,22 +13,27 @@ const legacyGrandfatheredSessionID = "f2b4944d5d74f22a6a4e357fa693e96d"
 
 const legacyGrandfatheredScopeID = "legacy-grandfathered"
 
-func (s *Service) recoverSolidificationProtection(ctx context.Context) error {
+func (s *Service) recoverSolidificationProtection(ctx context.Context) (result error) {
 	s.protectionRecoveryMu.Lock()
 	defer s.protectionRecoveryMu.Unlock()
+	finished := s.observeProtectionRecovery(ctx)
+	defer func() { finished(result) }()
 	if _, err := s.gate.BeginStartupRecovery(ctx); err != nil {
 		return err
 	}
 	s.cacheProtectionReady.Store(false)
+	s.protectionRecoveryStage("quiesce", false)
 	if err := s.gate.WaitRecoveryQuiesced(ctx, 5*time.Minute); err != nil {
 		return err
 	}
 	if err := s.gate.ValidateProtectionState(ctx); err != nil {
 		return err
 	}
+	s.protectionRecoveryStage("remote_operations", false)
 	if err := s.recoverProtectionRemoteOperations(ctx); err != nil {
 		return err
 	}
+	s.protectionRecoveryStage("cache_protection_index", false)
 	if err := s.rebuildCacheProtectionIndex(ctx); err != nil {
 		return err
 	}
@@ -40,6 +45,7 @@ func (s *Service) recoverSolidificationProtection(ctx context.Context) error {
 	activeCacheReservations := make(map[string]int64)
 	token := ""
 	for {
+		s.protectionRecoveryStage("task_reconciliation", false)
 		items, next, err := s.tasks.List(ctx, "", token, 1000)
 		if err != nil {
 			return err
@@ -103,6 +109,7 @@ func (s *Service) recoverSolidificationProtection(ctx context.Context) error {
 				return err
 			}
 		}
+		s.protectionRecoveryStage("task_reconciliation", len(items) > 0)
 		if next == "" {
 			break
 		}

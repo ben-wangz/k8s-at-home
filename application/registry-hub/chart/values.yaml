@@ -40,6 +40,12 @@ backend:
     snapshotRetentionSeconds: 3600
     batchSize: 100
     batchTimeoutSeconds: 60
+  registryInspection:
+    config:
+      backend: disabled
+      filesystemRoot: ""
+      s3: {}
+    credentialsSecret: ""
   solidification:
     idleTimeoutSeconds: 86400
     maxWaitingRoots: 1024

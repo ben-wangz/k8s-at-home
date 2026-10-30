@@ -70,7 +70,8 @@ func TestInventoryLeaderRenewsPlaceholderWhileWorkingAndIdle(t *testing.T) {
 			} else {
 				seedInventoryHistoricalGraphs(t, f)
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			// Two observed publications cancel the run; this deadline is a failure watchdog.
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			leader, err := f.service.tasks.Leases().Acquire(ctx, "inventory/builder", "runtime", time.Minute)
 			if err != nil {
@@ -80,7 +81,7 @@ func TestInventoryLeaderRenewsPlaceholderWhileWorkingAndIdle(t *testing.T) {
 			store := &inventoryExpiryStore{Store: f.service.store, initial: initial.SnapshotID, ids: map[string]bool{}, cancel: cancel}
 			f.service.store, f.service.inventory.Store = store, store
 			if err := f.service.runInventoryLeader(ctx, leader); !errors.Is(err, context.Canceled) {
-				t.Fatalf("leader failed before repeated runtime renewal: %v", err)
+				t.Fatalf("leader failed before repeated runtime renewal: err=%v parent=%v expired=%t publications=%d", err, ctx.Err(), store.expired, len(store.ids))
 			}
 			if !store.expired || len(store.ids) != 2 {
 				t.Fatalf("runtime renewal did not run: expired=%v publications=%d", store.expired, len(store.ids))

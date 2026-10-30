@@ -166,7 +166,7 @@ var defaultChecks = map[string][]string{
 	"referrers-lifecycle":             {"referrers-lifecycle.delete", "referrers-lifecycle.subject", "referrers-lifecycle.native", "referrers-lifecycle.remaining"},
 	"delete-semantics":                {"delete-semantics.tags", "delete-semantics.manifest", "delete-semantics.blob", "delete-semantics.missing"},
 	"security-defaults":               {"security-defaults.internal", "security-defaults.network-policy", "security-defaults.ssrf", "security-defaults.task"},
-	"admin-api":                       {"admin-api.auth", "admin-api.tasks", "admin-api.reconcile", "admin-api.gc"},
+	"admin-api":                       {"admin-api.auth", "admin-api.tasks", "admin-api.reconcile", "admin-api.gc", "admin-api.diagnostics"},
 	"artifact-persistence":            {"artifact-persistence.content", "artifact-persistence.objects", "artifact-persistence.task", "artifact-persistence.services"},
 	"dependency-failure":              {"dependency-failure.endpoints", "dependency-failure.errors", "dependency-failure.recovery", "dependency-failure.diagnostic"},
 	"default-limits":                  {"default-limits.manifest", "default-limits.descriptors", "default-limits.upload", "default-limits.tags", "default-limits.rate", "default-limits.normal"},

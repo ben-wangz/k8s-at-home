@@ -39,6 +39,9 @@ func (s *observedStore) CleanupOrphansStep(ctx context.Context, olderThan time.D
 }
 
 func (s *observedStore) record(ctx context.Context, operation string, err error, started time.Time) {
+	if err != nil && !expectedStorageError(err) && s.diagnosticFailure != nil {
+		s.diagnosticFailure(ctx, operation, err, started)
+	}
 	if budget, ok := ctx.Value(inventoryBudgetKey{}).(*inventoryBudget); ok {
 		budget.operations.Add(1)
 	}

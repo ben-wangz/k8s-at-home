@@ -5,6 +5,7 @@ import (
 	"errors"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
+	"slices"
 )
 
 type inventoryClosureFrame struct {
@@ -15,16 +16,20 @@ type inventoryClosureFrame struct {
 }
 
 type inventoryClosureProgress struct {
-	Objects      []inventory.ObjectRef          `json:"objects"`
-	Platforms    []string                       `json:"platforms"`
-	Required     map[string]inventory.ObjectRef `json:"required"`
-	RequiredRefs []inventory.ObjectRef          `json:"requiredRefs"`
-	Seen         map[string]inventory.ObjectRef `json:"seen"`
-	Active       map[string]bool                `json:"active"`
-	Frames       []inventoryClosureFrame        `json:"frames"`
-	Complete     bool                           `json:"complete"`
-	Bytes        int64                          `json:"bytes"`
-	Reasons      []string                       `json:"reasons"`
+	Objects          []inventory.ObjectRef          `json:"objects"`
+	Platforms        []string                       `json:"platforms"`
+	Required         map[string]inventory.ObjectRef `json:"required"`
+	RequiredRefs     []inventory.ObjectRef          `json:"requiredRefs"`
+	Seen             map[string]inventory.ObjectRef `json:"seen"`
+	Active           map[string]bool                `json:"active"`
+	Frames           []inventoryClosureFrame        `json:"frames"`
+	Complete         bool                           `json:"complete"`
+	Bytes            int64                          `json:"bytes"`
+	Reasons          []string                       `json:"reasons"`
+	SourceVersions   map[string]string              `json:"sourceVersions,omitempty"`
+	Depth            int                            `json:"depth"`
+	Parents          map[string][]string            `json:"parents,omitempty"`
+	ParentsTruncated map[string]bool                `json:"parentsTruncated,omitempty"`
 }
 
 func newInventoryClosureProgress(digest string) inventoryClosureProgress {
@@ -55,6 +60,7 @@ func (s *Service) advanceInventoryClosure(ctx context.Context, identity inventor
 	}
 	child := f.Content.Children[f.Child]
 	f.Child++
+	p.recordParent(child, f.Content.Digest, s.cfg.Limits.ClosureObjects)
 	key := "blob:" + child.Digest
 	if child.Role == "manifest" {
 		key = "manifest:" + child.Digest
@@ -87,9 +93,39 @@ func (s *Service) advanceInventoryClosure(ctx context.Context, identity inventor
 	return nil
 }
 
+func closureParentKey(ref inventory.ObjectRef) string {
+	if ref.Role == "manifest" {
+		return "manifest:" + ref.Digest
+	}
+	return "blob:" + ref.Digest
+}
+
+func (p *inventoryClosureProgress) recordParent(child inventory.ObjectRef, parent string, limit int) {
+	if p.Parents == nil {
+		p.Parents, p.ParentsTruncated = map[string][]string{}, map[string]bool{}
+	}
+	if p.ParentsTruncated == nil {
+		p.ParentsTruncated = map[string]bool{}
+	}
+	key := closureParentKey(child)
+	if p.Parents[key] == nil && len(p.Parents) >= limit {
+		p.incomplete("parent_edge_limit")
+		return
+	}
+	if slices.Contains(p.Parents[key], parent) {
+		return
+	}
+	if len(p.Parents[key]) >= 32 {
+		p.ParentsTruncated[key] = true
+		return
+	}
+	p.Parents[key] = append(p.Parents[key], parent)
+}
+
 func (s *Service) enterInventoryClosure(ctx context.Context, identity inventory.Identity, p *inventoryClosureProgress) error {
 	f := &p.Frames[len(p.Frames)-1]
-	content, err := s.inventory.Content(ctx, identity, f.Digest)
+	p.Depth = max(p.Depth, len(p.Frames))
+	content, version, err := inventory.Read[inventory.Content](ctx, s.store, inventory.Prefix+"contents/"+identity.ContentID(f.Digest)+".json")
 	if errors.Is(err, storage.ErrNotFound) {
 		p.incomplete("closure_incomplete")
 		p.pop()
@@ -98,6 +134,13 @@ func (s *Service) enterInventoryClosure(ctx context.Context, identity inventory.
 	if err != nil {
 		return err
 	}
+	if content.SchemaVersion != 1 || content.Authority != identity.Authority || content.Repository != identity.Repository || content.Digest != f.Digest {
+		return storage.ErrCorruptObject
+	}
+	if p.SourceVersions == nil {
+		p.SourceVersions = map[string]string{}
+	}
+	p.SourceVersions[f.Digest] = version
 	if f.Expected != nil && content.ClosureKnown && (content.Size != f.Expected.Size || content.MediaType != f.Expected.MediaType) {
 		p.incomplete("descriptor_conflict")
 	}

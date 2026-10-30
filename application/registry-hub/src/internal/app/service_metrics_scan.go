@@ -2,24 +2,61 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"registry-hub/internal/artifact"
 	"registry-hub/internal/inventory"
+	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
-	"registry-hub/internal/tasks"
 	"time"
 )
 
-func (s *Service) runMetricSweep(ctx context.Context, kind string, cursor *inventory.Cursor, step func(context.Context) (bool, error), publish, reset func()) {
-	status := backgroundScanStatus{StartedAt: time.Now().UTC()}
-	initial, initialCancel := context.WithTimeout(ctx, 5*time.Second)
-	previous, _, readErr := inventory.Read[backgroundScanStatus](initial, s.store, "background/v1/statistics/"+kind+".json")
-	initialCancel()
-	if readErr == nil {
-		status.ErrorAt, status.ErrorEntity, status.ErrorClass, status.ErrorRecovered = previous.ErrorAt, previous.ErrorEntity, previous.ErrorClass, previous.ErrorRecovered
+func (s *Service) runMetricSweep(ctx context.Context, kind string, cursor *inventory.Cursor, accumulator *scanAccumulator, step func(context.Context) (bool, error), publish, reset func(), summary ...func() map[string]int64) {
+	for ctx.Err() == nil {
+		leaderCtx, holder, release, err := s.acquireBackgroundLease(ctx, "statistics_"+kind, lease.NewManager(s.store), "background/statistics/"+kind, s.instanceID+"/"+requestID(), time.Minute)
+		if err == nil {
+			reset()
+			s.runMetricSweepLeader(leaderCtx, holder, kind, cursor, accumulator, step, publish, reset, summary...)
+			_ = release()
+		} else if !errors.Is(err, lease.ErrHeld) && !errors.Is(err, errBackgroundAdmissionYield) {
+			s.backgroundEvent("statistics_"+kind, "lease_failed", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Second):
+		}
 	}
-	invalid := false
-	nextRound, lastSave := time.Time{}, time.Time{}
+}
+
+func (s *Service) runMetricSweepLeader(ctx context.Context, holder lease.Lease, kind string, cursor *inventory.Cursor, accumulator *scanAccumulator, step func(context.Context) (bool, error), publish, reset func(), summary ...func() map[string]int64) {
+	state := metricSweepCheckpoint{Status: backgroundScanStatus{StartedAt: time.Now().UTC(), RunID: requestID()}}
+	initial, initialCancel := context.WithTimeout(ctx, 5*time.Second)
+	previous, _, readErr := inventory.Read[metricSweepCheckpoint](initial, s.store, metricCheckpointKey(kind))
+	initialCancel()
+	if readErr == nil && accumulator != nil {
+		state = previous
+		if len(state.LastComplete) > 0 {
+			if err := accumulator.Restore(state.LastComplete); err != nil {
+				s.backgroundEvent("statistics_"+kind, "checkpoint_corrupt", err)
+				return
+			}
+			publish()
+		}
+		if err := accumulator.Restore(state.Accumulator); err != nil {
+			s.backgroundEvent("statistics_"+kind, "checkpoint_corrupt", err)
+			return
+		}
+		*cursor = state.Cursor
+	} else if readErr != nil && !errors.Is(readErr, storage.ErrNotFound) {
+		s.backgroundEvent("statistics_"+kind, "checkpoint_read_failed", readErr)
+		return
+	}
+	status := &state.Status
+	status.Resumability, status.Owner, status.Fence = "durable_checkpoint", holder.Owner, holder.FencingToken
+	if accumulator == nil {
+		status.Resumability = "full_rescan_on_restart"
+	}
+	lastSave := time.Time{}
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	for ctx.Err() == nil {
@@ -28,17 +65,21 @@ func (s *Service) runMetricSweep(ctx context.Context, kind string, cursor *inven
 			return
 		case <-ticker.C:
 		}
-		if time.Now().Before(nextRound) {
+		if time.Now().Before(state.NextRound) {
 			continue
 		}
-		bounded, cancel := context.WithTimeout(ctx, 10*time.Second)
-		release, ok := s.backgroundBudget(bounded)
+		bounded, release, ok := s.beginBackgroundUnit(ctx, "statistics_"+kind, 10*time.Second)
 		if !ok {
-			cancel()
 			continue
 		}
+		status.LastHeartbeatAt = time.Now().UTC()
 		done, err := false, error(nil)
-		for unit := 0; unit < 32; unit++ {
+		entities := cursor.Entities
+		quantum := time.Now().Add(time.Second)
+		for unit := 0; unit < 4; unit++ {
+			if unit > 0 && time.Now().After(quantum) {
+				break
+			}
 			if deadline, ok := bounded.Deadline(); ok && time.Until(deadline) < time.Second {
 				break
 			}
@@ -48,139 +89,67 @@ func (s *Service) runMetricSweep(ctx context.Context, kind string, cursor *inven
 			}
 		}
 		if err != nil {
-			invalid = true
+			state.Invalid = true
 			status.Complete = false
-			status.ErrorAt, status.ErrorClass, status.ErrorRecovered = time.Now().UTC(), "storage", false
+			status.ErrorAt, status.ErrorClass, status.ErrorRecovered = time.Now().UTC(), diagnosticReason(err), false
 			if cursor.Offset < len(cursor.Entries) {
 				status.ErrorEntity = cursor.Entries[cursor.Offset].Key
 				cursor.Advance()
 				done = cursor.Done
 			}
 			status.NextAttemptAt = time.Now().UTC().Add(5 * time.Second)
-			nextRound = status.NextAttemptAt
+			state.NextRound = status.NextAttemptAt
+			s.recordScanFailure(bounded, "statistics_"+kind, "statistics_scan", status, &state.DiagnosticOutbox, err, 0)
 			s.backgroundEvent("statistics_"+kind, "scan_failed", err)
-		} else {
+		} else if cursor.Entities > entities {
 			status.ProgressAt = time.Now().UTC()
+			status.LastEntityProgressAt = status.ProgressAt
 		}
 		if done {
-			if !invalid {
+			status.Processed = cursor.Entities
+			status.LastScanCompletedAt = time.Now().UTC()
+			if !state.Invalid {
+				recordScanRecovery("statistics_"+kind, "statistics_scan", status, &state.DiagnosticOutbox, "")
+				if len(summary) > 0 {
+					status.Counts = summary[0]()
+				}
 				publish()
-				status.ObservedAt, status.Complete, status.ErrorRecovered = status.StartedAt, true, true
+				if accumulator != nil {
+					state.LastComplete, _ = json.Marshal(accumulator.Capture())
+				}
+				status.ObservedAt, status.Complete, status.ErrorRecovered = status.StartedAt, true, !status.ErrorAt.IsZero()
+				status.LastSuccessAt = status.LastScanCompletedAt
 			}
-			if invalid {
+			if state.Invalid {
 				status.Complete = false
 			}
 			reset()
-			invalid = false
+			state.Invalid = false
 			status.StartedAt = time.Now().UTC()
-			nextRound = time.Now().Add(15 * time.Second)
+			status.RunID = requestID()
+			status.NextAttemptAt = time.Time{}
+			state.NextRound = time.Now().Add(15 * time.Second)
 		}
+		status.NextScanAt = state.NextRound
 		if done || time.Since(lastSave) > 5*time.Second {
-			_ = inventory.Update(bounded, s.store, "background/v1/statistics/"+kind+".json", func(value *backgroundScanStatus) error { *value = status; return nil })
+			checkpointCtx, checkpointCancel := s.backgroundCheckpoint(ctx, "statistics_"+kind)
+			status.CheckpointAt = time.Now().UTC()
+			state.Cursor = *cursor
+			var checkpointErr error
+			if accumulator != nil {
+				state.Accumulator, checkpointErr = json.Marshal(accumulator.Capture())
+			}
+			if checkpointErr == nil {
+				checkpointErr = s.saveMetricSweep(checkpointCtx, holder, kind, state)
+			}
+			checkpointCancel()
+			if checkpointErr != nil {
+				release()
+				s.backgroundEvent("statistics_"+kind, "checkpoint_failed", checkpointErr)
+				return
+			}
 			lastSave = time.Now()
 		}
 		release()
-		cancel()
-	}
-}
-
-func (s *Service) runCacheMetrics(ctx context.Context) {
-	p := artifact.StatsCursor{}
-	s.runMetricSweep(ctx, "cache", &p.Cursor, func(ctx context.Context) (bool, error) { return s.cache.StatsStep(ctx, &p, time.Hour) }, func() { s.metrics.setCacheStats(p.Stats) }, func() { p = artifact.StatsCursor{} })
-}
-
-func (s *Service) runIntentMetrics(ctx context.Context) {
-	cursor, counts := inventory.Cursor{}, map[string]float64{}
-	s.runMetricSweep(ctx, "intents", &cursor, func(ctx context.Context) (bool, error) {
-		entry, ok, err := cursor.Peek(ctx, s.store, "solidification/blobs/intents/", 32)
-		if err != nil {
-			return false, err
-		}
-		if ok {
-			intent, _, err := inventory.Read[tasks.BlobIntent](ctx, s.store, entry.Key)
-			if err != nil && !errors.Is(err, storage.ErrNotFound) {
-				return false, err
-			}
-			if err == nil {
-				counts[stableBlobIntentState(intent.State)]++
-			}
-			cursor.Advance()
-		}
-		return cursor.Done, nil
-	}, func() {
-		s.metrics.blobIntentLimit.Set(float64(s.cfg.Solidification.MaxBlobIntents))
-		s.metrics.blobIntents.Reset()
-		for _, state := range blobIntentMetricStates {
-			s.metrics.blobIntents.WithLabelValues(state).Set(counts[state])
-		}
-	}, func() { cursor = inventory.Cursor{}; counts = map[string]float64{} })
-}
-
-func (s *Service) runProtectionMetrics(ctx context.Context) {
-	cursor, counts, blockers := inventory.Cursor{}, map[string]float64{}, map[string]float64{}
-	s.runMetricSweep(ctx, "protection", &cursor, func(ctx context.Context) (bool, error) {
-		entry, ok, err := cursor.Peek(ctx, s.store, "system/solidification/sessions/", 32)
-		if err != nil {
-			return false, err
-		}
-		if ok {
-			item, _, err := inventory.Read[protectionSessionRecord](ctx, s.store, entry.Key)
-			if err != nil && !errors.Is(err, storage.ErrNotFound) {
-				return false, err
-			}
-			if err == nil && containsString(s.gate.State().SessionIDs, item.ID) {
-				state, reason := protectionMetricLabels(item)
-				counts[state]++
-				blockers[reason]++
-			}
-			cursor.Advance()
-		}
-		return cursor.Done, nil
-	}, func() {
-		s.metrics.protectionSessions.Reset()
-		s.metrics.gcBlockers.Reset()
-		for _, state := range []string{"protected", "anchoring", "stop_requested", "quiescing", "quiesced", "anchored", "recovery_required", "other"} {
-			s.metrics.protectionSessions.WithLabelValues(state).Set(counts[state])
-		}
-		for _, reason := range []string{"executing", "unanchored", "cancellation", "unknown", "anchored", "other"} {
-			s.metrics.gcBlockers.WithLabelValues(reason).Set(blockers[reason])
-		}
-		s.publishProtectionQuotas()
-	}, func() { cursor = inventory.Cursor{}; counts, blockers = map[string]float64{}, map[string]float64{} })
-}
-
-func protectionMetricLabels(item protectionSessionRecord) (string, string) {
-	state, reason := item.State, "other"
-	switch state {
-	case "protected", "anchoring", "stop_requested", "quiescing", "quiesced", "anchored", "recovery_required":
-	default:
-		state = "other"
-	}
-	switch {
-	case item.UncertainRemoteResult || item.RecoveryReason != "" || item.State == "recovery_required":
-		reason = "unknown"
-	case item.State == "anchored":
-		reason = "anchored"
-	case item.State == "stop_requested" || item.State == "quiescing" || item.State == "quiesced":
-		reason = "cancellation"
-	case item.MayContainUnanchored:
-		reason = "unanchored"
-	case item.State == "protected" || item.State == "anchoring":
-		reason = "executing"
-	}
-	return state, reason
-}
-
-func (s *Service) publishProtectionQuotas() {
-	gate := s.gate.State()
-	s.metrics.protectionReserved.WithLabelValues("new").Set(float64(gate.ReservedDistributionBytes))
-	s.metrics.protectionReserved.WithLabelValues("legacy").Set(float64(gate.LegacyGrandfatheredBytes))
-	s.metrics.protectionLimit.Set(float64(s.cfg.Solidification.MaxUnanchoredDistributionBytes))
-	s.metrics.protectedCacheReserved.Set(float64(gate.ProtectedCacheBytes))
-	s.metrics.protectedCacheLimit.Set(float64(protectedCacheLimit(s.cfg)))
-	if gate.RecoveryBarrier {
-		s.metrics.recoveryBarrier.Set(1)
-	} else {
-		s.metrics.recoveryBarrier.Set(0)
 	}
 }

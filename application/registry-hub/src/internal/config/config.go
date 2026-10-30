@@ -48,6 +48,8 @@ type ImagePullSecretReference struct {
 }
 
 type S3 struct {
+	AccessKeyID          string `json:"-"`
+	SecretAccessKey      string `json:"-"`
 	Endpoint             string
 	Region               string
 	Bucket               string
@@ -119,6 +121,7 @@ type Config struct {
 	Limits                        Limits
 	Solidification                Solidification
 	Inventory                     Inventory
+	RegistryInspection            RegistryInspection
 	CatalogEnabled                bool
 	InternalToken                 string
 	GCMode                        string

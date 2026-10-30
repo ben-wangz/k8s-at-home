@@ -36,5 +36,5 @@ func (s *Store) Fingerprint(ctx context.Context, key string) (storage.Entry, str
 }
 
 func (s *Store) ListMetadata(ctx context.Context, prefix, token string, limit int) ([]storage.Entry, string, error) {
-	return s.list(ctx, prefix, token, limit, false)
+	return s.scanMetadata(ctx, prefix, token, limit)
 }

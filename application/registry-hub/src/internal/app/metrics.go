@@ -10,6 +10,8 @@ import (
 )
 
 type metrics struct {
+	backgroundAdmission    *prometheus.HistogramVec
+	backgroundRemaining    *prometheus.HistogramVec
 	inventory              *inventoryMetrics
 	backgroundDuration     *prometheus.HistogramVec
 	backgroundWait         *prometheus.HistogramVec
@@ -120,7 +122,8 @@ func expectedStorageError(err error) bool {
 }
 
 type observedStore struct {
-	inventoryNotify func()
+	diagnosticFailure func(context.Context, string, error, time.Time)
+	inventoryNotify   func()
 	storage.Store
 	metrics *metrics
 	logger  *slog.Logger

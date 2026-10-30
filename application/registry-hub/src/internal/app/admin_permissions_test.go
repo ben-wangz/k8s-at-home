@@ -15,7 +15,7 @@ func TestAdminRolesAreIsolated(t *testing.T) {
 		path   string
 		role   string
 	}{
-		{method: http.MethodGet, path: "/api/v1/tasks", role: auth.TaskAdmin},
+		{method: http.MethodGet, path: "/api/v1/tasks", role: auth.Observe},
 		{method: http.MethodPost, path: "/api/v1/gc", role: auth.GCAdmin},
 		{method: http.MethodPost, path: "/api/v1/gc/reconcile", role: auth.GCAdmin},
 		{method: http.MethodPost, path: "/api/v1/referrers/reconcile", role: auth.ReferrerPrune},

@@ -14,6 +14,7 @@ var (
 	ErrInvalid        = errors.New("invalid inventory query")
 	ErrExpired        = errors.New("inventory snapshot or token expired")
 	ErrCurrentExpired = errors.New("latest inventory snapshot expired")
+	ErrNotObserved    = errors.Join(storage.ErrUnavailable, errors.New("inventory snapshot not observed"))
 	ErrSuperseded     = errors.New("inventory builder was superseded")
 	ErrIncomplete     = errors.New("inventory snapshot members are incomplete")
 )

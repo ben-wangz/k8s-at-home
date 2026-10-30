@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"registry-hub/internal/artifact"
 	"registry-hub/internal/auth"
 	"registry-hub/internal/config"
 	"registry-hub/internal/inventory"
@@ -20,7 +21,11 @@ func TestBackgroundManagementReadsAreProtectedAndReadOnly(t *testing.T) {
 	enableInventory(f)
 	ctx := context.Background()
 	q := workqueue.Queue{Store: f.service.store}
-	job, err := q.Enqueue(ctx, "inventory", "broken", "payload", time.Now().UTC())
+	configuration := f.cacheObject([]byte("retry configuration"), "application/vnd.oci.image.config.v1+json")
+	manifest := f.cacheManifest(artifact.Manifest{SchemaVersion: 2, MediaType: ociManifestMediaType, Config: &configuration, Layers: []artifact.Descriptor{}})
+	root := f.root("retry-source", manifest)
+	source := inventoryManifestWork{Identity: inventoryIdentity(root.Authority, root.Repository, root.Reference), Digest: manifest.Digest, MediaType: manifest.MediaType}
+	job, err := q.Enqueue(ctx, "inventory", "broken", source, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +78,7 @@ func TestHealthProbeContinuesWhileStatisticsAreBlocked(t *testing.T) {
 	cursor := inventory.Cursor{}
 	go func() {
 		defer close(statsDone)
-		f.service.runMetricSweep(ctx, "blocked", &cursor, func(ctx context.Context) (bool, error) { close(entered); <-ctx.Done(); return false, ctx.Err() }, func() { t.Error("incomplete aggregate was published") }, func() {})
+		f.service.runMetricSweep(ctx, "blocked", &cursor, nil, func(ctx context.Context) (bool, error) { close(entered); <-ctx.Done(); return false, ctx.Err() }, func() { t.Error("incomplete aggregate was published") }, func() {})
 	}()
 	select {
 	case <-entered:

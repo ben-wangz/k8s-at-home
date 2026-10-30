@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"registry-hub/internal/diagnostics"
+	"strconv"
 	"time"
 )
 
@@ -29,6 +31,9 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 		return
 	}
 	latest.Status = Running
+	latest.ParentAttemptID = latest.AttemptID
+	latest.AttemptID = diagnostics.ID("solidification_attempt", latest.ID, strconv.FormatUint(currentLease.FencingToken, 10))
+	latest.AttemptStartedAt, latest.AttemptFinishedAt = time.Now().UTC(), time.Time{}
 	latest.FencingToken = currentLease.FencingToken
 	latest.UpdatedAt = time.Now().UTC()
 	if err := m.save(parent, &latest); err != nil {
@@ -115,6 +120,7 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 	}
 	latest.UpdatedAt = time.Now().UTC()
 	if isWaiting(latest.Status) {
+		latest.AttemptFinishedAt = latest.UpdatedAt
 		if m.leases.Validate(parent, currentLease) == nil {
 			if err := m.save(parent, &latest); err == nil {
 				m.notifyYielded(parent, &latest)
@@ -123,6 +129,7 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 		return
 	}
 	if m.leases.Validate(parent, currentLease) == nil {
+		latest.AttemptFinishedAt = latest.UpdatedAt
 		if saveErr := m.save(parent, &latest); saveErr == nil {
 			if latest.Status == Solidified || latest.Status == Failed || latest.Status == Cancelled {
 				m.finishInFlight(parent, &latest)

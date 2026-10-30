@@ -19,6 +19,7 @@ func (r *Records) createBlobIntent(ctx context.Context, identity BlobIdentity, r
 		SchemaVersion: solidificationRecordSchema, ID: id, Identity: identity, Round: round, Generation: generation,
 		State: IntentWaitingCache, CreatedAt: now, UpdatedAt: now, LastProgressAt: now, ExpiresAt: r.idleExpiry(now),
 	}
+	recordIntentEvent(&intent)
 	data, err := json.Marshal(intent)
 	if err != nil {
 		return BlobIntent{}, err
@@ -108,6 +109,7 @@ func (r *Records) SaveBlobIntent(ctx context.Context, intent *BlobIntent) error 
 		return errors.New("blob intent state is invalid or has no storage version")
 	}
 	intent.UpdatedAt = time.Now().UTC()
+	recordIntentEvent(intent)
 	data, err := json.Marshal(intent)
 	if err != nil {
 		return err

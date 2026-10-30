@@ -13,9 +13,10 @@ import (
 )
 
 type Store struct {
-	root string
-	mu   sync.Mutex
-	ops  fileOperations
+	root     string
+	mu       sync.Mutex
+	ops      fileOperations
+	readOnly bool
 }
 
 type fileOperations struct {
@@ -85,6 +86,9 @@ func (s *Store) Head(ctx context.Context, key string) (storage.Entry, error) {
 }
 
 func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64, options storage.PutOptions) (result storage.Entry, returnErr error) {
+	if s.readOnly {
+		return storage.Entry{}, storage.ErrPermissionDenied
+	}
 	defer func() { returnErr = mapError(returnErr) }()
 	if err := ctx.Err(); err != nil {
 		return storage.Entry{}, err
@@ -153,6 +157,9 @@ func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64,
 }
 
 func (s *Store) Delete(ctx context.Context, key string) (returnErr error) {
+	if s.readOnly {
+		return storage.ErrPermissionDenied
+	}
 	defer func() { returnErr = mapError(returnErr) }()
 	if err := ctx.Err(); err != nil {
 		return err
@@ -184,6 +191,9 @@ func (s *Store) Delete(ctx context.Context, key string) (returnErr error) {
 }
 
 func (s *Store) DeleteIfMatch(ctx context.Context, key, version string) (returnErr error) {
+	if s.readOnly {
+		return storage.ErrPermissionDenied
+	}
 	defer func() { returnErr = mapError(returnErr) }()
 	if err := ctx.Err(); err != nil {
 		return err

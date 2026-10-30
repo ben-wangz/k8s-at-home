@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
 	"sync"
@@ -52,6 +53,13 @@ const (
 )
 
 type Task struct {
+	DiagnosticOutbox        []diagnostics.Event   `json:"diagnosticOutbox,omitempty"`
+	AttemptID               string                `json:"attemptID,omitempty"`
+	ParentAttemptID         string                `json:"parentAttemptID,omitempty"`
+	AttemptStartedAt        time.Time             `json:"attemptStartedAt,omitempty"`
+	AttemptFinishedAt       time.Time             `json:"attemptFinishedAt,omitempty"`
+	LastError               *diagnostics.Failure  `json:"lastError,omitempty"`
+	RecoveredAt             time.Time             `json:"recoveredAt,omitempty"`
 	SchemaVersion           int                   `json:"schemaVersion"`
 	ProtocolVersion         int                   `json:"protocolVersion,omitempty"`
 	ID                      string                `json:"id"`
@@ -176,6 +184,8 @@ type TaskYieldedHandler interface {
 }
 
 type Manager struct {
+	runtime         RuntimeStatus
+	runtimeMu       sync.Mutex
 	store           storage.Store
 	leases          *lease.Manager
 	processor       Processor

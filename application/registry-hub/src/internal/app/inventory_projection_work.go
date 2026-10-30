@@ -40,6 +40,7 @@ func (s *Service) projectManifestStep(ctx context.Context, job *workqueue.Job) (
 		return p, false, err
 	}
 	if contentGeneration.Tombstone || contentGeneration.Generation != source.ContentGeneration {
+		job.Superseded = true
 		return p, true, nil
 	}
 	ctx = inventory.WithWriteGuard(ctx, func(ctx context.Context) error {
@@ -116,6 +117,7 @@ func (s *Service) projectManifestStep(ctx context.Context, job *workqueue.Job) (
 				return p, false, err
 			}
 			if generation.Tombstone || generation.Generation != source.Generation {
+				job.Superseded = true
 				return p, true, nil
 			}
 			_, err = s.inventoryBinding(ctx, source.Identity, source.Digest, source.Source, source.Generation, job.CreatedAt, source.KnownNew)
@@ -123,7 +125,7 @@ func (s *Service) projectManifestStep(ctx context.Context, job *workqueue.Job) (
 				return p, false, err
 			}
 		}
-		return p, true, nil
+		return p, true, s.recordProjectionRevision(ctx, job, source, true)
 	default:
 		return p, false, storage.ErrCorruptObject
 	}

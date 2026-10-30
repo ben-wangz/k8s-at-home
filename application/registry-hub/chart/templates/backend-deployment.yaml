@@ -78,6 +78,8 @@ spec:
               value: {{ .Values.storage.backend | quote }}
             - name: REGISTRY_HUB_FILESYSTEM_ROOT
               value: {{ .Values.storage.filesystemRoot | quote }}
+            - name: REGISTRY_HUB_REGISTRY_INSPECTION_CONFIG
+              value: {{ toJson .Values.backend.registryInspection.config | quote }}
             - name: REGISTRY_HUB_GC_MODE
               value: {{ ternary "kubernetes" "disabled" .Values.gc.enabled | quote }}
             - name: REGISTRY_HUB_GC_JOB_IMAGE
@@ -180,8 +182,12 @@ spec:
             {{- with .Values.backend.extraEnvVars }}
             {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 12 }}
             {{- end }}
-          {{- if or .Values.backend.extraEnvVarsSecret .Values.backend.extraEnvFrom (and (eq .Values.storage.backend "s3") .Values.storage.s3.credentialsSecret) }}
+          {{- if or .Values.backend.registryInspection.credentialsSecret .Values.backend.extraEnvVarsSecret .Values.backend.extraEnvFrom (and (eq .Values.storage.backend "s3") .Values.storage.s3.credentialsSecret) }}
           envFrom:
+            {{- if .Values.backend.registryInspection.credentialsSecret }}
+            - secretRef:
+                name: {{ .Values.backend.registryInspection.credentialsSecret }}
+            {{- end }}
             {{- if and (eq .Values.storage.backend "s3") .Values.storage.s3.credentialsSecret }}
             - secretRef:
                 name: {{ .Values.storage.s3.credentialsSecret }}

@@ -34,6 +34,14 @@ type generationRecord struct {
 }
 
 func (s *Service) generation(ctx context.Context, authority, repository, reference string) (generationRecord, error) {
+	return s.readGeneration(ctx, authority, repository, reference, true)
+}
+
+func (s *Service) observeGeneration(ctx context.Context, authority, repository, reference string) (generationRecord, error) {
+	return s.readGeneration(ctx, authority, repository, reference, false)
+}
+
+func (s *Service) readGeneration(ctx context.Context, authority, repository, reference string, migrate bool) (generationRecord, error) {
 	key := generationKey(authority, repository, reference)
 	for attempt := 0; attempt < 16; attempt++ {
 		object, err := s.store.Get(ctx, key)
@@ -58,6 +66,10 @@ func (s *Service) generation(ctx context.Context, authority, repository, referen
 			return record, nil
 		case generationSchemaPrevious:
 			record.SchemaVersion = generationSchemaCurrent
+			if !migrate {
+				record.version = object.Version
+				return record, nil
+			}
 			updated, marshalErr := json.Marshal(record)
 			if marshalErr != nil {
 				return generationRecord{}, marshalErr
@@ -149,6 +161,10 @@ func acquireContentLease(ctx context.Context, manager *lease.Manager, authority,
 }
 
 func acquireRenewedLease(ctx context.Context, manager *lease.Manager, key, owner string, ttl time.Duration) (context.Context, lease.Lease, func() error, error) {
+	if _, ok := ctx.Value(backgroundParentKey{}).(context.Context); ok {
+		identity, _ := ctx.Value(diagnosticContextKey{}).(backgroundDiagnosticContext)
+		return acquireAdmittedBackgroundLease(ctx, identity.Kind, manager, key, owner, ttl, nil)
+	}
 	current, err := manager.Acquire(ctx, key, owner, ttl)
 	if err != nil {
 		return nil, lease.Lease{}, nil, err

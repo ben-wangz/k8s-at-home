@@ -11,7 +11,7 @@ import (
 )
 
 var backgroundKinds = []string{"inventory", "execution", "download_cleanup", "notify", "wake_root"}
-var backgroundScanKinds = []string{"source_tasks", "source_cache", "source_downloads", "source_demands", "activation", "task_reconciliation", "quota_waiters", "cache_cleanup", "reader_cleanup", "upload_cleanup", "task_cleanup", "download_expiry", "receipt_cleanup", "download_quota", "storage_orphans"}
+var backgroundScanKinds = []string{"source_tasks", "source_cache", "source_downloads", "source_demands", "activation", "task_reconciliation", "quota_waiters", "cache_cleanup", "reader_cleanup", "upload_cleanup", "task_cleanup", "download_expiry", "receipt_cleanup", "download_quota", "storage_orphans", "storage_inventory", "history_tasks", "history_intents", "history_work", "history_receipts", "history_downloads", "history_uploads", "history_upload_receipts", "history_scans", "history_statistics", "history_maintenance", "history_workers", "diagnostic_retention", "retry_request_retention"}
 
 type backgroundStatus struct {
 	Queues                map[string]workqueue.Status     `json:"queues"`
@@ -48,10 +48,7 @@ func (s *Service) backgroundStatus(ctx context.Context) backgroundStatus {
 			err := operation()
 			if err != nil {
 				mu.Lock()
-				status.ReadErrors[name] = "storage"
-				if errors.Is(err, storage.ErrNotFound) {
-					status.ReadErrors[name] = "not_observed"
-				}
+				status.ReadErrors[name] = diagnosticReason(err)
 				mu.Unlock()
 			}
 		}()
@@ -60,6 +57,9 @@ func (s *Service) backgroundStatus(ctx context.Context) backgroundStatus {
 		read("queue/"+kind, func() error {
 			value, _, err := inventory.Read[workqueue.Status](ctx, s.store, workqueue.Prefix+"status/"+kind+".json")
 			value.Stale = value.ObservedAt.IsZero() || time.Since(value.ObservedAt) > 90*time.Second
+			if value.ErrorEntity != "" {
+				value.ErrorEntity = inventory.ID("diagnostic-entity", value.ErrorEntity)
+			}
 			if value.OldestAt != nil {
 				age := max(int64(0), int64(time.Since(*value.OldestAt).Seconds()))
 				value.OldestAgeSeconds = &age
@@ -73,7 +73,8 @@ func (s *Service) backgroundStatus(ctx context.Context) backgroundStatus {
 	for _, kind := range []string{"tasks", "cache", "intents", "protection"} {
 		read("statistics/"+kind, func() error {
 			value, _, err := inventory.Read[backgroundScanStatus](ctx, s.store, workqueue.Prefix+"statistics/"+kind+".json")
-			value.Stale = value.ObservedAt.IsZero() || time.Since(value.ObservedAt) > 90*time.Second
+			value.Stale = value.LastSuccessAt.IsZero() || time.Since(value.LastSuccessAt) > 90*time.Second
+			sanitizeScanStatus(&value)
 			mu.Lock()
 			status.Statistics[kind] = value
 			mu.Unlock()
@@ -83,7 +84,16 @@ func (s *Service) backgroundStatus(ctx context.Context) backgroundStatus {
 	for _, kind := range backgroundScanKinds {
 		read("maintenance/"+kind, func() error {
 			value, _, err := inventory.Read[backgroundScanStatus](ctx, s.store, workqueue.Prefix+"scans/"+kind+".json")
-			value.Stale = value.ProgressAt.IsZero() || time.Since(value.ProgressAt) > 90*time.Second
+			lastSuccess := value.LastSuccessAt
+			if lastSuccess.IsZero() && value.Complete {
+				lastSuccess = value.ObservedAt
+			}
+			validity := 90 * time.Second
+			if kind == "storage_inventory" {
+				validity = 10 * time.Minute
+			}
+			value.Stale = lastSuccess.IsZero() || time.Since(lastSuccess) > validity
+			sanitizeScanStatus(&value)
 			mu.Lock()
 			status.Maintenance[kind] = value
 			mu.Unlock()
@@ -91,11 +101,24 @@ func (s *Service) backgroundStatus(ctx context.Context) backgroundStatus {
 		})
 	}
 	read("snapshot", func() error {
+		if s.inventory == nil {
+			return inventory.ErrNotObserved
+		}
 		snapshot, err := s.inventory.Snapshot(ctx, "", s.inventoryConfig().StaleAfter)
 		if !snapshot.ObservedAt.IsZero() {
+			state, _, buildErr := inventory.Read[inventoryCheckpoint](ctx, s.store, inventory.Prefix+"checkpoint.json")
+			snapshot.Building = buildErr == nil && state.Build != nil
+			if buildErr != nil && !errors.Is(buildErr, storage.ErrNotFound) {
+				mu.Lock()
+				status.ReadErrors["snapshot_build"] = diagnosticReason(buildErr)
+				mu.Unlock()
+			}
 			snapshot.Freshness = inventory.Freshness{State: "stale", AgeSeconds: max(0, int64(time.Since(snapshot.ObservedAt).Seconds()))}
 			if err == nil && time.Since(snapshot.ObservedAt) <= s.inventoryConfig().StaleAfter {
 				snapshot.Freshness.State = "fresh"
+			}
+			if errors.Is(err, inventory.ErrCurrentExpired) {
+				snapshot.Freshness.State = "expired"
 			}
 			status.Snapshot = &snapshot
 		}
@@ -110,4 +133,10 @@ func (s *Service) backgroundStatus(ctx context.Context) backgroundStatus {
 	})
 	group.Wait()
 	return status
+}
+
+func sanitizeScanStatus(value *backgroundScanStatus) {
+	if value.ErrorEntity != "" {
+		value.ErrorEntity = inventory.ID("diagnostic-entity", value.ErrorEntity)
+	}
 }

@@ -67,6 +67,7 @@ func (c *Client) obtainToken(ctx context.Context, authority, repository string, 
 	}
 	tokenContext := context.WithValue(ctx, authorityContextKey{}, tokenAuthority)
 	tokenContext = context.WithValue(tokenContext, transportAuthorityContextKey{}, realm.Host)
+	tokenContext = context.WithValue(tokenContext, tokenAttemptKey{}, true)
 	request, err := http.NewRequestWithContext(tokenContext, http.MethodGet, realm.String(), nil)
 	if err != nil {
 		return "", err

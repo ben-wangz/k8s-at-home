@@ -45,8 +45,9 @@ func (s *Service) cleanupDownloadStep(ctx context.Context, job *workqueue.Job) (
 	if json.Unmarshal(job.Payload, &source) != nil || len(job.Progress) > 0 && json.Unmarshal(job.Progress, &progress) != nil {
 		return progress, false, storage.ErrCorruptObject
 	}
-	leaseCtx, objectLease, release, err := acquireRenewedLease(ctx, s.tasks.Leases(), "objects/"+source.Identity, "committed-cleanup-"+requestID(), objectLeaseTTL)
+	leaseCtx, objectLease, release, err := s.acquireBackgroundUnitLease(ctx, "download_cleanup", s.tasks.Leases(), "objects/"+source.Identity, "committed-cleanup-"+requestID(), objectLeaseTTL)
 	if errors.Is(err, lease.ErrHeld) {
+		job.WaitReason = "object_lease_held"
 		return progress, false, nil
 	}
 	if err != nil {
@@ -64,6 +65,7 @@ func (s *Service) cleanupDownloadStep(ctx context.Context, job *workqueue.Job) (
 		}
 		_ = cached.Body.Close()
 		if cached.DataVersion != source.CacheVersion {
+			job.Superseded = true
 			return progress, true, nil
 		}
 	}

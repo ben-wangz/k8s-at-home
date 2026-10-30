@@ -35,7 +35,8 @@ func (s *Service) handleAdmin(writer http.ResponseWriter, request *http.Request)
 		registryapi.WriteError(writer, http.StatusUnauthorized, "UNAUTHORIZED", "management authentication is required")
 		return
 	}
-	if !principal.Allows(permission) {
+	readObservation := request.Method == http.MethodGet && (request.URL.Path == "/api/v1/gc" || request.URL.Path == "/api/v1/referrers/reconcile") && principal.Allows(auth.Observe)
+	if !principal.Allows(permission) && !readObservation {
 		registryapi.WriteError(writer, http.StatusForbidden, "DENIED", "management permission is required")
 		return
 	}
@@ -49,8 +50,13 @@ func (s *Service) handleAdmin(writer http.ResponseWriter, request *http.Request)
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), adminTimeout)
 	defer cancel()
+	if request.Method == http.MethodGet {
+		ctx = context.WithValue(ctx, diagnosticReadKey{}, true)
+	}
 	switch {
-	case strings.HasPrefix(request.URL.Path, "/api/v1/background/"):
+	case diagnosticAdminPath(request.URL.Path):
+		s.serveDiagnostics(writer, request, ctx)
+	case request.URL.Path == "/api/v1/background" || strings.HasPrefix(request.URL.Path, "/api/v1/background/"):
 		s.serveBackground(writer, request, ctx)
 	case request.Method == http.MethodGet && inventoryAdminPath(request.URL.Path):
 		s.serveInventory(writer, request, ctx)
@@ -211,34 +217,4 @@ func (s *Service) writeGCConflict(writer http.ResponseWriter, ctx context.Contex
 		return
 	}
 	writeAdminError(writer, http.StatusConflict, "UNAVAILABLE", fallback)
-}
-
-func adminPermission(method, path string) string {
-	if strings.HasPrefix(path, "/api/v1/background/") && (method == http.MethodGet || method == http.MethodPost) {
-		return auth.TaskAdmin
-	}
-	if method == http.MethodGet && inventoryAdminPath(path) {
-		return auth.TaskAdmin
-	}
-	if path == "/metrics" {
-		return auth.TaskAdmin
-	}
-	if strings.HasPrefix(path, "/api/v1/gc") {
-		if method == http.MethodGet || method == http.MethodPost {
-			return auth.GCAdmin
-		}
-		return ""
-	}
-	if strings.HasPrefix(path, "/api/v1/referrers/reconcile") {
-		if method == http.MethodGet || method == http.MethodPost {
-			return auth.ReferrerPrune
-		}
-		return ""
-	}
-	if path == "/api/v1/tasks" || strings.HasPrefix(path, "/api/v1/tasks/") {
-		if method == http.MethodGet || method == http.MethodPost {
-			return auth.TaskAdmin
-		}
-	}
-	return ""
 }
