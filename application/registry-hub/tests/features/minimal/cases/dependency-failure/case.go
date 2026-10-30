@@ -142,6 +142,10 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err := waitHTTPStatus(ctx, environment.AdminURL+"/readyz", http.StatusOK); err != nil {
 		return fmt.Errorf("backend readiness did not recover after Distribution restart: %w", err)
 	}
+	// Client Service routing can lag the admin Service's immediate readiness result.
+	if err := waitHTTPStatus(ctx, environment.ClientURL+"/v2/", http.StatusOK); err != nil {
+		return fmt.Errorf("client Service did not recover after Distribution restart: %w", err)
+	}
 	registry := support.NewRegistryClient(environment)
 	if _, _, err := support.ReadManifest(ctx, registry, repository, digest, support.OCIManifestMediaType); err != nil {
 		return fmt.Errorf("fixture did not recover after Distribution restart: %w", err)
