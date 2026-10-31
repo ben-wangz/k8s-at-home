@@ -60,7 +60,7 @@ func TestInventoryMaintenanceYieldsBeforeStartingAnotherStorageUnit(t *testing.T
 	if err := f.service.inventory.Immutable(ctx, inventory.Prefix+"snapshots/"+expired.SnapshotID+"/manifest.json", expired); err != nil {
 		t.Fatal(err)
 	}
-	for n := 0; n < 10; n++ {
+	for n := 0; n < 100; n++ {
 		if err := f.service.inventory.Immutable(ctx, inventory.Prefix+"snapshots/"+expired.SnapshotID+fmt.Sprintf("/entries/%02d.json", n), true); err != nil {
 			t.Fatal(err)
 		}
@@ -68,7 +68,8 @@ func TestInventoryMaintenanceYieldsBeforeStartingAnotherStorageUnit(t *testing.T
 	store := &inventoryMaintenanceStore{Store: f.service.store, delay: 25 * time.Millisecond}
 	f.service.store = store
 	f.service.cfg.Inventory = f.service.inventoryConfig()
-	f.service.cfg.Inventory.BatchTimeout = 4 * time.Second
+	f.service.cfg.Inventory.BatchSize = 1000
+	f.service.cfg.Inventory.BatchTimeout = 20 * time.Second
 	state := inventoryCheckpoint{}
 	f.service.maintainInventory(ctx, &state)
 	if store.timeouts != 0 || inventoryEventCount(t, f.service, "inventory_maintenance_failed") != 0 || inventoryEventCount(t, f.service, "inventory_maintenance_budget_yield") != 1 {

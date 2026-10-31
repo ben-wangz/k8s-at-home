@@ -15,7 +15,7 @@ The scripts work from any current directory. Examples below assume the repositor
     application/registry-hub/tests/features/minimal/run.sh check
     application/registry-hub/tests/features/minimal/run.sh run --scenario feature-minimal
 
-With no case selection, the runner executes all registered cases. Selected cases include their dependencies and run serially in a deterministic order:
+With no case selection, the runner executes all registered cases. Selected cases include their dependencies and run serially in a deterministic order. A case can also declare `runAfter` constraints; these affect ordering only when both cases are selected and do not add the earlier case to a selected plan:
 
     application/registry-hub/tests/features/minimal/run.sh run --case registry-roundtrip --case restart-reuse
 
@@ -90,7 +90,7 @@ See the [environment guide](environment/README.md) for prerequisites and environ
 
 ## Registered Cases
 
-| ID | Coverage | Dependencies |
+| ID | Coverage | Execution constraints |
 | --- | --- | --- |
 | default-render | Deterministic empty-values rendering, paired external-auth validation, and admin/client Service readiness routing | None |
 | installation | Initialization Job, default PVCs, Deployment, backend digest, and client Service | default-render |
@@ -124,6 +124,6 @@ See the [environment guide](environment/README.md) for prerequisites and environ
 | dependency-failure | Distribution scale-down, diagnostic Service, backend errors, and recovery | artifact-persistence |
 | default-limits | Default request-rate limits for manifests, descriptors, uploads, tags/list, and unauthenticated requests | manifest-validation, tags-pagination |
 | observability | JSON logs, Prometheus metrics, low-cardinality labels, and sensitive-data scans | dependency-failure, default-limits, referrers-lifecycle, delete-semantics |
-| podman-upstream-pull | Podman pulls a pinned image from the NJU GHCR mirror by tag, index digest, and platform manifest digest | installation |
+| podman-upstream-pull | Podman pulls a pinned image from the NJU GHCR mirror by tag, index digest, and platform manifest digest | installation; runs after restart-reuse and upstream-resume when they are in the plan |
 | upstream-mirror | Local-first behavior, Docker/OCI media negotiation, upstream error matrix, descriptor.data/urls, nested multi-platform index graphs, original-field solidification, non-recursive subjects, HEAD metadata/cache boundaries, shared digest conflicts, default closure depth, controlled closure/object-byte limits, Range/If-Range, and digest validation | installation |
 | upstream-resume | Digest verification, persisted offsets, repeated interruption, timeouts, restart and retry recovery, concurrency, Range fallback, and a real Podman pull | upstream-mirror |

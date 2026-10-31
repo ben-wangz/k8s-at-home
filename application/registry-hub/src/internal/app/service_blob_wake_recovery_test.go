@@ -46,8 +46,8 @@ func testBlobWakeRecovery(t *testing.T, state tasks.BlobIntentState) {
 	if err := backgroundUntilError(service, "notify", "wake_root"); !errors.Is(err, storage.ErrUnavailable) {
 		t.Fatalf("wake delivery failure=%v", err)
 	}
-	if faults.failedWakes != 1 {
-		t.Fatalf("rejected wake writes = %d, want 1", faults.failedWakes)
+	if faults.failedWakes != 2 {
+		t.Fatalf("rejected immediate and durable wake writes = %d, want 2", faults.failedWakes)
 	}
 	if _, err := faults.Head(ctx, "tasks/wake/"+root.ID+".json"); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatalf("wake request after failed write = %v, want absent", err)

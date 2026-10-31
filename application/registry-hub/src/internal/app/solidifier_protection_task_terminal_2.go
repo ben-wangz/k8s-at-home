@@ -141,7 +141,7 @@ func (s *solidifier) TaskTerminal(ctx context.Context, task *tasks.Task) error {
 			return err
 		}
 	}
-	s.wakeOldestQuotaTask(ctx)
+	s.wakeAvailableQuotaWaiters(ctx)
 	if task.Kind == tasks.BlobKind {
 		s.service.wakeBlobDemandRoots(ctx, task.ID)
 	}

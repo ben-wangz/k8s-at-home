@@ -10,6 +10,7 @@ type Definition struct {
 	ID             string            `json:"id"`
 	Description    string            `json:"description"`
 	DependsOn      []string          `json:"dependsOn"`
+	RunAfter       []string          `json:"runAfter"`
 	TimeoutSeconds int               `json:"timeoutSeconds"`
 	Preconditions  []string          `json:"preconditions"`
 	Assertions     []string          `json:"assertions"`

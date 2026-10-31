@@ -34,6 +34,12 @@ func (g *writeGate) confirmInactiveProtectionSessionReleased(ctx context.Context
 	if session.RecoveryStage != "" || session.RecoveryReason != "" {
 		return ErrRecoveryBarrier
 	}
+	if session.State == "transferred" {
+		if session.TerminalReason != "scope_merged" {
+			return errors.New("transferred protection session has an invalid terminal reason")
+		}
+		return nil
+	}
 	if session.State == "released" {
 		if !validReleasedProtectionReason(session.TerminalReason) {
 			return errors.New("released protection session has an invalid terminal reason")

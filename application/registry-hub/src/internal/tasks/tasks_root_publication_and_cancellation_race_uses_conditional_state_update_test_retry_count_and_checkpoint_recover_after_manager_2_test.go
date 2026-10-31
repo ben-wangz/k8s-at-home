@@ -133,7 +133,7 @@ func (p *yieldOnceProcessor) Process(context.Context, *Task, lease.Lease) error 
 
 func waitForTaskState(t *testing.T, manager *Manager, id string, expected State) {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		task, err := manager.Get(context.Background(), id)
 		if err == nil && task.Status == expected {

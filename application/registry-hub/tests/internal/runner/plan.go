@@ -2,6 +2,7 @@ package runner
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/ben-wangz/registry-hub-tests/internal/testkit"
@@ -104,12 +105,12 @@ func topologicalOrder(cases map[string]testkit.Case, closure map[string]struct{}
 		indegree[id] = 0
 	}
 	for id := range closure {
-		for _, dependency := range cases[id].Definition.DependsOn {
-			if _, included := closure[dependency]; !included {
+		for _, predecessor := range orderingConstraints(cases[id].Definition) {
+			if _, included := closure[predecessor]; !included {
 				continue
 			}
 			indegree[id]++
-			consumers[dependency] = append(consumers[dependency], id)
+			consumers[predecessor] = append(consumers[predecessor], id)
 		}
 	}
 	ready := make([]string, 0)
@@ -146,9 +147,7 @@ func cyclePath(cases map[string]testkit.Case, closure map[string]struct{}) []str
 	visit = func(id string) bool {
 		state[id] = 1
 		stack = append(stack, id)
-		dependencies := append([]string(nil), cases[id].Definition.DependsOn...)
-		sort.Strings(dependencies)
-		for _, dependency := range dependencies {
+		for _, dependency := range orderingConstraints(cases[id].Definition) {
 			if _, included := closure[dependency]; !included {
 				continue
 			}
@@ -179,6 +178,12 @@ func cyclePath(cases map[string]testkit.Case, closure map[string]struct{}) []str
 		}
 	}
 	return nil
+}
+
+func orderingConstraints(definition testkit.Definition) []string {
+	constraints := append(append([]string(nil), definition.DependsOn...), definition.RunAfter...)
+	sort.Strings(constraints)
+	return slices.Compact(constraints)
 }
 
 func insertSorted(values []string, value string) []string {

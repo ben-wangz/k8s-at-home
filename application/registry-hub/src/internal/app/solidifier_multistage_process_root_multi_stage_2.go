@@ -191,6 +191,6 @@ func (s *solidifier) processRootMultiStage(ctx context.Context, task *tasks.Task
 			return withSolidificationFailureStage(err, "root_manifest_anchor")
 		}
 	}
-	s.wakeOldestQuotaTask(ctx)
+	s.wakeAvailableQuotaWaiters(ctx)
 	return nil
 }

@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"registry-hub/internal/auth"
 	"registry-hub/internal/config"
@@ -12,6 +16,7 @@ import (
 	"registry-hub/internal/storage"
 	"registry-hub/internal/storage/filesystem"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -120,6 +125,70 @@ func TestStorageInventoryPhysicalTotalsAndSnapshotPagination(t *testing.T) {
 	}
 	if diagnosticGet(t, f.service, "/api/v1/storage/usage?digest=ignored").Code != 400 {
 		t.Fatal("ignored filter accepted")
+	}
+}
+
+func TestS3RegistryInspectionCollectsMetadataAndRejectsWrites(t *testing.T) {
+	const blobData = "blob"
+	const blobDigestPath = "docker/registry/v2/blobs/sha256/ab/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/data"
+	const repositoryLink = "docker/registry/v2/repositories/team/image/_manifests/tags/latest/current/link"
+	var listRequests, objectReads, writeRequests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodGet && request.URL.Query().Get("list-type") == "2" {
+			listRequests.Add(1)
+			writer.Header().Set("Content-Type", "application/xml")
+			_, _ = fmt.Fprintf(writer, `<?xml version="1.0" encoding="UTF-8"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>registry-inspection</Name><Prefix>distribution/</Prefix><KeyCount>2</KeyCount><MaxKeys>4</MaxKeys><IsTruncated>false</IsTruncated><Contents><Key>distribution/%s</Key><LastModified>2026-10-31T00:00:00Z</LastModified><ETag>"blob-etag"</ETag><Size>4</Size></Contents><Contents><Key>distribution/%s</Key><LastModified>2026-10-31T00:00:00Z</LastModified><ETag>"link-etag"</ETag><Size>4</Size></Contents></ListBucketResult>`, blobDigestPath, repositoryLink)
+			return
+		}
+		if request.Method == http.MethodGet && request.URL.Path == "/registry-inspection/distribution/"+blobDigestPath {
+			objectReads.Add(1)
+			writer.Header().Set("ETag", `"blob-etag"`)
+			writer.Header().Set("Last-Modified", "Sat, 31 Oct 2026 00:00:00 GMT")
+			writer.Header().Set("Content-Length", fmt.Sprint(len(blobData)))
+			_, _ = io.WriteString(writer, blobData)
+			return
+		}
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
+			writeRequests.Add(1)
+		}
+		http.Error(writer, "unexpected S3 request", http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	f := newStagedAcceptanceFixture(t, 1<<20)
+	enableInventory(f)
+	f.service.cfg.RegistryInspection = config.RegistryInspection{Backend: "s3", S3: config.S3{Endpoint: server.URL, Region: "us-east-1", Bucket: "registry-inspection", Prefix: "distribution", AccessKeyID: "inspection-access", SecretAccessKey: "inspection-secret", UsePathStyle: true, AllowHTTP: true}}
+	registry, err := f.service.registryInspectionStore(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+
+	entries, next, err := storage.Scan(context.Background(), registry, "", "", 4)
+	if err != nil || next != "" || len(entries) != 2 || entries[0].Key != blobDigestPath || entries[1].Key != repositoryLink {
+		t.Fatalf("registry inspection listing=%+v next=%q err=%v", entries, next, err)
+	}
+	object, err := registry.Get(context.Background(), blobDigestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, readErr := io.ReadAll(object.Body)
+	closeErr := object.Body.Close()
+	if readErr != nil || closeErr != nil || string(body) != blobData {
+		t.Fatalf("registry inspection read=%q readErr=%v closeErr=%v", body, readErr, closeErr)
+	}
+	if _, err := registry.Put(context.Background(), "unexpected", strings.NewReader("x"), 1, storage.PutOptions{}); !errors.Is(err, storage.ErrPermissionDenied) {
+		t.Fatalf("inspection Put error=%v", err)
+	}
+	if err := registry.Delete(context.Background(), blobDigestPath); !errors.Is(err, storage.ErrPermissionDenied) {
+		t.Fatalf("inspection Delete error=%v", err)
+	}
+	if err := registry.DeleteIfMatch(context.Background(), blobDigestPath, "blob-etag"); !errors.Is(err, storage.ErrPermissionDenied) {
+		t.Fatalf("inspection DeleteIfMatch error=%v", err)
+	}
+	snapshot := collectTestStorage(t, f.service, registry)
+	if *snapshot.Domains["registry"].ObjectBytes != 8 || *snapshot.Domains["registry"].Objects != 2 || listRequests.Load() < 2 || objectReads.Load() != 1 || writeRequests.Load() != 0 {
+		t.Fatalf("registry S3 inspection totals=%+v list=%d get=%d writes=%d", snapshot.Domains["registry"], listRequests.Load(), objectReads.Load(), writeRequests.Load())
 	}
 }
 

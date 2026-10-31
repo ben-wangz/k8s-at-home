@@ -75,18 +75,23 @@ func ValidateCases(cases []Case) (map[string]Case, error) {
 			}
 			checkIDs[check.ID] = struct{}{}
 		}
-		seen := make(map[string]struct{}, len(item.Definition.DependsOn))
-		for _, dependency := range item.Definition.DependsOn {
-			if dependency == id {
-				return nil, fmt.Errorf("case %q depends on itself", id)
+		for _, references := range []struct {
+			kind string
+			ids  []string
+		}{{"dependency", item.Definition.DependsOn}, {"run-after case", item.Definition.RunAfter}} {
+			seen := make(map[string]struct{}, len(references.ids))
+			for _, reference := range references.ids {
+				if reference == id {
+					return nil, fmt.Errorf("case %q cannot refer to itself as a %s", id, references.kind)
+				}
+				if _, exists := indexed[reference]; !exists {
+					return nil, fmt.Errorf("case %q refers to unknown %s %q", id, references.kind, reference)
+				}
+				if _, exists := seen[reference]; exists {
+					return nil, fmt.Errorf("case %q declares %s %q more than once", id, references.kind, reference)
+				}
+				seen[reference] = struct{}{}
 			}
-			if _, exists := indexed[dependency]; !exists {
-				return nil, fmt.Errorf("case %q depends on unknown case %q", id, dependency)
-			}
-			if _, exists := seen[dependency]; exists {
-				return nil, fmt.Errorf("case %q declares dependency %q more than once", id, dependency)
-			}
-			seen[dependency] = struct{}{}
 		}
 	}
 	return indexed, nil

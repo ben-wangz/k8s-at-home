@@ -29,3 +29,27 @@ func TestEveryRegisteredScenarioHasAValidPlanAndReleaseIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestFeatureMinimalOrdersPodmanPullAfterRestartAndUpstreamCases(t *testing.T) {
+	registered, err := Registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := runner.New("../../../../../..", registered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := runtime.PlanScenario("feature-minimal", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	position := make(map[string]int, len(plan.Order))
+	for index, id := range plan.Order {
+		position[id] = index
+	}
+	for _, predecessor := range []string{"restart-reuse", "upstream-mirror", "upstream-resume"} {
+		if position[predecessor] >= position["podman-upstream-pull"] {
+			t.Fatalf("%s position %d must precede podman-upstream-pull position %d", predecessor, position[predecessor], position["podman-upstream-pull"])
+		}
+	}
+}

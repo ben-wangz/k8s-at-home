@@ -108,13 +108,11 @@ func (s *solidifier) releaseAnchoredSession(ctx context.Context, sessionID strin
 	return s.gate.ReleaseProtection(ctx, sessionID, "anchored")
 }
 
-func (s *solidifier) wakeOldestQuotaTask(ctx context.Context) {
+func (s *solidifier) wakeAvailableQuotaWaiters(ctx context.Context) {
 	if s.service == nil {
 		return
 	}
-	if err := s.service.wakeAvailableQuotaWaiter(ctx, "distribution_quota", s.gate.State()); err != nil && s.service.logger != nil {
-		s.service.logger.Warn("quota waiter wake failed", "error_class", "storage")
-	}
+	s.service.wakeAvailableQuotaWaiters(ctx, s.gate.State())
 }
 
 func (s *solidifier) releaseProtectedCacheReservation(ctx context.Context, task *tasks.Task) error {
