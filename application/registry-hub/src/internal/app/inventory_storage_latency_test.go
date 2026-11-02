@@ -86,12 +86,15 @@ func TestInventoryRefreshAgainstS3(t *testing.T) {
 	verifyInventoryStorageLatency(t, f, store, 20)
 }
 
-func verifyInventoryStorageLatency(t *testing.T, f *stagedAcceptanceFixture, store *inventoryLatencyStore, roots int) {
+func verifyInventoryStorageLatency(t *testing.T, f *stagedAcceptanceFixture, store *inventoryLatencyStore, roots int, historical ...int) {
 	t.Helper()
 	enableInventory(f)
-	var manifest artifact.Descriptor
+	var manifest, first artifact.Descriptor
 	for n := range roots {
 		manifest, _, _ = publishAnchoredTestPlatform(f, fmt.Sprintf("storage-latency-%d", n))
+		if n == 0 {
+			first = manifest
+		}
 	}
 	drainBackgroundWork(t, f.service, "inventory", "execution")
 	t.Logf("prepared %d completed roots", roots)
@@ -114,7 +117,13 @@ func verifyInventoryStorageLatency(t *testing.T, f *stagedAcceptanceFixture, sto
 	if roots == 20 {
 		targets = []time.Duration{3 * time.Minute, 2 * time.Minute}
 	}
+	if len(historical) > 0 {
+		targets = []time.Duration{5 * time.Minute, 3 * time.Minute}
+	}
 	for round, target := range targets {
+		if round > 0 {
+			manifest = first
+		}
 		started, calls := time.Now(), store.calls.Load()
 		phases := map[string]time.Duration{}
 		state.NextScanAt = time.Time{}
@@ -155,8 +164,16 @@ func verifyInventoryStorageLatency(t *testing.T, f *stagedAcceptanceFixture, sto
 			}
 		}
 		snapshot, err := f.service.inventory.Snapshot(ctx, "", time.Minute)
-		if err != nil || snapshot.Coverage != "complete" || snapshot.UniqueManifests != int64(roots) {
+		expected := roots
+		for _, count := range historical {
+			expected += count
+		}
+		if err != nil || snapshot.Coverage != "complete" || snapshot.UniqueManifests != int64(expected) {
 			t.Fatalf("snapshot=%+v error=%v", snapshot, err)
+		}
+		changed, err := f.service.inventory.Image(ctx, snapshot, inventoryIdentity("ghcr.io", "team/image", "changing").ID())
+		if err != nil || changed.ResolvedDigest != manifest.Digest {
+			t.Fatalf("round=%d reference mutation absent: image=%+v err=%v", round, changed, err)
 		}
 		t.Logf("roots=%d round=%d elapsed=%s calls=%d refreshSeconds=%.3f phases=%v", roots, round, time.Since(started), store.calls.Load()-calls, state.LastRefreshSeconds, phases)
 	}

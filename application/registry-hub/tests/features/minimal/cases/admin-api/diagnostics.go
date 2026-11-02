@@ -26,7 +26,7 @@ func verifyDiagnostics(ctx context.Context, environment testkit.CaseContext, tas
 		return testkit.Request(ctx, client, http.MethodGet, strings.TrimRight(environment.AdminURL, "/")+path, nil, nil, basic)
 	}
 	details := map[string]any{}
-	for _, path := range []string{"/api/v1/status", "/api/v1/workers", "/api/v1/events", "/api/v1/blob-intents", "/api/v1/transfers", "/api/v1/storage/summary"} {
+	for _, path := range []string{"/api/v1/status", "/api/v1/workers", "/api/v1/events", "/api/v1/blob-intents", "/api/v1/transfers", "/api/v1/storage/summary", "/api/v1/storage/status"} {
 		response, err := get(path, false)
 		if err != nil {
 			return nil, err
@@ -35,7 +35,7 @@ func verifyDiagnostics(ctx context.Context, environment testkit.CaseContext, tas
 			return nil, fmt.Errorf("diagnostic authentication %s: %w", path, err)
 		}
 	}
-	for _, path := range []string{"/api/v1/status", "/api/v1/workers", "/api/v1/workers/storage_inventory", "/api/v1/events?limit=1", "/api/v1/blob-intents?limit=1", "/api/v1/transfers?limit=1", "/api/v1/download-reservations?limit=1", "/api/v1/tasks/" + url.PathEscape(taskID) + "/dependencies?limit=1"} {
+	for _, path := range []string{"/api/v1/status", "/api/v1/workers", "/api/v1/workers/storage_inventory", "/api/v1/storage/status", "/api/v1/events?limit=1", "/api/v1/blob-intents?limit=1", "/api/v1/transfers?limit=1", "/api/v1/download-reservations?limit=1", "/api/v1/tasks/" + url.PathEscape(taskID) + "/dependencies?limit=1"} {
 		response, err := get(path, true)
 		if err != nil {
 			return nil, err
@@ -65,7 +65,7 @@ func verifyDiagnostics(ctx context.Context, environment testkit.CaseContext, tas
 		}
 		details[path] = "passed"
 	}
-	for _, path := range []string{"/api/v1/status?unexpected=true", "/api/v1/workers?unexpected=true", "/api/v1/events?unexpected=true", "/api/v1/blob-intents?unexpected=true", "/api/v1/storage/usage?dimension=invalid"} {
+	for _, path := range []string{"/api/v1/status?unexpected=true", "/api/v1/storage/status?unexpected=true", "/api/v1/workers?unexpected=true", "/api/v1/events?unexpected=true", "/api/v1/blob-intents?unexpected=true", "/api/v1/storage/usage?dimension=invalid"} {
 		response, err := get(path, true)
 		if err != nil {
 			return nil, err

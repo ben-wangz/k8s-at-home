@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"registry-hub/internal/diagnostics"
-	"registry-hub/internal/inventory"
 	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/workqueue"
@@ -37,7 +36,7 @@ func (s *Service) inspectReclaimEvidence(ctx context.Context, entry storage.Entr
 		return
 	}
 	if strings.HasPrefix(entry.Key, workqueue.Prefix+"receipts/") {
-		job, _, err := inventory.Read[workqueue.Job](ctx, s.store, entry.Key)
+		job, _, err := storageCollectionRead[workqueue.Job](ctx, s.store, entry.Key)
 		if err != nil {
 			object.ReclaimReason = "receipt_" + diagnosticReason(err)
 			return
@@ -55,7 +54,7 @@ func (s *Service) inspectReclaimEvidence(ctx context.Context, entry storage.Entr
 		return
 	}
 	if object.Category == "diagnostic_events" {
-		event, _, err := inventory.Read[diagnostics.Event](ctx, s.store, entry.Key)
+		event, _, err := storageCollectionRead[diagnostics.Event](ctx, s.store, entry.Key)
 		if err != nil {
 			object.ReclaimReason = "event_" + diagnosticReason(err)
 			return
@@ -96,7 +95,7 @@ func (s *Service) attachCleanupWork(ctx context.Context, object *storageObject) 
 }
 
 func (s *Service) inspectUploadReclamation(ctx context.Context, key string, object *storageObject) {
-	state, _, err := inventory.Read[uploadSession](ctx, s.store, key)
+	state, _, err := storageCollectionRead[uploadSession](ctx, s.store, key)
 	if err != nil {
 		object.ReclaimReason = "upload_" + diagnosticReason(err)
 		return

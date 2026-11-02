@@ -24,6 +24,8 @@ type workerView struct {
 	ScheduleMode            string                `json:"scheduleMode"`
 	NextScheduleAt          time.Time             `json:"nextScheduleAt"`
 	SharedConcurrency       int                   `json:"sharedConcurrency"`
+	AdmissionPool           string                `json:"admissionPool"`
+	AdmissionCapacity       int                   `json:"admissionCapacity"`
 	AdmissionBudgetSeconds  float64               `json:"admissionBudgetSeconds"`
 	CheckpointBudgetSeconds float64               `json:"checkpointBudgetSeconds"`
 	LeaseOwner              string                `json:"leaseOwner,omitempty"`

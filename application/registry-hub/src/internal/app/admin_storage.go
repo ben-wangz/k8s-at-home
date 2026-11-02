@@ -48,6 +48,10 @@ func (s *Service) storageSnapshot(ctx context.Context, id string) (storageSnapsh
 }
 
 func (s *Service) serveStorage(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
+	if request.URL.Path == "/api/v1/storage/status" {
+		s.serveStorageStatus(writer, request, ctx)
+		return
+	}
 	values, cursor, limit, err := s.diagnosticQuery(request, storageQueryFields(request.URL.Path)...)
 	if err != nil {
 		writeInventoryError(writer, err)

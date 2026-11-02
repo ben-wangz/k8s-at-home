@@ -53,6 +53,7 @@ func (s *Service) runStorageOrphanCleanup(ctx context.Context) {
 type maintenanceProgress struct {
 	EntityProgress bool
 	RoundComplete  bool
+	NextScanAt     time.Time
 }
 
 func (s *Service) runPeriodicMaintenance(ctx context.Context, kind string, step func(context.Context) (maintenanceProgress, error), cursor ...any) {
@@ -94,6 +95,18 @@ func (s *Service) runMaintenanceLeader(ctx context.Context, holder lease.Lease, 
 		return
 	}
 	state.Delay = max(state.Delay, time.Second)
+	if kind == "storage_inventory" {
+		initial, cancel := context.WithTimeout(ctx, 5*time.Second)
+		collection, _, err := inventory.Read[storageCollection](initial, s.store, storageInventoryPrefix+"checkpoint.json")
+		cancel()
+		if err != nil && !errors.Is(err, storage.ErrNotFound) {
+			s.backgroundEvent(kind, "checkpoint_read_failed", err)
+			return
+		}
+		if collection.NextScanAt.After(state.Next) {
+			state.Next = collection.NextScanAt
+		}
+	}
 	status := &state.Status
 	status.Owner, status.Fence, status.Resumability = holder.Owner, holder.FencingToken, "full_rescan_on_restart"
 	if kind == "storage_inventory" || len(cursor) > 0 {
@@ -120,6 +133,7 @@ func (s *Service) runMaintenanceLeader(ctx context.Context, holder lease.Lease, 
 				s.recordScanFailure(bounded, kind, "maintenance", status, &state.DiagnosticOutbox, err, 0)
 			} else {
 				state.Delay = time.Second
+				state.Next = progress.NextScanAt
 				status.NextAttemptAt = time.Time{}
 				if progress.EntityProgress {
 					status.ProgressAt = time.Now().UTC()
@@ -139,6 +153,9 @@ func (s *Service) runMaintenanceLeader(ctx context.Context, holder lease.Lease, 
 				}
 			}
 			status.NextScanAt = time.Now().Add(interval)
+			if state.Next.After(status.NextScanAt) {
+				status.NextScanAt = state.Next
+			}
 			if !progress.EntityProgress && !progress.RoundComplete && err == nil {
 				release()
 				continue

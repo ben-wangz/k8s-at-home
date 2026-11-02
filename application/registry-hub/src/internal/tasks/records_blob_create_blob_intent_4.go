@@ -152,10 +152,17 @@ func (r *Records) LinkBlobDemandScope(ctx context.Context, intentID, demandID, r
 			return storage.ErrConditionFailed
 		}
 		if scopeID != "" {
+			unchanged := version != "" && current.RootTaskID == rootTaskID && current.ScopeID == scopeID && current.SessionID == sessionID && current.ReservedBytes == reservedBytes
 			current.RootTaskID = rootTaskID
 			current.ScopeID = scopeID
 			current.SessionID = sessionID
 			current.ReservedBytes = reservedBytes
+			if unchanged {
+				if err := r.saveRootBlobDemandIndex(ctx, current); err != nil {
+					return err
+				}
+				return r.markBlobIntentDemandProgress(ctx, intentID, current.CreatedAt)
+			}
 		}
 		data, err := json.Marshal(current)
 		if err != nil {

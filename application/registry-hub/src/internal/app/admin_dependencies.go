@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"registry-hub/internal/artifact"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
@@ -37,6 +38,10 @@ type dependencyView struct {
 	NotificationsURL     string            `json:"notificationsURL,omitempty"`
 	NextAttemptAt        time.Time         `json:"nextAttemptAt"`
 	LastProgressAt       time.Time         `json:"lastProgressAt"`
+	CacheMediaType       string            `json:"cacheMediaType,omitempty"`
+	CacheVersion         string            `json:"cacheVersion,omitempty"`
+	IntentCacheVersion   string            `json:"intentCacheVersion,omitempty"`
+	CacheReason          string            `json:"cacheReason,omitempty"`
 }
 
 type dependencyPage struct {
@@ -68,13 +73,15 @@ func (s *Service) serveTaskDependencies(writer http.ResponseWriter, request *htt
 		return
 	}
 	page := dependencyPage{diagnosticPage: diagnosticPage[dependencyView]{Items: []dependencyView{}, ObservedAt: time.Now().UTC(), Consistency: "live", Scanned: len(edges)}, TotalScope: "page; continue until nextToken is absent"}
+	missing := map[string]bool{}
 	for _, edge := range edges {
 		view := s.taskDependency(ctx, task, edge)
 		page.Items = append(page.Items, view)
 		if view.RegistryState != "verified" {
 			page.BlockingInPage++
-			if view.CacheState == "missing" {
+			if view.CacheState == "missing" && edge.ChildRole == tasks.GraphBlob && view.DeclaredBytes > 0 && !missing[edge.ChildDigest] {
 				page.KnownMissingBytesInPage += view.DeclaredBytes
+				missing[edge.ChildDigest] = true
 			}
 		}
 	}
@@ -88,13 +95,19 @@ func (s *Service) serveTaskDependencies(writer http.ResponseWriter, request *htt
 func (s *Service) taskDependency(ctx context.Context, task tasks.Task, edge tasks.DependencyEdge) dependencyView {
 	view := dependencyView{ParentDigest: edge.ParentDigest, Digest: edge.ChildDigest, Role: string(edge.ChildRole), DeclaredBytes: edge.Descriptor.Size, Platform: edge.Descriptor.Platform, CacheState: "unknown", RegistryState: "unknown", Reason: "evidence_unknown", NextAction: "await_verification", CheckedAt: time.Now().UTC(), EvidenceSource: "persisted_graph_and_cache_metadata; no registry probe", ReadErrors: map[string]string{}}
 	view.ParentDigests, view.ParentEdgesScope = []string{edge.ParentDigest}, "persisted_task_graph"
-	inspection, err := s.cache.Inspect(ctx, task.Authority, task.Repository, edge.ChildDigest, edge.Descriptor.MediaType)
+	inspection, intent, intentErr, err := s.inspectDependencyCache(ctx, task, edge)
+	view.CacheMediaType, view.CacheVersion, view.CacheReason = inspection.MediaType, inspection.DataVersion, inspection.Reason
+	if intentErr != nil && !errors.Is(intentErr, storage.ErrNotFound) {
+		view.ReadErrors["intent"] = diagnosticReason(intentErr)
+	}
 	if err != nil {
 		view.ReadErrors["cache"] = diagnosticReason(err)
+	} else if inspection.Present && inspection.Size != edge.Descriptor.Size {
+		view.CacheReason = "cache_descriptor_size_mismatch"
 	} else if inspection.Present {
 		view.CacheState = "complete"
 		view.Reason = "awaiting_internal_transfer"
-	} else if !inspection.Unknown {
+	} else if !inspection.Unknown && (intentErr == nil || errors.Is(intentErr, storage.ErrNotFound)) {
 		view.CacheState = "missing"
 		view.Reason = "waiting_external_payload"
 		view.NextAction = "client_pull_required"
@@ -118,15 +131,29 @@ func (s *Service) taskDependency(ctx context.Context, task tasks.Task, edge task
 			}
 		}
 	}
-	if edge.ChildRole == tasks.GraphBlob {
-		intent, err := s.records.GetBlobIntentByIdentity(ctx, tasks.BlobIdentity{Authority: task.Authority, Repository: task.Repository, Digest: edge.ChildDigest})
-		if err == nil {
-			s.enrichIntentDependency(ctx, intent, &view)
-		} else if !errors.Is(err, storage.ErrNotFound) {
-			view.ReadErrors["intent"] = diagnosticReason(err)
-		}
+	if intent != nil {
+		view.IntentCacheVersion = intent.CacheVersion
+		s.enrichIntentDependency(ctx, *intent, &view)
 	}
 	return view
+}
+
+func (s *Service) inspectDependencyCache(ctx context.Context, task tasks.Task, edge tasks.DependencyEdge) (artifact.Inspection, *tasks.BlobIntent, error, error) {
+	if edge.ChildRole != tasks.GraphBlob {
+		inspection, err := s.cache.Inspect(ctx, task.Authority, task.Repository, edge.ChildDigest, edge.Descriptor.MediaType)
+		return inspection, nil, nil, err
+	}
+	intent, intentErr := s.records.GetBlobIntentByIdentity(ctx, tasks.BlobIdentity{Authority: task.Authority, Repository: task.Repository, Digest: edge.ChildDigest})
+	preferred := edge.Descriptor.MediaType
+	var current *tasks.BlobIntent
+	if intentErr == nil {
+		current = &intent
+		if intent.MediaType != "" {
+			preferred = intent.MediaType
+		}
+	}
+	inspection, err := s.cache.InspectAny(ctx, task.Authority, task.Repository, edge.ChildDigest, preferred)
+	return inspection, current, intentErr, err
 }
 
 func intentNextAction(state tasks.BlobIntentState) string {

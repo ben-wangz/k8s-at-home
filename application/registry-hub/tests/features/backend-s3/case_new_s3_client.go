@@ -103,11 +103,15 @@ func solidifiedTask(task map[string]any, taskID, digest string) bool {
 
 func compareObjectSnapshots(before, after map[string]string) error {
 	for key, value := range before {
-		if key == backendGCStateKey || strings.HasSuffix(key, "/representation-index.json") {
+		if transientBackendObject(key) {
 			continue
 		}
-		if after[key] != value {
-			return fmt.Errorf("backend S3 object %s changed or disappeared across restart", key)
+		current, exists := after[key]
+		if !exists {
+			return fmt.Errorf("backend S3 object %s disappeared across restart", key)
+		}
+		if current != value && !mutableBackendObject(key) {
+			return fmt.Errorf("backend S3 object %s changed across restart", key)
 		}
 	}
 	return nil

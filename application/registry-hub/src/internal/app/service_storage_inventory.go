@@ -9,7 +9,6 @@ import (
 	"registry-hub/internal/storage"
 	"registry-hub/internal/storage/filesystem"
 	"registry-hub/internal/storage/s3store"
-	"strings"
 	"time"
 )
 
@@ -48,26 +47,17 @@ func (s *Service) runStorageInventory(ctx context.Context) {
 			return maintenanceProgress{}, err
 		}
 		if time.Now().Before(state.NextScanAt) {
-			return maintenanceProgress{}, nil
+			return maintenanceProgress{NextScanAt: state.NextScanAt}, nil
 		}
 		if state.Snapshot.SnapshotID == "" {
+			completed := state.LastCompletedAt
 			state = newStorageCollection()
+			state.LastCompletedAt = completed
 		}
 		if state.Domain == 1 && registryStore == nil {
 			registryStore, registryErr = s.registryInspectionStore(ctx)
 		}
-		if err := s.advanceStorageCollection(guarded, &state, registryStore, registryErr); err != nil {
-			return maintenanceProgress{}, err
-		}
-		parent, ok := ctx.Value(backgroundParentKey{}).(context.Context)
-		if !ok {
-			parent = ctx
-		}
-		checkpointCtx, cancel := s.backgroundCheckpoint(parent, "storage_inventory")
-		defer cancel()
-		checkpointCtx = inventory.WithWriteGuard(checkpointCtx, func(ctx context.Context) error { return s.tasks.Leases().Validate(ctx, ownership) })
-		err = inventory.Update(checkpointCtx, s.store, storageInventoryPrefix+"checkpoint.json", func(value *storageCollection) error { *value = state; return nil })
-		return maintenanceProgress{EntityProgress: true, RoundComplete: !state.NextScanAt.IsZero()}, err
+		return s.storageCollectionQuantum(guarded, ownership, &state, registryStore, registryErr)
 	})
 }
 
@@ -75,6 +65,8 @@ func newStorageCollection() storageCollection {
 	now := time.Now().UTC()
 	state := storageCollection{Snapshot: storageSnapshot{SnapshotID: diagnostics.ID("storage", now.Format(time.RFC3339Nano)), StartedAt: now, ExpiresAt: now.Add(time.Hour), Domains: map[string]storageDomainSummary{}, Reasons: []string{"active_collection_output_excluded_until_next_scan"}, Consistency: "immutable report from non-atomic metadata sweeps; bytes are not underlying disk usage"}, Usage: map[string]storageUsage{}}
 	state.Snapshot.UsageVersion = 1
+	state.ListPageSize = 4
+	state.EntriesExamined, state.AttributionObjects = new(int64), new(int64)
 	for _, domain := range []string{"state", "registry"} {
 		state.Snapshot.Domains[domain] = storageDomainSummary{Domain: domain, State: "collecting", Categories: map[string]storageUsage{}, Coverage: []string{"visible current objects only", "S3 noncurrent versions, delete markers and multipart uploads are unknown", "filesystem staging and lock files are excluded"}}
 	}
@@ -108,9 +100,14 @@ func (s *Service) advanceStorageCollection(ctx context.Context, state *storageCo
 			}
 			state.Snapshot.Pages++
 		}
-		state.Token = state.PendingNext
+		state.SourceOffset = state.PendingOffset
 		state.Pending = false
 		state.PendingRows = nil
+		if state.SourceListed && state.SourceOffset < len(state.SourceEntries) {
+			return nil
+		}
+		state.Token = state.PendingNext
+		state.SourceEntries, state.SourceNext, state.SourceOffset, state.SourceListed = nil, "", 0, false
 		if state.Token == "" {
 			summary := state.Snapshot.Domains[domain]
 			summary.State = "observed"
@@ -129,6 +126,9 @@ func (s *Service) advanceStorageCollection(ctx context.Context, state *storageCo
 		store = registryStore
 	}
 	if store == nil || domain == "registry" && registryErr != nil {
+		if registryErr != nil && s.cfg.RegistryInspection.Backend != "" && s.cfg.RegistryInspection.Backend != "disabled" {
+			return registryErr
+		}
 		summary := state.Snapshot.Domains[domain]
 		summary.State = "unavailable"
 		summary.Reason = "inspection_not_configured"
@@ -139,41 +139,7 @@ func (s *Service) advanceStorageCollection(ctx context.Context, state *storageCo
 		state.Domain++
 		return nil
 	}
-	entries, next, err := storage.Scan(ctx, store, "", state.Token, 4)
-	if err != nil {
-		if domain == "registry" {
-			summary := state.Snapshot.Domains[domain]
-			summary.State, summary.Reason = "partial", diagnosticReason(err)
-			state.Snapshot.Domains[domain] = summary
-			state.Domain++
-			return nil
-		}
-		return err
-	}
-	namespace := diagnostics.ID(domain, s.cfg.StorageBackend, s.cfg.FilesystemRoot, s.cfg.S3.Endpoint, s.cfg.S3.Bucket, s.cfg.S3.Prefix)
-	if domain == "registry" {
-		namespace = diagnostics.ID(domain, s.cfg.RegistryInspection.Backend, s.cfg.RegistryInspection.FilesystemRoot, s.cfg.RegistryInspection.S3.Endpoint, s.cfg.RegistryInspection.S3.Bucket, s.cfg.RegistryInspection.S3.Prefix)
-	}
-	rows := []storageObject{}
-	for _, entry := range entries {
-		if domain == "state" && strings.HasPrefix(entry.Key, storageInventoryPrefix+"snapshots/"+state.Snapshot.SnapshotID+"/") {
-			continue
-		}
-		object := s.inspectStorageObject(ctx, domain, namespace, entry)
-		if domain == "registry" && object.Digest != "" {
-			s.attachStorageAssociations(ctx, state.Snapshot.SnapshotID, domain, object.Digest, &object)
-		}
-		if domain == "state" && strings.HasPrefix(entry.Key, "cache/objects/") {
-			parts := strings.Split(entry.Key, "/")
-			if len(parts) > 2 {
-				s.attachStorageAssociations(ctx, state.Snapshot.SnapshotID, domain, parts[2], &object)
-			}
-		}
-		object.ID = fmt.Sprintf("%s.%d.%d.%s", state.Snapshot.SnapshotID, state.Snapshot.Pages, len(rows), object.PhysicalID[:12])
-		rows = append(rows, object)
-	}
-	state.PendingRows, state.PendingNext, state.Pending = rows, next, true
-	return nil
+	return s.prepareStoragePage(ctx, state, store, domain)
 }
 
 func (s *Service) publishStorageCollection(ctx context.Context, state *storageCollection) error {
@@ -210,6 +176,9 @@ func (s *Service) publishStorageCollection(ctx context.Context, state *storageCo
 	}); err != nil {
 		return err
 	}
-	*state = storageCollection{NextScanAt: time.Now().Add(5 * time.Minute)}
+	if s.metrics != nil && s.metrics.storageCollection != nil {
+		s.metrics.storageCollection.WithLabelValues("publication", "all").Observe(time.Since(state.Snapshot.StartedAt).Seconds())
+	}
+	*state = storageCollection{NextScanAt: time.Now().Add(5 * time.Minute), LastCompletedAt: state.Snapshot.CompletedAt}
 	return nil
 }

@@ -14,7 +14,7 @@ func (s *Service) inspectAssociatedMetadata(ctx context.Context, key string, obj
 	if !matched || !strings.HasSuffix(key, ".json") {
 		return false
 	}
-	record, _, err := inventory.Read[struct {
+	record, _, err := storageCollectionRead[struct {
 		ID, TaskID, RootTaskID, WorkID, IntentID, TransferID, SessionID, ImageID      string
 		Authority, Repository, Reference, Digest, RootDigest, BlobDigest, ChildDigest string
 		Identity                                                                      struct{ Authority, Repository, Digest string }

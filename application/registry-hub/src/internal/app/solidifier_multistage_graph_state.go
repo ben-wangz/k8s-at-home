@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"reflect"
 
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
@@ -57,6 +58,9 @@ func (s *solidifier) saveGraphNodeState(ctx context.Context, task *tasks.Task, r
 	node.DiscoveryComplete = complete
 	if err := s.service.records.EnsureCacheProtectionReference(ctx, task.ID, task.Authority, task.Repository, reference.digest); err != nil {
 		return withSolidificationFailureStage(temporary("task_state", err), "protection_reconcile")
+	}
+	if reflect.DeepEqual(existing, node) {
+		return nil
 	}
 	if err := s.service.records.SaveGraphNode(ctx, &node); err != nil {
 		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")

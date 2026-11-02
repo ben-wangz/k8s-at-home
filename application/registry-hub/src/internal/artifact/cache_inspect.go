@@ -79,6 +79,7 @@ func (c *Cache) Inspect(ctx context.Context, authority, repository, digest, medi
 				return result, nil
 			}
 			if fingerprint != metadata.DataFingerprint {
+				result.Unknown = true
 				result.Reason = "cache_version_mismatch"
 				return result, nil
 			}
@@ -97,6 +98,7 @@ func (c *Cache) Inspect(ctx context.Context, authority, repository, digest, medi
 		return result, err
 	}
 	if entry.Version != metadata.DataVersion || entry.Size != metadata.Size {
+		result.Unknown = true
 		result.Reason = "cache_version_mismatch"
 		return result, nil
 	}

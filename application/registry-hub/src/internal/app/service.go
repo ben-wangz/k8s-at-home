@@ -76,6 +76,8 @@ type Service struct {
 	closeOnce               sync.Once
 	background              sync.WaitGroup
 	backgroundSlots         chan struct{}
+	collectorSlots          chan struct{}
+	collectorPace           <-chan time.Time
 	backgroundPace          <-chan time.Time
 	projectionBacklog       atomic.Bool
 	workerMu                sync.Mutex

@@ -79,13 +79,17 @@ func TestGCAdmissionRejectsProtectedTaskGapsWaitsAndRetriesAfterRestart(t *testi
 }
 
 func TestGCAdmittedFirstPreventsRootAndBlobTransferOrObservation(t *testing.T) {
-	for _, kind := range []tasks.Kind{tasks.RootKind, tasks.BlobKind} {
+	for _, kind := range []tasks.Kind{tasks.RootKind, "cold-root", tasks.BlobKind} {
 		t.Run(string(kind), func(t *testing.T) {
 			ctx := context.Background()
 			f := newStagedAcceptanceFixture(t, 1<<20)
-			blob := f.cacheObject([]byte("GC admitted before this transfer"), "application/octet-stream")
+			body := []byte("GC admitted before this transfer")
+			blob := artifact.Descriptor{Digest: artifact.CalculateSHA256(body), MediaType: "application/octet-stream", Size: int64(len(body))}
+			if kind != "cold-root" {
+				blob = f.cacheObject(body, blob.MediaType)
+			}
 			var taskID string
-			if kind == tasks.RootKind {
+			if kind != tasks.BlobKind {
 				descriptor := f.cacheManifest(artifact.Manifest{SchemaVersion: 2, MediaType: ociManifestMediaType,
 					Config: &blob, Layers: []artifact.Descriptor{}})
 				taskID = f.root("gc-first", descriptor).ID

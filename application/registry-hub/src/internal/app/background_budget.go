@@ -51,7 +51,7 @@ func (s *Service) beginBackgroundUnit(parent context.Context, kind string, budge
 		state.ExecutionBudgetSeconds = budget.Seconds()
 	})
 	admission, cancelAdmission := context.WithTimeout(parent, 15*time.Second)
-	release, admitted := s.backgroundBudget(admission)
+	release, admitted := s.backgroundKindBudget(admission, kind)
 	cancelAdmission()
 	wait := time.Since(started)
 	if !admitted || parent.Err() != nil {

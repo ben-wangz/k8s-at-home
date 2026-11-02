@@ -57,22 +57,21 @@ func (s *solidifier) processRootMultiStage(ctx context.Context, task *tasks.Task
 			missing = true
 			continue
 		}
-		cacheReadyByDigest := make(map[string]bool, len(manifest.blobs))
-		intentByDigest := make(map[string]tasks.BlobIntent, len(manifest.blobs))
-		for _, blob := range manifest.blobs {
-			cacheReady, intent, err := s.prepareStagedBlob(ctx, task, manifest, blob)
-			if err != nil {
-				return err
-			}
-			if intent.CacheVersion != "" && intent.ActualSize != blob.size {
-				return permanent("manifest_invalid", errors.New("cached blob size differs from its descriptor"))
-			}
-			cacheReadyByDigest[blob.digest] = cacheReady
-			intentByDigest[blob.digest] = intent
-		}
 		maxSessions, maxBytes := protectionLimits(s.cfg)
 		if manifest.scopeBytes > maxBytes {
 			return permanent("capacity_limit", errors.New("manifest scope exceeds the unanchored Distribution byte limit"))
+		}
+		cacheReadyByDigest, intentByDigest, err := s.prepareManifestBlobs(ctx, task, manifest)
+		if err != nil {
+			return err
+		}
+		canProgress, err := s.manifestCanProgress(ctx, task, manifest, cacheReadyByDigest)
+		if err != nil {
+			return err
+		}
+		if !canProgress {
+			missing = true
+			continue
 		}
 		admitted, err := s.admitManifestScope(ctx, task, taskLease, manifest, graph.bytes, maxSessions, maxBytes, false)
 		if err != nil {

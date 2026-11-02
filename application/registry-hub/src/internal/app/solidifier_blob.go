@@ -106,6 +106,12 @@ func (s *solidifier) TaskYielded(ctx context.Context, task *tasks.Task) {
 	if task.Kind != tasks.BlobKind {
 		return
 	}
+	if task.Status == tasks.VerifiedLocal {
+		// Release ran before the persisted yield cleared this task's FIFO position.
+		if err := s.service.wakeAvailableQuotaWaiter(ctx, "protected_cache_capacity", s.gate.State()); err != nil && s.service.logger != nil {
+			s.service.logger.Warn("protected cache quota waiter wake failed", "error_class", "storage")
+		}
+	}
 	intent, err := s.service.records.GetBlobIntent(ctx, task.ID)
 	if err != nil {
 		return

@@ -44,6 +44,11 @@ type report struct {
 
 func Run(ctx context.Context, environment testkit.CaseContext) error {
 	started := time.Now()
+	var collection map[string]any
+	status, err := read(ctx, environment, "/api/v1/storage/status", &collection)
+	if err != nil || status != http.StatusOK || collection["phase"] == nil || collection["totalObjects"] != nil || collection["percentComplete"] != nil {
+		return fmt.Errorf("independent collector status invalid: status=%d error=%v", status, err)
+	}
 	snapshot, err := awaitReport(ctx, environment)
 	if err != nil {
 		return err
@@ -63,7 +68,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		return err
 	}
 	var retained report
-	status, err := read(ctx, environment, "/api/v1/storage/summary?snapshotID="+url.QueryEscape(snapshot.SnapshotID), &retained)
+	status, err = read(ctx, environment, "/api/v1/storage/summary?snapshotID="+url.QueryEscape(snapshot.SnapshotID), &retained)
 	if err != nil || status != http.StatusOK || !reflect.DeepEqual(snapshot, retained) {
 		return fmt.Errorf("retained accounting changed across restart: status=%d error=%v", status, err)
 	}

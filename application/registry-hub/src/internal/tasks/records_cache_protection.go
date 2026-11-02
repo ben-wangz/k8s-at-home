@@ -47,13 +47,8 @@ func (r *Records) putCacheProtectionReference(ctx context.Context, key string, r
 		return err
 	}
 	for attempt := 0; attempt < 16; attempt++ {
-		_, headErr := r.store.Head(ctx, key)
-		options := storage.PutOptions{IfAbsent: errors.Is(headErr, storage.ErrNotFound)}
-		if headErr == nil {
-			object, getErr := r.store.Get(ctx, key)
-			if getErr != nil {
-				return getErr
-			}
+		object, getErr := r.store.Get(ctx, key)
+		if getErr == nil {
 			var current CacheProtectionReference
 			if err := decodeRecord(object, 1<<20, &current); err != nil {
 				return err
@@ -63,10 +58,10 @@ func (r *Records) putCacheProtectionReference(ctx context.Context, key string, r
 			}
 			return nil
 		}
-		if !errors.Is(headErr, storage.ErrNotFound) {
-			return headErr
+		if !errors.Is(getErr, storage.ErrNotFound) {
+			return getErr
 		}
-		_, err = r.store.Put(ctx, key, bytes.NewReader(data), int64(len(data)), options)
+		_, err = r.store.Put(ctx, key, bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfAbsent: true})
 		if errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrAlreadyExists) {
 			continue
 		}

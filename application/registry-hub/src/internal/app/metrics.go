@@ -10,6 +10,8 @@ import (
 )
 
 type metrics struct {
+	storageCollection      *prometheus.HistogramVec
+	storageListSize        *prometheus.HistogramVec
 	backgroundAdmission    *prometheus.HistogramVec
 	backgroundRemaining    *prometheus.HistogramVec
 	inventory              *inventoryMetrics

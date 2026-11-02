@@ -9,6 +9,7 @@ func (s *Service) configureWorkerBudgets(view *workerView) {
 	view.ScheduleMode = "periodic"
 	shared := slices.Contains(backgroundKinds, view.ID) || slices.Contains(backgroundScanKinds, view.ID) || strings.HasPrefix(view.ID, "statistics_") || view.ID == "activation_events"
 	if shared {
+		view.AdmissionPool, view.AdmissionCapacity = "ordinary", 2
 		view.SharedConcurrency, view.AdmissionBudgetSeconds, view.CheckpointBudgetSeconds = 2, 15, 5
 		view.ExecutionBudgetSeconds = 15
 		if strings.HasPrefix(view.ID, "statistics_") {
@@ -16,6 +17,9 @@ func (s *Service) configureWorkerBudgets(view *workerView) {
 		}
 	}
 	switch view.ID {
+	case "storage_inventory":
+		view.AdmissionPool, view.AdmissionCapacity, view.SharedConcurrency = "storage_collector", 1, 0
+		view.ExecutionBudgetSeconds, view.AdmissionBudgetSeconds, view.CheckpointBudgetSeconds = 15, 15, 5
 	case "inventory_builder":
 		view.ExecutionBudgetSeconds = s.inventoryConfig().BatchTimeout.Seconds()
 		view.CheckpointBudgetSeconds = 0

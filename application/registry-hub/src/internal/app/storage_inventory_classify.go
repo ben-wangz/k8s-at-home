@@ -102,7 +102,7 @@ func (s *Service) inspectStorageObjectMetadata(ctx context.Context, domain, name
 		return object
 	}
 	if strings.HasPrefix(entry.Key, workqueue.Prefix+"jobs/") || strings.HasPrefix(entry.Key, workqueue.Prefix+"receipts/") {
-		job, _, err := inventory.Read[workqueue.Job](ctx, s.store, entry.Key)
+		job, _, err := storageCollectionRead[workqueue.Job](ctx, s.store, entry.Key)
 		if err == nil {
 			view := diagnosticJob(job)
 			object.workAssociations = view.workAssociations
@@ -161,6 +161,9 @@ func addStorageUsage(state *storageCollection, object storageObject) {
 	}
 	addStorageAttributionUsage(state, object)
 	domain := state.Snapshot.Domains[object.Domain]
+	if domain.Categories == nil {
+		domain.Categories = map[string]storageUsage{}
+	}
 	bytes, objects := int64(0), int64(0)
 	if domain.ObjectBytes != nil {
 		bytes = *domain.ObjectBytes

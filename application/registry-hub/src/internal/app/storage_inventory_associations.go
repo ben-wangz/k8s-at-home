@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
+	"time"
 )
 
 type storageAssociation struct {
@@ -91,12 +92,18 @@ func (s *Service) advanceStorageAttribution(ctx context.Context, state *storageC
 		state.AttributionCursor.Advance()
 		return nil
 	}
-	objects, _, err := inventory.Read[[]inventory.Object](ctx, s.store, fmt.Sprintf("%ssnapshots/%s/objects/%s/%08d.json", inventory.Prefix, state.Snapshot.InventorySnapshotID, image.ID, state.AttributionPage))
+	objects, _, err := storageCollectionRead[[]inventory.Object](ctx, s.store, fmt.Sprintf("%ssnapshots/%s/objects/%s/%08d.json", inventory.Prefix, state.Snapshot.InventorySnapshotID, image.ID, state.AttributionPage))
 	if err != nil {
 		return storageAttributionFailure(state, err)
 	}
-	end := min(state.AttributionOffset+4, len(objects))
-	for _, object := range objects[state.AttributionOffset:end] {
+	end := min(state.AttributionOffset+16, len(objects))
+	started, reserve := time.Now(), time.Second
+	for offset, object := range objects[state.AttributionOffset:end] {
+		if offset > 0 && (time.Since(started) > 2*time.Second || !storageQuantumTime(ctx, reserve)) {
+			end = state.AttributionOffset + offset
+			break
+		}
+		unit := time.Now()
 		association := storageAssociation{ImageID: image.ID, CanonicalImageID: image.ContentID, Authority: image.Authority, Repository: image.Repository, Platform: image.Platform}
 		for domain, identity := range map[string]string{"state": cacheStorageIdentity(object.Authority, object.Repository, object.Digest), "registry": object.Digest} {
 			if err := inventory.Update(ctx, s.store, storageAssociationKey(state.Snapshot.SnapshotID, domain, identity), func(set *storageAssociationSet) error {
@@ -116,6 +123,10 @@ func (s *Service) advanceStorageAttribution(ctx context.Context, state *storageC
 				return err
 			}
 		}
+		reserve = max(time.Second, 2*time.Since(unit))
+	}
+	if state.AttributionObjects != nil {
+		*state.AttributionObjects += int64(end - state.AttributionOffset)
 	}
 	state.AttributionOffset = end
 	if end >= len(objects) {
@@ -136,7 +147,7 @@ func storageAttributionFailure(state *storageCollection, err error) error {
 }
 
 func (s *Service) attachStorageAssociations(ctx context.Context, snapshot, domain, identity string, object *storageObject) {
-	set, _, err := inventory.Read[storageAssociationSet](ctx, s.store, storageAssociationKey(snapshot, domain, identity))
+	set, _, err := storageCollectionRead[storageAssociationSet](ctx, s.store, storageAssociationKey(snapshot, domain, identity))
 	if err != nil {
 		if !errors.Is(err, storage.ErrNotFound) {
 			object.ReclaimReason = "association_" + diagnosticReason(err)

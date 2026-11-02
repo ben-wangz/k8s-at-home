@@ -2,6 +2,7 @@ package app
 
 import (
 	"registry-hub/internal/inventory"
+	"registry-hub/internal/storage"
 	"time"
 )
 
@@ -59,7 +60,7 @@ type storageDomainSummary struct {
 	State       string                  `json:"state"`
 	ObjectBytes *int64                  `json:"objectBytes"`
 	Objects     *int64                  `json:"objects"`
-	Categories  map[string]storageUsage `json:"categories"`
+	Categories  map[string]storageUsage `json:"categories,omitempty"`
 	Reason      string                  `json:"reason,omitempty"`
 	Coverage    []string                `json:"coverage"`
 }
@@ -88,6 +89,18 @@ type storageSnapshot struct {
 }
 
 type storageCollection struct {
+	CheckpointAt           time.Time               `json:"checkpointAt"`
+	ProgressAt             time.Time               `json:"progressAt"`
+	LastCompletedAt        time.Time               `json:"lastCompletedAt"`
+	EntriesExamined        *int64                  `json:"entriesExamined"`
+	AttributionObjects     *int64                  `json:"attributionObjects"`
+	ListPageSize           int                     `json:"listPageSize"`
+	ListSuccesses          int                     `json:"listSuccesses"`
+	SourceEntries          []storage.Entry         `json:"sourceEntries,omitempty"`
+	SourceNext             string                  `json:"sourceNext,omitempty"`
+	SourceOffset           int                     `json:"sourceOffset"`
+	SourceListed           bool                    `json:"sourceListed"`
+	PendingOffset          int                     `json:"pendingOffset"`
 	Snapshot               storageSnapshot         `json:"snapshot"`
 	Domain                 int                     `json:"domain"`
 	Token                  string                  `json:"token"`

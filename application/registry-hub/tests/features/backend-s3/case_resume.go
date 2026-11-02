@@ -44,8 +44,13 @@ func verifyBackendS3Resume(ctx context.Context, environment testkit.CaseContext,
 	if err != nil || len(blob) != len(expected) || support.Digest(blob) != digest {
 		return nil, fmt.Errorf("S3-resumed blob failed size or digest verification: err=%v size=%d", err, len(blob))
 	}
-	blobTask, err := waitForBlobTask(ctx, environment, digest)
+	completionCtx, completionCancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer completionCancel()
+	blobTask, err := waitForBlobTask(completionCtx, environment, digest)
 	if err != nil {
+		return nil, err
+	}
+	if err := waitForDownloadCleanup(completionCtx, client, bucket, prefix); err != nil {
 		return nil, err
 	}
 	after, err := listBackendObjects(ctx, client, bucket)
@@ -83,11 +88,11 @@ func verifyBackendS3Resume(ctx context.Context, environment testkit.CaseContext,
 		return nil, fmt.Errorf("S3 retry did not resume the persisted offset: ranges=%v 503s=%d", offsets, countLogStatus(lines, "status=503"))
 	}
 	return map[string]any{
-		"digest": digest, "size": len(blob), "firstAttemptStatus": firstStatus,
+		"digest": digest, "size": int64(len(blob)), "firstAttemptStatus": firstStatus,
 		"blobTaskID": testkit.String(blobTask["id"]), "blobTaskStatus": testkit.String(blobTask["status"]),
 		"stateKey": stateKey, "partialChunkCount": chunks, "temporaryObjectsAfterCompletion": countObjectPrefix(after, prefix),
 		"cacheObjectKey": cacheKey, "rangeOffsets": offsets, "status503": countLogStatus(lines, "status=503"),
-		"multipartObjectSize": storedSize, "multipartETag": multipartETag, "multipartParts": multipartParts,
+		"multipartObjectSize": storedSize, "multipartETag": multipartETag, "multipartParts": int64(multipartParts),
 	}, nil
 }
 

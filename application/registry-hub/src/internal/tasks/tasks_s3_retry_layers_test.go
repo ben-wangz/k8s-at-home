@@ -72,7 +72,7 @@ func TestS3SDKAttemptsAndTaskBackoffRemainSeparateAcrossRestart(t *testing.T) {
 	manager.dispatch(ctx, 0)
 	manager.wg.Wait()
 	first, err := manager.Get(ctx, task.ID)
-	if err != nil || first.Status != RetryWait || first.RetryCount != 1 || !first.NextAttemptAt.After(time.Now()) || attempts.Load() != 3 {
+	if err != nil || first.Status != RetryWait || first.RetryCount != 1 || !first.NextAttemptAt.After(first.AttemptFinishedAt) || attempts.Load() != 3 {
 		t.Fatalf("first logical attempt = %#v, %v, HTTP attempts=%d; want one task retry and three SDK attempts", first, err, attempts.Load())
 	}
 	first.NextAttemptAt = time.Now().Add(time.Minute)

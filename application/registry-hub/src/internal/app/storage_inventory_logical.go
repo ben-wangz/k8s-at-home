@@ -4,23 +4,44 @@ import (
 	"context"
 	"registry-hub/internal/inventory"
 	"strings"
+	"time"
 )
 
 func (s *Service) advanceStorageLogicalUsage(ctx context.Context, state *storageCollection) error {
+	started := time.Now()
+	for unit := 0; unit < 16 && state.AttributionPhase == 2; unit++ {
+		if unit > 0 && (time.Since(started) > 2*time.Second || !storageQuantumTime(ctx, time.Second)) {
+			break
+		}
+		found, err := s.storageLogicalUsageEntry(ctx, state)
+		if err != nil {
+			return err
+		}
+		if !found {
+			break
+		}
+	}
+	if state.Snapshot.UsageVersion > 0 {
+		return s.flushStorageUsage(ctx, state)
+	}
+	return nil
+}
+
+func (s *Service) storageLogicalUsageEntry(ctx context.Context, state *storageCollection) (bool, error) {
 	prefix := storageInventoryPrefix + "snapshots/" + state.Snapshot.SnapshotID + "/associations/"
 	entry, found, err := state.AttributionUsageCursor.Peek(ctx, s.store, prefix, 32)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !found {
 		if state.AttributionUsageCursor.Done {
 			state.AttributionPhase = 3
 		}
-		return nil
+		return false, nil
 	}
 	set, _, err := inventory.Read[storageAssociationSet](ctx, s.store, entry.Key)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if set.Truncated {
 		state.Snapshot.AttributionCoverage = "partial; captured inventory associations truncated"
@@ -52,11 +73,6 @@ func (s *Service) advanceStorageLogicalUsage(ctx context.Context, state *storage
 		}
 		state.Usage[key] = usage
 	}
-	if state.Snapshot.UsageVersion > 0 {
-		if err := s.flushStorageUsage(ctx, state); err != nil {
-			return err
-		}
-	}
 	state.AttributionUsageCursor.Advance()
-	return nil
+	return true, nil
 }

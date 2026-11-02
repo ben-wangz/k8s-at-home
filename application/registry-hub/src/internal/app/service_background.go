@@ -7,6 +7,9 @@ import (
 
 func (s *Service) startBackgroundWorkers(ctx context.Context) {
 	s.backgroundSlots = make(chan struct{}, 2)
+	s.collectorSlots = make(chan struct{}, 1)
+	collectorPace := time.NewTicker(250 * time.Millisecond)
+	s.collectorPace = collectorPace.C
 	pace := time.NewTicker(100 * time.Millisecond)
 	s.backgroundPace = pace.C
 	s.cache.SetProjectionRetention(s.retainUnprojectedManifest)
@@ -16,7 +19,7 @@ func (s *Service) startBackgroundWorkers(ctx context.Context) {
 	workers = append(workers, s.runDiagnosticEventSink)
 	workers = append(workers, s.runDiagnosticRetention)
 	workers = append(workers, s.runRetryRequestRetention)
-	workers = append(workers, func(ctx context.Context) { <-ctx.Done(); pace.Stop() })
+	workers = append(workers, func(ctx context.Context) { <-ctx.Done(); pace.Stop(); collectorPace.Stop() })
 	queues := []struct {
 		kind string
 		step backgroundStep

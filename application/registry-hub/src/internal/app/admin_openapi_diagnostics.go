@@ -20,6 +20,7 @@ func diagnosticOperation[T any](api huma.API, path, id, summary string, params [
 
 func adminDiagnosticOperations(api huma.API) []huma.Operation {
 	return []huma.Operation{
+		diagnosticOperation[storageCollectionStatus](api, "/api/v1/storage/status", "getStorageStatus", "Read bounded collection progress independently of report availability", nil),
 		diagnosticOperation[notificationWorkPage](api, "/api/v1/blob-intents/{intentID}/notifications", "listIntentNotifications", "Read indexed notification variants and their revision coverage", append([]*huma.Param{adminPathParam("intentID", "Intent identifier.")}, diagnosticParams()...)),
 		diagnosticOperation[notificationTargetPage](api, "/api/v1/blob-intents/{intentID}/notifications/{workID}/targets", "listNotificationTargets", "Read live notification target candidates and confirmed wake work", append([]*huma.Param{adminPathParam("intentID", "Intent identifier."), adminPathParam("workID", "Notification work identifier.")}, diagnosticParams()...)),
 		diagnosticOperation[executionFactPage](api, "/api/v1/images/{imageID}/execution-facts", "listImageExecutionFacts", "Read durable execution facts independently of captured snapshot task IDs", append([]*huma.Param{adminPathParam("imageID", "Image identity; a published snapshot is not required.")}, diagnosticParams("digest", "generation")...)),

@@ -17,8 +17,14 @@ func (c *Cache) InspectAny(ctx context.Context, authority, repository, digest, p
 	if index.SchemaVersion != cacheSchemaCurrent && index.SchemaVersion != cacheSchemaPrevious || index.Authority != authority || index.Repository != repository || index.Digest != digest || len(index.MediaTypes) > cacheRepresentationIndexMaxMediaTypes {
 		return Inspection{}, storage.ErrCorruptObject
 	}
+	mediaTypes := append([]string{preferred}, index.MediaTypes...)
+	seen := make(map[string]bool, len(mediaTypes))
 	var result Inspection
-	for _, mediaType := range index.MediaTypes {
+	for _, mediaType := range mediaTypes {
+		if seen[mediaType] {
+			continue
+		}
+		seen[mediaType] = true
 		inspection, err := c.Inspect(ctx, authority, repository, digest, mediaType)
 		if err != nil {
 			return result, err

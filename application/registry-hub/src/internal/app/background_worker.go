@@ -163,27 +163,35 @@ func (s *Service) runBackgroundQueueLeader(ctx context.Context, holder lease.Lea
 }
 
 func (s *Service) backgroundBudget(ctx context.Context) (func(), bool) {
+	return s.backgroundKindBudget(ctx, "")
+}
+
+func (s *Service) backgroundKindBudget(ctx context.Context, kind string) (func(), bool) {
+	slots, pace := s.backgroundSlots, s.backgroundPace
+	if kind == "storage_inventory" {
+		slots, pace = s.collectorSlots, s.collectorPace
+	}
 	if ctx.Err() != nil {
 		return nil, false
 	}
-	if s.backgroundSlots == nil {
+	if slots == nil {
 		return func() {}, true
 	}
 	select {
-	case s.backgroundSlots <- struct{}{}:
-		if s.backgroundPace != nil {
+	case slots <- struct{}{}:
+		if pace != nil {
 			select {
 			case <-ctx.Done():
-				<-s.backgroundSlots
+				<-slots
 				return nil, false
-			case <-s.backgroundPace:
+			case <-pace:
 			}
 		}
 		if ctx.Err() != nil {
-			<-s.backgroundSlots
+			<-slots
 			return nil, false
 		}
-		return func() { <-s.backgroundSlots }, true
+		return func() { <-slots }, true
 	case <-ctx.Done():
 		return nil, false
 	}
