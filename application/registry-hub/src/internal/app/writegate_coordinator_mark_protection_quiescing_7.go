@@ -53,6 +53,9 @@ func (g *writeGate) ReleaseProtection(ctx context.Context, sessionID, reason str
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := g.recoveryMutationAllowed(ctx); err != nil {
+		return err
+	}
 	index := stringIndex(g.state.SessionIDs, sessionID)
 	if index < 0 {
 		return nil

@@ -15,6 +15,9 @@ func (g *writeGate) ReleaseEmptyProtection(ctx context.Context, sessionID, deman
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := g.recoveryMutationAllowed(ctx); err != nil {
+		return err
+	}
 	if !containsString(g.state.SessionIDs, sessionID) {
 		return nil
 	}
@@ -156,12 +159,21 @@ func (g *writeGate) SetRecoveryBarrier(ctx context.Context, reason string) error
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := g.recoveryMutationAllowed(ctx); err != nil {
+		return err
+	}
+	if !g.state.RecoveryBarrier {
+		g.state.RecoveryID = ""
+	}
 	g.state.RecoveryBarrier = true
 	g.state.RecoveryReason = reason
 	g.state.UpdatedAt = time.Now().UTC()
 	if err := g.persistLocked(ctx); err != nil {
 		g.failClosedLocked("recovery_barrier_unknown")
 		return err
+	}
+	if g.recovery != nil {
+		g.recovery.blocked.Store(true)
 	}
 	g.signalLocked()
 	return nil

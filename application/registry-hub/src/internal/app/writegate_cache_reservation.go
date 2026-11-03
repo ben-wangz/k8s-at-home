@@ -28,6 +28,9 @@ func (g *writeGate) ReserveProtectedCache(ctx context.Context, taskID string, by
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := g.recoveryMutationAllowed(ctx); err != nil {
+		return err
+	}
 	if g.state.State != "open" || g.exclusive {
 		return ErrWritesClosed
 	}
@@ -85,6 +88,9 @@ func (g *writeGate) ReleaseProtectedCache(ctx context.Context, taskID string) er
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := g.recoveryMutationAllowed(ctx); err != nil {
+		return err
+	}
 	bytes, exists := g.state.ProtectedCacheReservations[taskID]
 	if !exists {
 		return nil
@@ -116,6 +122,9 @@ func (g *writeGate) ReleaseProtectedCache(ctx context.Context, taskID string) er
 func (g *writeGate) ReconcileProtectedCacheReservations(ctx context.Context, active map[string]int64) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := g.recoveryMutationAllowed(ctx); err != nil {
+		return err
+	}
 	if g.state.ProtectedCacheReservations == nil {
 		g.state.ProtectedCacheReservations = make(map[string]int64)
 	}

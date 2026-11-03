@@ -114,13 +114,15 @@ func storageResult(err error) string {
 		return "invalid_key"
 	case errors.Is(err, context.Canceled):
 		return "cancelled"
+	case errors.Is(err, errRecoveryPaused):
+		return "recovery_paused"
 	default:
 		return "error"
 	}
 }
 
 func expectedStorageError(err error) bool {
-	return errors.Is(err, storage.ErrNotFound) || errors.Is(err, storage.ErrAlreadyExists) || errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, context.Canceled)
+	return errors.Is(err, storage.ErrNotFound) || errors.Is(err, storage.ErrAlreadyExists) || errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, context.Canceled) || errors.Is(err, errRecoveryPaused)
 }
 
 type observedStore struct {

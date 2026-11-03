@@ -109,6 +109,9 @@ func (m *Manager) run(ctx context.Context, worker int) {
 }
 
 func (m *Manager) dispatch(ctx context.Context, worker int) {
+	if m.recoveryPaused.Load() {
+		return
+	}
 	tasks, err := m.listActive(ctx)
 	m.runtimeDispatch(err)
 	if err != nil {
@@ -125,6 +128,10 @@ func (m *Manager) dispatch(ctx context.Context, worker int) {
 			continue
 		}
 		m.mu.Lock()
+		if m.recoveryPaused.Load() {
+			m.mu.Unlock()
+			return
+		}
 		if _, running := m.active[task.ID]; running || len(m.active) >= m.workers {
 			m.mu.Unlock()
 			continue

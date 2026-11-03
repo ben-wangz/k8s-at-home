@@ -84,6 +84,12 @@ func (g *writeGate) reloadLocked(ctx context.Context) error {
 }
 
 func (g *writeGate) failClosedLocked(reason string) {
+	if g.recovery != nil {
+		g.recovery.blocked.Store(true)
+	}
+	if !g.state.RecoveryBarrier {
+		g.state.RecoveryID = ""
+	}
 	g.state.State = "failed_unknown"
 	g.state.ErrorClass = "storage"
 	g.state.RecoveryBarrier = true
@@ -98,6 +104,9 @@ func (g *writeGate) updateProtectionSession(ctx context.Context, sessionID strin
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := g.recoveryMutationAllowed(ctx); err != nil {
+		return err
+	}
 	if !containsString(g.state.SessionIDs, sessionID) {
 		return storage.ErrNotFound
 	}

@@ -46,6 +46,9 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 		m.cancels = make(map[string]context.CancelFunc)
 	}
 	m.cancels[latest.ID] = cancel
+	if m.recoveryPaused.Load() {
+		cancel()
+	}
 	m.mu.Unlock()
 	defer func() {
 		m.mu.Lock()
@@ -60,7 +63,7 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 	err = m.processor.Process(workCtx, &latest, currentLease)
 	cancel()
 	renewErr := <-renewDone
-	if parent.Err() != nil {
+	if parent.Err() != nil || m.recoveryPaused.Load() {
 		return
 	}
 	if renewErr != nil {
@@ -158,6 +161,9 @@ func (m *Manager) notifyYielded(ctx context.Context, task *Task) {
 }
 
 func (m *Manager) notifyTerminal(ctx context.Context, task *Task) {
+	if deferred, _ := ctx.Value(deferredTerminalCleanupKey{}).(bool); deferred {
+		return
+	}
 	handler, ok := m.processor.(TaskTerminalHandler)
 	if !ok {
 		return

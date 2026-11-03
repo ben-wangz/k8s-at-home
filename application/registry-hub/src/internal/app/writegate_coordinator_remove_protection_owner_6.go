@@ -14,6 +14,9 @@ func (g *writeGate) RemoveProtectionOwner(ctx context.Context, sessionID, demand
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := g.recoveryMutationAllowed(ctx); err != nil {
+		return 0, err
+	}
 	if !containsString(g.state.SessionIDs, sessionID) {
 		return 0, storage.ErrNotFound
 	}
@@ -40,6 +43,9 @@ func (g *writeGate) RequestProtectionStop(ctx context.Context, sessionID, reason
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := g.recoveryMutationAllowed(ctx); err != nil {
+		return false, err
+	}
 	if !containsString(g.state.SessionIDs, sessionID) {
 		return false, storage.ErrNotFound
 	}

@@ -8,7 +8,7 @@ import (
 )
 
 func (s *solidifier) cancelBlobIntentWithoutDemand(ctx context.Context, intentID string) (string, error) {
-	intent, err := s.service.records.GetBlobIntent(ctx, intentID)
+	_, err := s.service.records.GetBlobIntent(ctx, intentID)
 	if errors.Is(err, storage.ErrNotFound) {
 		return "", nil
 	}
@@ -22,6 +22,17 @@ func (s *solidifier) cancelBlobIntentWithoutDemand(ctx context.Context, intentID
 	if active {
 		s.service.wakeBlobDemandRoots(ctx, intentID)
 		return "", nil
+	}
+	return s.cancelBlobIntentKnownUnowned(ctx, intentID)
+}
+
+func (s *solidifier) cancelBlobIntentKnownUnowned(ctx context.Context, intentID string) (string, error) {
+	intent, err := s.service.records.GetBlobIntent(ctx, intentID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "demand_intent_read_unknown", err
 	}
 	task, err := s.tasks.Get(ctx, intentID)
 	if errors.Is(err, storage.ErrNotFound) {

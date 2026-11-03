@@ -51,6 +51,8 @@ type gateRecord struct {
 	LegacyGrandfatheredBytes       int64            `json:"legacyGrandfatheredBytes,omitempty"`
 	RecoveryBarrier                bool             `json:"recoveryBarrier,omitempty"`
 	RecoveryReason                 string           `json:"recoveryReason,omitempty"`
+	RecoveryID                     string           `json:"recoveryID,omitempty"`
+	RecoveryFence                  uint64           `json:"recoveryFence,omitempty"`
 	ProtectionSessionCount         int              `json:"protectionSessionCount,omitempty"`
 	NewProtectionSessionCount      int              `json:"newProtectionSessionCount,omitempty"`
 }
@@ -63,6 +65,7 @@ type writeGate struct {
 	version   string
 	active    int
 	exclusive bool
+	recovery  *recoveryStore
 }
 
 func newWriteGate(ctx context.Context, store storage.Store) (*writeGate, error) {
@@ -133,6 +136,10 @@ func (g *writeGate) Enter(ctx context.Context) (func(), error) {
 		return nil, err
 	}
 	g.mu.Lock()
+	if g.recovery != nil && g.recovery.blocked.Load() {
+		g.mu.Unlock()
+		return nil, ErrRecoveryBarrier
+	}
 	if g.state.State != "open" || g.exclusive {
 		g.mu.Unlock()
 		return nil, ErrWritesClosed

@@ -10,6 +10,9 @@ import (
 func (g *writeGate) BeginDrain(ctx context.Context) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.recovery != nil && g.recovery.blocked.Load() {
+		return ErrRecoveryBarrier
+	}
 	if g.state.State != "open" || g.exclusive {
 		return ErrWritesClosed
 	}
@@ -41,6 +44,9 @@ func (g *writeGate) BeginDrain(ctx context.Context) error {
 func (g *writeGate) BeginRetry(ctx context.Context) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.recovery != nil && g.recovery.blocked.Load() {
+		return ErrRecoveryBarrier
+	}
 	if g.exclusive || g.state.State != "failed_unknown" && g.state.State != "failed" {
 		return errors.New("GC retry requires a failed or unknown state")
 	}
@@ -77,6 +83,10 @@ func (g *writeGate) BeginExclusive(ctx context.Context, timeout time.Duration) (
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 	g.mu.Lock()
+	if g.recovery != nil && g.recovery.blocked.Load() {
+		g.mu.Unlock()
+		return nil, ErrRecoveryBarrier
+	}
 	if g.state.State != "open" || g.exclusive {
 		g.mu.Unlock()
 		return nil, ErrWritesClosed

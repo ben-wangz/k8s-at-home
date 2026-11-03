@@ -94,6 +94,11 @@ func (s *Service) handleClient(original http.ResponseWriter, request *http.Reque
 		registryapi.WriteError(writer, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
 		return
 	}
+	if s.recoveryStarting.Load() || s.gate != nil && (s.gate.State().RecoveryBarrier || s.gate.recovery != nil && s.gate.recovery.blocked.Load()) {
+		writer.Header().Set("Retry-After", "1")
+		registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "protection recovery is in progress")
+		return
+	}
 	timeout := s.cfg.Limits.RequestTimeout
 	if request.Method == http.MethodGet {
 		if routed, routeErr := route.Parse(request.RequestURI); routeErr == nil && routed.Endpoint == route.EndpointBlob && s.cfg.Limits.BlobTransferTimeout > 0 {

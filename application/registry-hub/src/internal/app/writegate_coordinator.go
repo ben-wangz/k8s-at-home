@@ -81,6 +81,9 @@ func (g *writeGate) admitProtection(ctx context.Context, sessionID, scopeID, dem
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := g.recoveryMutationAllowed(ctx); err != nil {
+		return err
+	}
 	if g.state.State != "open" || g.exclusive {
 		return ErrWritesClosed
 	}

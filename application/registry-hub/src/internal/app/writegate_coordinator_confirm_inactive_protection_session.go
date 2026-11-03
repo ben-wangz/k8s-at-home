@@ -11,6 +11,9 @@ func (g *writeGate) confirmInactiveProtectionSessionReleased(ctx context.Context
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := g.recoveryMutationAllowed(ctx); err != nil {
+		return err
+	}
 	if err := g.reloadLocked(ctx); err != nil {
 		g.failClosedLocked("protection_release_reconcile_unknown")
 		return err
@@ -18,8 +21,10 @@ func (g *writeGate) confirmInactiveProtectionSessionReleased(ctx context.Context
 	if containsString(g.state.SessionIDs, sessionID) {
 		return ErrRecoveryBarrier
 	}
-	if err := g.validateProtectionStateLocked(ctx, false); err != nil {
-		return err
+	if _, recovering := ctx.Value(recoveryWriteGuardKey{}).(recoveryWriteGuard); !recovering {
+		if err := g.validateProtectionStateLocked(ctx, false); err != nil {
+			return err
+		}
 	}
 	session, err := g.readProtectionSession(ctx, sessionID)
 	if err != nil {

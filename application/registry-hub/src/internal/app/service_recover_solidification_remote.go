@@ -13,51 +13,6 @@ import (
 	"registry-hub/internal/route"
 )
 
-func (s *Service) recoverProtectionRemoteOperations(ctx context.Context) error {
-	after := ""
-	for {
-		sessions, next, err := s.gate.ListProtectionSessions(ctx, after, 100)
-		if err != nil {
-			return err
-		}
-		for _, item := range sessions {
-			session, active, err := s.gate.protectionSession(ctx, item.ID)
-			if err != nil {
-				return err
-			}
-			if !active || session.PendingOperations == 0 && !session.UncertainRemoteResult {
-				continue
-			}
-
-			var verifiedWrite *protectionRemoteWrite
-			if session.UncertainRemoteResult {
-				if session.RemoteWrite == nil {
-					return s.blockUnknownProtectionWrite(ctx, item.ID, errors.New("remote write identity was not persisted"))
-				}
-				verified, verifyErr := s.verifyProtectionRemoteWrite(ctx, *session.RemoteWrite)
-				if verifyErr != nil {
-					return s.blockUnknownProtectionWrite(ctx, item.ID, verifyErr)
-				}
-				if !verified {
-					return s.blockUnknownProtectionWrite(ctx, item.ID, errors.New("remote write is not visible yet"))
-				}
-				if err := s.gate.MarkRecoveredProtectionContentObserved(ctx, item.ID); err != nil {
-					return err
-				}
-				write := *session.RemoteWrite
-				verifiedWrite = &write
-			}
-			if err := s.gate.CompleteProtectionStartupRecovery(ctx, item.ID, verifiedWrite); err != nil {
-				return err
-			}
-		}
-		if next == "" {
-			return nil
-		}
-		after = next
-	}
-}
-
 func (s *Service) blockUnknownProtectionWrite(ctx context.Context, sessionID string, cause error) error {
 	if err := s.gate.SetProtectionRecoveryRequired(ctx, sessionID, "remote_result_unknown"); err != nil {
 		return errors.Join(ErrRecoveryBarrier, cause, err)

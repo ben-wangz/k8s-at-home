@@ -68,7 +68,7 @@ func (s *Service) watchReadiness(ctx context.Context) {
 }
 
 func (s *Service) setReadinessForGate(gate gateRecord) {
-	if s.ctx != nil && s.ctx.Err() != nil {
+	if s.recoveryStarting.Load() || s.gate.recovery != nil && s.gate.recovery.blocked.Load() || s.ctx != nil && s.ctx.Err() != nil {
 		s.ready.Store(false)
 		return
 	}

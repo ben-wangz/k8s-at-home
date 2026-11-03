@@ -6,6 +6,8 @@ This is the feature-minimal scenario. It uses empty Helm values to verify defaul
 
 coverage.json contains 111 stable baseline identifiers, case and unit-test mappings, and feature-scenario mappings. All 111 entries have acceptance evidence and are classified as complete. Each case.json declares individual checks, and the runner rejects a passing report that lacks check results or evidence.
 
+Product tests named `TestProtectionRecovery*` cover recovery across execution budgets and process takeover, existing reference indexes, checkpoint failure after every work unit, terminal demand deletion with unknown commit, stale fences, reservation cleanup, and remote blob hash checkpoints. They also verify that a failed completion checkpoint is retried after the gate commit and that quiescence honors cancellation. Run them with `go -C application/registry-hub/src test -race ./internal/app -run TestProtectionRecovery -count=1`; `cmd/registry-hub` and storage probe tests cover startup health and preservation of storage error causes. Cluster cases `restart-reuse`, `podman-upstream-pull`, and `feature-backend-s3` exercise restart, actual client, and storage integration paths.
+
 ## Run
 
 The scripts work from any current directory. Examples below assume the repository root:

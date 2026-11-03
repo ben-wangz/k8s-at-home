@@ -70,6 +70,7 @@ type systemStatus struct {
 }
 
 func (s *Service) systemStatus(ctx context.Context) (systemStatus, error) {
+	_ = s.readRecoveryDiagnostics(ctx)
 	build, err := s.inventoryStatus(ctx)
 	status := systemStatus{Version: buildinfo.Version, StartedAt: s.startedAt, InstanceID: s.instanceID, Ready: s.ready.Load(), Inventory: build, SourceCoverage: "non_atomic_sweeps; queue emptiness does not establish source coverage", Capabilities: map[string]string{}, DiagnosticEventsDropped: s.diagnosticEventsDropped.Load()}
 	status.Capacity = s.diagnosticCapacity()
@@ -167,7 +168,7 @@ func (s *Service) workerViews(background backgroundStatus) []workerView {
 			view.State = "periodic"
 		}
 		if id == "index_repair" {
-			view.ScheduleMode = "startup_only"
+			view.ScheduleMode = "protection_recovery"
 			if view.State == "not_observed" {
 				view.ReadReason = "startup_result_not_observed"
 			}
@@ -205,7 +206,13 @@ func (s *Service) serveWorkers(writer http.ResponseWriter, request *http.Request
 		writeInventoryError(writer, inventory.ErrInvalid)
 		return
 	}
+	recoveryReadReason := s.readRecoveryDiagnostics(ctx)
 	views := s.workerViews(s.backgroundStatus(ctx))
+	for i := range views {
+		if views[i].ID == "protection_recovery" {
+			views[i].ReadReason = recoveryReadReason
+		}
+	}
 	if request.URL.Path == "/api/v1/workers" {
 		writeJSON(writer, http.StatusOK, workerList{Items: views, InstanceID: s.instanceID, ObservedAt: time.Now().UTC()})
 		return

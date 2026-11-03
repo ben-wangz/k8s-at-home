@@ -150,6 +150,9 @@ func (g *writeGate) addProtectionOwner(ctx context.Context, sessionID, demandID 
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if err := g.recoveryMutationAllowed(ctx); err != nil {
+		return err
+	}
 	if g.state.RecoveryBarrier != recovery {
 		return ErrRecoveryBarrier
 	}

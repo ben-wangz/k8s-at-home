@@ -5,6 +5,7 @@ import (
 	"errors"
 	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/inventory"
+	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
 	"time"
 )
@@ -25,7 +26,7 @@ func (s *Service) observeProtectionRecovery(ctx context.Context) func(error) {
 		s.backgroundEvent("protection_recovery", "history_read_failed", readErr)
 	}
 	s.updateWorker("protection_recovery", func(state *workerStatus) {
-		state.State, state.Phase, state.Resumability = "execution", "begin", "full_rescan_on_restart"
+		state.State, state.Phase, state.Resumability = "execution", "begin", "durable_phase_and_substep"
 		state.LastStartedAt, state.RunID = started, requestID()
 		if readErr == nil {
 			state.LastError, state.RecoveredAt = history.LastError, history.RecoveredAt
@@ -35,17 +36,28 @@ func (s *Service) observeProtectionRecovery(ctx context.Context) func(error) {
 		}
 	})
 	return func(err error) {
+		yielded := errors.Is(err, errProtectionRecoveryYield)
+		waiting := errors.Is(err, lease.ErrHeld) || errors.Is(err, ErrProtectionBusy)
 		var observed workerStatus
 		s.updateWorker("protection_recovery", func(state *workerStatus) {
 			state.State, state.LastFinishedAt = "idle", time.Now().UTC()
 			state.ExecutionDurationSeconds = time.Since(started).Seconds()
 			state.ErrorClass = ""
-			if err != nil {
+			if yielded {
+				state.State = "checkpoint_yield"
+			} else if waiting {
+				state.State = "waiting_for_quiescence"
+			} else if err != nil {
 				state.State, state.ErrorClass = "failed", diagnosticReason(err)
 			}
-			diagnostics.ObserveFailure(&state.LastError, &state.RecoveredAt, state.ErrorClass, diagnostics.SafeErrorText(err), state.Phase, state.RunID, state.LastFinishedAt, err == nil)
+			if !yielded && !waiting {
+				diagnostics.ObserveFailure(&state.LastError, &state.RecoveredAt, state.ErrorClass, diagnostics.SafeErrorText(err), state.Phase, state.RunID, state.LastFinishedAt, err == nil)
+			}
 			observed = *state
 		})
+		if yielded || waiting {
+			return
+		}
 		result := "done"
 		if err != nil {
 			result = "failed"

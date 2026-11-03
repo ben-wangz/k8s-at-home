@@ -55,21 +55,23 @@ func main() {
 		logger.Warn("client authentication is disabled; registry operations are allowed to trusted network clients")
 	}
 
+	clientHandler, adminHandler := &startupHandler{}, &startupHandler{admin: true}
+	errCh := make(chan error, 2)
+	clientServer := &http.Server{Addr: cfg.ClientAddr, Handler: clientHandler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
+	adminServer := &http.Server{Addr: cfg.AdminAddr, Handler: adminHandler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
+	go func() { errCh <- clientServer.ListenAndServe() }()
+	go func() { errCh <- adminServer.ListenAndServe() }()
 	service, err := app.New(cfg, logger)
 	if err != nil {
 		logger.Error("service initialization failed", "error", err)
 		os.Exit(1)
 	}
 	defer service.Close()
+	clientHandler.service.Store(service)
+	adminHandler.service.Store(service)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-
-	errCh := make(chan error, 2)
-	clientServer := &http.Server{Addr: cfg.ClientAddr, Handler: service.ClientHandler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
-	adminServer := &http.Server{Addr: cfg.AdminAddr, Handler: service.AdminHandler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second}
-	go func() { errCh <- clientServer.ListenAndServe() }()
-	go func() { errCh <- adminServer.ListenAndServe() }()
 
 	select {
 	case <-ctx.Done():

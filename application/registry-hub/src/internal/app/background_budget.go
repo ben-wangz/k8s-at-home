@@ -8,24 +8,25 @@ import (
 )
 
 type workerStatus struct {
-	Phase                    string               `json:"phase,omitempty"`
-	Resumability             string               `json:"resumability,omitempty"`
-	LastEntityProgressAt     time.Time            `json:"lastEntityProgressAt"`
-	ErrorClass               string               `json:"errorClass,omitempty"`
-	LastError                *diagnostics.Failure `json:"lastError,omitempty"`
-	RecoveredAt              time.Time            `json:"recoveredAt"`
-	ID                       string               `json:"id"`
-	Scope                    string               `json:"scope"`
-	State                    string               `json:"state"`
-	RunID                    string               `json:"runID"`
-	LastHeartbeatAt          time.Time            `json:"lastHeartbeatAt"`
-	LastStartedAt            time.Time            `json:"lastStartedAt"`
-	LastFinishedAt           time.Time            `json:"lastFinishedAt"`
-	AdmissionWaitSeconds     float64              `json:"admissionWaitSeconds"`
-	ExecutionDurationSeconds float64              `json:"executionDurationSeconds"`
-	ExecutionBudgetSeconds   float64              `json:"executionBudgetSeconds"`
-	DeadlineRemainingSeconds float64              `json:"deadlineRemainingSeconds"`
-	AdmissionYields          uint64               `json:"admissionYields"`
+	Recovery                 *protectionRecoveryProgress `json:"recovery,omitempty"`
+	Phase                    string                      `json:"phase,omitempty"`
+	Resumability             string                      `json:"resumability,omitempty"`
+	LastEntityProgressAt     time.Time                   `json:"lastEntityProgressAt"`
+	ErrorClass               string                      `json:"errorClass,omitempty"`
+	LastError                *diagnostics.Failure        `json:"lastError,omitempty"`
+	RecoveredAt              time.Time                   `json:"recoveredAt"`
+	ID                       string                      `json:"id"`
+	Scope                    string                      `json:"scope"`
+	State                    string                      `json:"state"`
+	RunID                    string                      `json:"runID"`
+	LastHeartbeatAt          time.Time                   `json:"lastHeartbeatAt"`
+	LastStartedAt            time.Time                   `json:"lastStartedAt"`
+	LastFinishedAt           time.Time                   `json:"lastFinishedAt"`
+	AdmissionWaitSeconds     float64                     `json:"admissionWaitSeconds"`
+	ExecutionDurationSeconds float64                     `json:"executionDurationSeconds"`
+	ExecutionBudgetSeconds   float64                     `json:"executionBudgetSeconds"`
+	DeadlineRemainingSeconds float64                     `json:"deadlineRemainingSeconds"`
+	AdmissionYields          uint64                      `json:"admissionYields"`
 }
 
 type backgroundParentKey struct{}

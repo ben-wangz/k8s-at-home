@@ -28,6 +28,8 @@ func (s *Service) configureWorkerBudgets(view *workerView) {
 	case "diagnostic_events":
 		view.ExecutionBudgetSeconds = 5
 	case "index_repair":
-		view.ExecutionBudgetSeconds = 300
+		view.ExecutionBudgetSeconds, view.CheckpointBudgetSeconds = 30, protectionRecoveryCheckpointBudget.Seconds()
+	case "protection_recovery":
+		view.ExecutionBudgetSeconds, view.CheckpointBudgetSeconds = 60, protectionRecoveryCheckpointBudget.Seconds()
 	}
 }

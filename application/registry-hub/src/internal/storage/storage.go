@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -61,23 +62,29 @@ func Probe(ctx context.Context, store Store) error {
 	second := []byte("registry-hub-storage-probe-v2")
 	entry, err := store.Put(ctx, key, bytes.NewReader(first), int64(len(first)), PutOptions{IfAbsent: true})
 	if err != nil {
-		return err
+		return fmt.Errorf("storage probe initial create: %w", err)
 	}
 	if _, err := store.Put(ctx, key, bytes.NewReader(first), int64(len(first)), PutOptions{IfAbsent: true}); !errors.Is(err, ErrAlreadyExists) {
 		_ = store.DeleteIfMatch(ctx, key, entry.Version)
+		if err != nil {
+			return fmt.Errorf("storage probe conditional create: %w", err)
+		}
 		return errors.New("storage does not enforce conditional create")
 	}
 	updated, err := store.Put(ctx, key, bytes.NewReader(second), int64(len(second)), PutOptions{IfMatch: entry.Version})
 	if err != nil {
 		_ = store.DeleteIfMatch(ctx, key, entry.Version)
-		return err
+		return fmt.Errorf("storage probe conditional update: %w", err)
 	}
 	if err := store.DeleteIfMatch(ctx, key, entry.Version); !errors.Is(err, ErrConditionFailed) {
 		_ = store.DeleteIfMatch(ctx, key, updated.Version)
+		if err != nil {
+			return fmt.Errorf("storage probe conditional delete: %w", err)
+		}
 		return errors.New("storage does not enforce conditional delete")
 	}
 	if err := store.DeleteIfMatch(ctx, key, updated.Version); err != nil {
-		return err
+		return fmt.Errorf("storage probe cleanup delete: %w", err)
 	}
 	return nil
 }

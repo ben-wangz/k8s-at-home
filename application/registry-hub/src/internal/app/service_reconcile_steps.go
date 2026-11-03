@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"registry-hub/internal/inventory"
+	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
 	"time"
@@ -27,10 +28,13 @@ func (s *Service) runTaskReconciliation(ctx context.Context) {
 			return err
 		}
 		processor := &solidifier{service: s, tasks: s.tasks, gate: s.gate}
+		gate := s.gate.State()
+		if s.recoveryStarting.Load() || gate.RecoveryBarrier {
+			return nil
+		}
 		if isTerminalTask(task.Status) && !task.TerminalCleanupComplete {
 			return processor.TaskTerminal(ctx, &task)
 		}
-		gate := s.gate.State()
 		if gate.RecoveryBarrier || gate.State != "open" || task.CancelRequested {
 			return nil
 		}
@@ -77,21 +81,33 @@ func (s *Service) runTaskReconciliation(ctx context.Context) {
 }
 
 func (s *Service) runProtectionRecovery(ctx context.Context) {
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
 	for ctx.Err() == nil {
-		if s.gate.State().RecoveryBarrier {
+		delay := 15 * time.Second
+		if s.recoveryStarting.Load() || s.gate.State().RecoveryBarrier || s.gate.recovery != nil && s.gate.recovery.blocked.Load() {
 			bounded, cancel := context.WithTimeout(ctx, time.Minute)
 			bounded = context.WithValue(bounded, backgroundParentKey{}, ctx)
-			if err := s.recoverSolidificationProtection(bounded); err != nil {
+			err := s.recoverProtectionQuantum(bounded)
+			if errors.Is(err, errProtectionRecoveryYield) {
+				delay = 10 * time.Millisecond
+			} else if errors.Is(err, lease.ErrHeld) || errors.Is(err, ErrProtectionBusy) {
+				delay = time.Second
+			} else if err != nil {
+				delay = 2 * time.Second
 				s.backgroundEvent("protection_recovery", "deferred", err)
+				s.workerMu.Lock()
+				if state := s.workerStates["protection_recovery"]; state.Recovery != nil {
+					delay = max(delay, time.Until(state.Recovery.NextAttemptAt))
+				}
+				s.workerMu.Unlock()
 			}
 			cancel()
 		}
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
+		case <-timer.C:
 		}
 	}
 }

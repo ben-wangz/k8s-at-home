@@ -8,6 +8,7 @@ import (
 	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -184,6 +185,7 @@ type TaskYieldedHandler interface {
 }
 
 type Manager struct {
+	recoveryPaused  atomic.Bool
 	runtime         RuntimeStatus
 	runtimeMu       sync.Mutex
 	store           storage.Store

@@ -48,6 +48,7 @@ type Service struct {
 	cursorKey               []byte
 	ready                   atomic.Bool
 	cacheProtectionReady    atomic.Bool
+	recoveryStarting        atomic.Bool
 	ctx                     context.Context
 	cancel                  context.CancelFunc
 	clientSlots             chan struct{}
@@ -103,7 +104,8 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	store = newObservedStore(store, serviceMetrics, logger)
+	controlled := &recoveryStore{Store: store}
+	store = newObservedStore(controlled, serviceMetrics, logger)
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	err = storage.Probe(probeCtx, store)
 	probeCancel()
@@ -150,6 +152,8 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	gate.recovery = controlled
+	controlled.blocked.Store(true)
 	service := &Service{
 		startedAt: time.Now().UTC(), instanceID: requestID(), diagnosticEvents: make(chan diagnostics.Event, 256),
 		cfg: cfg, logger: logger, store: store, registry: registry, upstream: remote,
@@ -162,6 +166,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 		limiter:             newRequestLimiter(cfg.Limits.GlobalRate, cfg.Limits.GlobalBurst, cfg.Limits.NoAuthRate, cfg.Limits.NoAuthBurst), nativeCache: make(map[string]nativeReferrerCapability),
 	}
 	service.inventory = &inventory.Repository{Store: store}
+	service.recoveryStarting.Store(true)
 	service.cache.EnableInventoryTracking()
 	service.initializeInventory(ctx)
 	service.initializeStorageAttemptObserver(store)
@@ -178,26 +183,6 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	service.records.SetIdleTimeout(cfg.Solidification.IdleTimeout)
 	service.storageHealthy.Store(true)
 	service.registryHealthy.Store(true)
-	recoveryCtx, recoveryCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	service.updateWorker("index_repair", func(state *workerStatus) {
-		state.State, state.Phase, state.Resumability = "execution", "rebuild_representation_indexes", "full_rescan_on_restart"
-		state.LastStartedAt = time.Now().UTC()
-	})
-	err = service.cache.RebuildRepresentationIndexes(recoveryCtx)
-	recoveryCancel()
-	service.updateWorker("index_repair", func(state *workerStatus) {
-		state.State, state.LastFinishedAt = "completed", time.Now().UTC()
-		if err != nil {
-			state.State, state.ErrorClass = "failed", diagnosticReason(err)
-		}
-	})
-	if err != nil {
-		cancel()
-		remote.Close()
-		registry.Close()
-		_ = store.Close()
-		return nil, err
-	}
 	service.gc, err = newGCController(service)
 	if err != nil {
 		cancel()
@@ -217,20 +202,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	}
 	service.tasks.SetMaxWaitingRoots(cfg.Solidification.MaxWaitingRoots)
 	service.tasks.SetIdleTimeout(cfg.Solidification.IdleTimeout)
-	solidificationRecoveryCtx, solidificationRecoveryCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	solidificationRecoveryCtx = context.WithValue(solidificationRecoveryCtx, backgroundParentKey{}, ctx)
-	if err := service.recoverSolidificationProtection(solidificationRecoveryCtx); err != nil {
-		logger.Warn("solidification startup recovery is blocked", "error_class", "recovery", "error", err)
-	}
-	solidificationRecoveryCancel()
-	if !gate.State().RecoveryBarrier {
-		if err := service.wakeAvailableQuotaWaiter(context.Background(), "distribution_quota", gate.State()); err != nil {
-			logger.Warn("startup quota waiter wake failed", "error_class", "storage")
-		}
-		if err := service.wakeAvailableQuotaWaiter(context.Background(), "protected_cache_capacity", gate.State()); err != nil {
-			logger.Warn("startup protected cache quota waiter wake failed", "error_class", "storage")
-		}
-	}
+	_ = service.tasks.PauseForRecovery(ctx)
 	processor.tasks = service.tasks
 	service.uploads = newUploadSessions(store, registry, service.tasks.Leases(), cfg.Limits.UploadIdleTimeout, cfg.Limits.UploadMaxLifetime)
 	service.uploads.attemptObserver = service.emitDiagnosticEvent

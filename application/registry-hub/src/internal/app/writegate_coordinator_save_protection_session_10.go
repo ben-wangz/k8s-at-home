@@ -151,6 +151,23 @@ func (g *writeGate) verifyProtectionOwner(ctx context.Context, key, ownerSetID, 
 }
 
 func (g *writeGate) countProtectionOwnersLocked(ctx context.Context, ownerSetID string) (int, error) {
+	if _, recovering := ctx.Value(recoveryWriteGuardKey{}).(recoveryWriteGuard); recovering {
+		entries, _, err := g.store.List(ctx, "system/solidification/owners/"+ownerSetID+"/", "", 1)
+		if err != nil {
+			return 0, err
+		}
+		if len(entries) == 0 {
+			return 0, nil
+		}
+		id, err := recoveryEntryID(entries[0], "system/solidification/owners/"+ownerSetID+"/")
+		if err != nil {
+			return 0, err
+		}
+		if err := g.verifyProtectionOwner(ctx, entries[0].Key, ownerSetID, id); err != nil {
+			return 0, err
+		}
+		return 1, nil
+	}
 	count := 0
 	token := ""
 	for {

@@ -89,7 +89,7 @@ func TestWorkerBudgetsDescribeIndependentRunners(t *testing.T) {
 		kind    string
 		shared  int
 		seconds float64
-	}{{"source_tasks", 2, 15}, {"statistics_tasks", 2, 10}, {"storage_probe", 0, 15}, {"diagnostic_events", 0, 5}, {"index_repair", 0, 300}} {
+	}{{"source_tasks", 2, 15}, {"statistics_tasks", 2, 10}, {"storage_probe", 0, 15}, {"diagnostic_events", 0, 5}, {"index_repair", 0, 30}, {"protection_recovery", 0, 60}} {
 		view := workerView{workerStatus: workerStatus{ID: row.kind}}
 		f.service.configureWorkerBudgets(&view)
 		if view.SharedConcurrency != row.shared || view.ExecutionBudgetSeconds != row.seconds {
