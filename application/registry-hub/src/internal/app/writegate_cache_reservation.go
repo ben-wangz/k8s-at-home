@@ -63,6 +63,10 @@ func (g *writeGate) ReserveProtectedCache(ctx context.Context, taskID string, by
 	g.state.ProtectedCacheBytes += bytes
 	g.state.UpdatedAt = time.Now().UTC()
 	if err := g.persistLocked(ctx); err != nil {
+		if terminalMutationKnown(ctx) {
+			g.state = previous
+			return err
+		}
 		if reloadErr := g.reloadLocked(ctx); reloadErr != nil {
 			g.state = previous
 			g.failClosedLocked("protected_cache_reservation_unknown")
@@ -104,6 +108,10 @@ func (g *writeGate) ReleaseProtectedCache(ctx context.Context, taskID string) er
 	g.state.ProtectedCacheBytes -= bytes
 	g.state.UpdatedAt = time.Now().UTC()
 	if err := g.persistLocked(ctx); err != nil {
+		if terminalMutationKnown(ctx) {
+			g.state = previous
+			return err
+		}
 		if reloadErr := g.reloadLocked(ctx); reloadErr != nil {
 			g.state = previous
 			g.failClosedLocked("protected_cache_release_unknown")

@@ -18,11 +18,12 @@ func transientBackendObject(key string) bool {
 func mutableBackendObject(key string) bool {
 	relative := strings.TrimPrefix(key, backendS3Prefix+"/")
 	switch relative {
-	case "system/gc/state.json", "downloads/v1/quota.json", "inventory/v1/checkpoint.json", "inventory/v1/current.json",
+	case "system/gc/state.json", "system/recovery/protection.json", "downloads/v1/quota.json", "inventory/v1/checkpoint.json", "inventory/v1/current.json",
 		"diagnostics/v1/storage/checkpoint.json", "diagnostics/v1/storage/current.json", "diagnostics/v1/coverage.json":
 		return true
 	}
 	for _, prefix := range []string{
+		"tasks/state/",
 		"background/v1/statistics-checkpoints/", "background/v1/statistics/", "background/v1/maintenance-checkpoints/",
 		"background/v1/queue-checkpoints/", "background/v1/source-checkpoints/", "background/v1/status/", "background/v1/scans/",
 		"diagnostics/v1/event-budgets/", "diagnostics/v1/workers/", "diagnostics/v1/collected/",

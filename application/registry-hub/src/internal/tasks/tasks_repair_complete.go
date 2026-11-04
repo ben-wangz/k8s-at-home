@@ -121,10 +121,7 @@ func (m *Manager) dispatch(ctx context.Context, worker int) {
 		if ctx.Err() != nil {
 			return
 		}
-		if task.Phase != "solidification" || task.Status != Pending && task.Status != RetryWait && task.Status != Running {
-			continue
-		}
-		if task.Status == RetryWait && task.NextAttemptAt.After(time.Now()) {
+		if !dispatchEligible(task, time.Now()) {
 			continue
 		}
 		m.mu.Lock()
@@ -151,4 +148,8 @@ func (m *Manager) dispatch(ctx context.Context, worker int) {
 			m.process(ctx, worker, item)
 		}(task)
 	}
+}
+
+func dispatchEligible(task Task, now time.Time) bool {
+	return task.Phase == "solidification" && (task.Status == Pending || task.Status == Running || task.Status == RetryWait && !task.NextAttemptAt.After(now))
 }

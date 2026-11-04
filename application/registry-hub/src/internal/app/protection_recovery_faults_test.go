@@ -40,14 +40,25 @@ func TestProtectionRecoveryRetriesTerminalDemandDeleteUnknownCommit(t *testing.T
 				}
 				return nil
 			}
-			if err := f.processor.TaskTerminal(ctx, &root); !errors.Is(err, storage.ErrUnknownCommit) || !failed {
-				t.Fatalf("terminal fault not reproduced: %v", err)
-			}
-			if !f.service.gate.State().RecoveryBarrier {
-				t.Fatal("terminal failure did not install a recovery barrier")
-			}
-			if err := f.service.recoverSolidificationProtection(ctx); err != nil {
+			if err := f.processor.TaskTerminal(ctx, &root); err != nil {
 				t.Fatal(err)
+			}
+			err = backgroundUntilError(f.service, "terminal_cleanup")
+			if !failed || !committed && !errors.Is(err, storage.ErrUnknownCommit) || committed && err != nil {
+				t.Fatalf("incorrect unknown-delete confirmation: committed=%t failed=%t error=%v", committed, failed, err)
+			}
+			if committed {
+				if f.service.gate.State().RecoveryBarrier {
+					t.Fatal("confirmed deletion installed a recovery barrier")
+				}
+			} else {
+				if !f.service.gate.State().RecoveryBarrier {
+					t.Fatal("unknown deletion did not install a recovery barrier")
+				}
+				if err := f.service.recoverSolidificationProtection(ctx); err != nil {
+					t.Fatal(err)
+				}
+				drainBackgroundWork(t, f.service, "terminal_cleanup")
 			}
 			current, err := f.service.tasks.Get(ctx, root.ID)
 			if err != nil || !current.TerminalCleanupComplete || current.RecoveryReason != "" {

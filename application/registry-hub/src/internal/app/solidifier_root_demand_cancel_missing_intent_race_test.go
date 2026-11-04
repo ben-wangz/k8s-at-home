@@ -41,10 +41,16 @@ func TestRootDemandCleanupIgnoresIntentDeletedBeforeCancellationUpdate(t *testin
 		t.Fatal(err)
 	}
 	defer manager.Close()
-	processor := &solidifier{service: &Service{records: records, gate: gate}, tasks: manager, gate: gate}
-
-	if reason, err := processor.revokeRootBlobDemands(ctx, rootID); err != nil {
-		t.Fatalf("revokeRootBlobDemands() reason=%q error=%v", reason, err)
+	service := &Service{store: store, records: records, gate: gate, tasks: manager}
+	r := &protectionRecovery{service: service, checkpoint: protectionRecoveryCheckpoint{Step: "terminal_demands"}}
+	p := terminalCleanupProgress{}
+	for step := 0; r.checkpoint.Step != "terminal_blob" && step < 32; step++ {
+		if err := service.advanceTerminalCleanup(ctx, r, tasks.Task{ID: rootID, Kind: tasks.RootKind}, &p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if r.checkpoint.Step != "terminal_blob" {
+		t.Fatal("root cleanup did not converge")
 	}
 	if !store.deleted {
 		t.Fatal("test did not delete the intent between its read and cancellation update")

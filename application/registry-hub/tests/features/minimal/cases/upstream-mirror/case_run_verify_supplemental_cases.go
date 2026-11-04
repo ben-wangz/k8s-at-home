@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/support"
 	"github.com/ben-wangz/registry-hub-tests/internal/testkit"
+	"time"
 )
 
 func verifySupplementalCases(run *mirrorRun) (map[string]any, error) {
@@ -72,7 +73,10 @@ func verifyMultipartProbe(run *mirrorRun) (map[string]any, error) {
 	if requestsBefore != 0 {
 		return nil, fmt.Errorf("multipart manifest discovery prefetched the layer %d times", requestsBefore)
 	}
-	blob, err := support.ReadBlob(run.context, run.registry, run.remoteRepository, manifest.Layers[0].Digest)
+	transferRegistry, transferClient := *run.registry, *run.registry.Client
+	transferClient.Timeout = 5 * time.Minute
+	transferRegistry.Client = &transferClient
+	blob, err := support.ReadBlob(run.context, &transferRegistry, run.remoteRepository, manifest.Layers[0].Digest)
 	if err != nil {
 		return nil, fmt.Errorf("client multipart layer request failed: %w", err)
 	}

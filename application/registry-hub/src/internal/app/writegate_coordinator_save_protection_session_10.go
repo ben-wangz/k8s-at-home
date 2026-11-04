@@ -151,7 +151,9 @@ func (g *writeGate) verifyProtectionOwner(ctx context.Context, key, ownerSetID, 
 }
 
 func (g *writeGate) countProtectionOwnersLocked(ctx context.Context, ownerSetID string) (int, error) {
-	if _, recovering := ctx.Value(recoveryWriteGuardKey{}).(recoveryWriteGuard); recovering {
+	_, recovering := ctx.Value(recoveryWriteGuardKey{}).(recoveryWriteGuard)
+	_, terminal := ctx.Value(terminalWriteScopeKey{}).(*terminalWriteScope)
+	if recovering || terminal {
 		entries, _, err := g.store.List(ctx, "system/solidification/owners/"+ownerSetID+"/", "", 1)
 		if err != nil {
 			return 0, err

@@ -9,6 +9,8 @@ import (
 )
 
 func (s *solidifier) requireTaskProtectionRecovery(ctx context.Context, task *tasks.Task, sessionIDs []string, reason string, cause error) error {
+	identity, _ := ctx.Value(diagnosticContextKey{}).(backgroundDiagnosticContext)
+	ctx = withRecoveryTrigger(ctx, "terminal_cleanup", reason, task.ID, identity.WorkID, identity.AttemptID, cause)
 	ids := append([]string(nil), sessionIDs...)
 	ids = append(ids, task.SessionIDs...)
 	if task.ProtectionSessionID != "" {

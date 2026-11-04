@@ -11,6 +11,21 @@ import (
 
 func (s *Service) validateRetrySource(ctx context.Context, job workqueue.Job) error {
 	switch job.Kind {
+	case "terminal_cleanup":
+		var source terminalCleanupWork
+		if json.Unmarshal(job.Payload, &source) != nil {
+			return storage.ErrCorruptObject
+		}
+		current, err := s.tasks.Get(ctx, source.TaskID)
+		if errors.Is(err, storage.ErrNotFound) {
+			return workqueue.ErrSourceMissing
+		}
+		if err != nil {
+			return err
+		}
+		if !source.matches(current) {
+			return storage.ErrConditionFailed
+		}
 	case "inventory":
 		var source inventoryManifestWork
 		if json.Unmarshal(job.Payload, &source) != nil {

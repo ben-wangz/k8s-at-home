@@ -111,6 +111,7 @@ type Task struct {
 	RootPublished           bool                  `json:"rootPublished,omitempty"`
 	CleanupStarted          bool                  `json:"cleanupStarted,omitempty"`
 	TerminalCleanupComplete bool                  `json:"terminalCleanupComplete,omitempty"`
+	TerminalCleanupID       string                `json:"terminalCleanupID,omitempty"`
 	Retryable               bool                  `json:"retryable,omitempty"`
 	ErrorClass              string                `json:"errorClass,omitempty"`
 	ErrorMessage            string                `json:"errorMessage,omitempty"`

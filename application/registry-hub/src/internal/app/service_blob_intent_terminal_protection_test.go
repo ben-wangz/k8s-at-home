@@ -11,7 +11,7 @@ import (
 
 func TestRootCancellationRevokesOnlyItsBlobDemand(t *testing.T) {
 	ctx := context.Background()
-	_, manager, records := newTerminalDemandFixture(t)
+	service, manager, records := newTerminalDemandFixture(t)
 	intent := newReadyBlobIntent(t, ctx, manager, records)
 	rootA := newDemandRootTask(t, ctx, manager, "a")
 	rootB := newDemandRootTask(t, ctx, manager, "b")
@@ -21,6 +21,7 @@ func TestRootCancellationRevokesOnlyItsBlobDemand(t *testing.T) {
 	if _, err := manager.Cancel(ctx, rootA.ID); err != nil {
 		t.Fatalf("cancel first root: %v", err)
 	}
+	drainBackgroundWork(t, service, "terminal_cleanup")
 	demands, _, err := records.ListBlobDemandRecords(ctx, intent.ID, "", 10)
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +44,7 @@ func TestRootCancellationRevokesOnlyItsBlobDemand(t *testing.T) {
 
 func TestRootCancellationCancelsBlobTaskAfterLastDemand(t *testing.T) {
 	ctx := context.Background()
-	_, manager, records := newTerminalDemandFixture(t)
+	service, manager, records := newTerminalDemandFixture(t)
 	intent := newReadyBlobIntent(t, ctx, manager, records)
 	root := newDemandRootTask(t, ctx, manager, "c")
 	linkRootBlobDemand(t, ctx, records, intent.ID, root.ID, strings.Repeat("3", 32), "scope-c", strings.Repeat("c", 32))
@@ -51,6 +52,7 @@ func TestRootCancellationCancelsBlobTaskAfterLastDemand(t *testing.T) {
 	if _, err := manager.Cancel(ctx, root.ID); err != nil {
 		t.Fatalf("cancel root: %v", err)
 	}
+	drainBackgroundWork(t, service, "terminal_cleanup")
 	blobTask, err := manager.Get(ctx, intent.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -101,6 +103,7 @@ func TestSharedBlobCancellationKeepsProtectionAndAllowsNewRound(t *testing.T) {
 	if _, err := manager.Cancel(ctx, rootA.ID); err != nil {
 		t.Fatalf("cancel first root: %v", err)
 	}
+	drainBackgroundWork(t, service, "terminal_cleanup")
 	demands, _, err := records.ListBlobDemandRecords(ctx, intent.ID, "", 10)
 	if err != nil || len(demands) != 1 || demands[0].RootTaskID != rootB.ID {
 		t.Fatalf("remaining shared demands = %#v err=%v, want second root only", demands, err)
@@ -120,6 +123,7 @@ func TestSharedBlobCancellationKeepsProtectionAndAllowsNewRound(t *testing.T) {
 	if _, err := manager.Cancel(ctx, rootB.ID); err != nil {
 		t.Fatalf("cancel last root: %v", err)
 	}
+	drainBackgroundWork(t, service, "terminal_cleanup")
 	oldIntent, err := records.GetBlobIntent(ctx, intent.ID)
 	if err != nil || oldIntent.State != tasks.IntentCancelled {
 		t.Fatalf("old blob intent after last cancellation = %#v err=%v", oldIntent, err)
@@ -191,7 +195,7 @@ func TestBlobTerminalStateWakesWaitingRootDemand(t *testing.T) {
 	if err := processor.TaskTerminal(ctx, &blobTask); err != nil {
 		t.Fatalf("finish failed blob task: %v", err)
 	}
-	drainBackgroundWork(t, service, "notify", "wake_root")
+	drainBackgroundWork(t, service, "terminal_cleanup", "notify", "wake_root")
 	awakened, err := manager.Get(ctx, root.ID)
 	if err != nil {
 		t.Fatal(err)

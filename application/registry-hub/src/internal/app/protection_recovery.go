@@ -22,6 +22,7 @@ var errProtectionRecoveryYield = errors.New("protection recovery yielded at a du
 type protectionRecoveryCheckpoint struct {
 	Schema            int                             `json:"schema"`
 	Generation        string                          `json:"generation"`
+	Trigger           *recoveryTrigger                `json:"trigger,omitempty"`
 	Owner             string                          `json:"owner"`
 	Fence             uint64                          `json:"fence"`
 	Epoch             uint64                          `json:"epoch"`

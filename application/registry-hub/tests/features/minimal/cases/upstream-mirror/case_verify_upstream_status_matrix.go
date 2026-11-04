@@ -173,7 +173,8 @@ func verifyBackgroundRetryRecovery(ctx context.Context, environment testkit.Case
 	if string(blob) != "upstream-background-retry-config" {
 		return nil, fmt.Errorf("background retry config blob bytes changed")
 	}
-	task, err = waitForSolidifiedTask(ctx, environment, "github.com", upstreamRepository, reference)
+	// Earlier error fixtures leave asynchronous cleanup ahead of the quota sweep.
+	task, err = waitForTaskStatusWithin(ctx, environment, "github.com", upstreamRepository, reference, "solidified", 10*time.Minute)
 	if err != nil {
 		return nil, err
 	}

@@ -55,6 +55,9 @@ func (s *recoveryStore) Put(ctx context.Context, key string, body io.Reader, siz
 		return storage.Entry{}, err
 	}
 	defer release()
+	if scope := terminalScope(ctx, key); scope != nil {
+		return terminalPut(ctx, scope, s.Store, key, body, size, options)
+	}
 	return s.Store.Put(ctx, key, body, size, options)
 }
 
@@ -64,6 +67,9 @@ func (s *recoveryStore) Delete(ctx context.Context, key string) error {
 		return err
 	}
 	defer release()
+	if scope := terminalScope(ctx, key); scope != nil {
+		return terminalDelete(ctx, scope, s.Store, key, "")
+	}
 	return s.Store.Delete(ctx, key)
 }
 
@@ -73,6 +79,9 @@ func (s *recoveryStore) DeleteIfMatch(ctx context.Context, key, version string) 
 		return err
 	}
 	defer release()
+	if scope := terminalScope(ctx, key); scope != nil {
+		return terminalDelete(ctx, scope, s.Store, key, version)
+	}
 	return s.Store.DeleteIfMatch(ctx, key, version)
 }
 
@@ -152,6 +161,9 @@ func (g *writeGate) recoveryMutationAllowed(ctx context.Context) error {
 		if _, ok := ctx.Value(recoveryWriteGuardKey{}).(recoveryWriteGuard); !ok {
 			return errRecoveryPaused
 		}
+	}
+	if scope, ok := ctx.Value(terminalWriteScopeKey{}).(*terminalWriteScope); ok {
+		return scope.guard(ctx)
 	}
 	return nil
 }

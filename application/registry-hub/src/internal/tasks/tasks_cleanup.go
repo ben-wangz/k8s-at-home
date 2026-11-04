@@ -46,7 +46,7 @@ func (m *Manager) Cleanup(ctx context.Context, olderThan time.Duration, limit in
 			if err != nil {
 				return removed, err
 			}
-			if isActive(task.Status) || task.GCProtected || len(task.SessionIDs) > 0 || task.ProtectionSessionID != "" || task.RecoveryReason != "" {
+			if isActive(task.Status) || task.TerminalCleanupID != "" && !task.TerminalCleanupComplete || task.GCProtected || len(task.SessionIDs) > 0 || task.ProtectionSessionID != "" || task.RecoveryReason != "" {
 				continue
 			}
 			if !task.CleanupStarted && task.UpdatedAt.After(cutoff) {

@@ -161,6 +161,14 @@ func (fixture *fallbackPublicationFixture) completePublication(t *testing.T) {
 	if err := fixture.processor.TaskTerminal(fixture.ctx, &persisted); err != nil {
 		t.Fatalf("release protection after task quiescence = %v", err)
 	}
+	if err := fixture.manager.Leases().Release(fixture.ctx, fixture.taskLease); err != nil {
+		t.Fatal(err)
+	}
+	drainBackgroundWork(t, fixture.service, "terminal_cleanup")
+	persisted, err = fixture.manager.Get(fixture.ctx, fixture.task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !persisted.TerminalCleanupComplete || persisted.GCProtected || fixture.service.gate.State().ProtectionSessionCount != 0 {
 		t.Fatalf("quiescent task retained GC protection: task=%#v gate=%#v", persisted, fixture.service.gate.State())
 	}

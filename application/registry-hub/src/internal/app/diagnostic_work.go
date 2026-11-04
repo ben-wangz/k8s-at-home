@@ -36,6 +36,7 @@ type backgroundJobView struct {
 	StatusURL          string               `json:"statusURL"`
 	EventsURL          string               `json:"eventsURL"`
 	ErrorBlocking      bool                 `json:"errorBlocking"`
+	TerminalCleanup    *terminalCleanupView `json:"terminalCleanup,omitempty"`
 }
 
 func diagnosticJob(job workqueue.Job) backgroundJobView {
@@ -97,6 +98,9 @@ func diagnosticJob(job workqueue.Job) backgroundJobView {
 		view.WaitReason = "manual_intervention"
 	}
 	view.Payload, view.Progress = nil, nil
+	if job.Kind == "terminal_cleanup" {
+		view.TerminalCleanup = terminalCleanupDiagnostic(job)
+	}
 	view.DiagnosticOutbox = nil
 	return view
 }
@@ -109,6 +113,8 @@ func workImpact(kind string) string {
 		return "dependent_work_notification"
 	case "download_cleanup":
 		return "temporary_storage_and_download_capacity"
+	case "terminal_cleanup":
+		return "solidification_protection_and_capacity"
 	default:
 		return "unknown"
 	}

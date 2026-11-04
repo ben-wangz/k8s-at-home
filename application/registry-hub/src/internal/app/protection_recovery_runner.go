@@ -80,6 +80,7 @@ func (s *Service) openProtectionRecovery(ctx context.Context) (*protectionRecove
 	if r.checkpoint.CacheReservations == nil {
 		r.checkpoint.CacheReservations = map[string]int64{}
 	}
+	r.checkpoint.Trigger = state.RecoveryTrigger
 	r.checkpoint.Owner, r.checkpoint.Fence = owner, held.FencingToken
 	guarded := context.WithValue(heldCtx, recoveryWriteGuardKey{}, recoveryWriteGuard(r.guard))
 	if err := r.save(guarded); err != nil {

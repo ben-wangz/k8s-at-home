@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-var backgroundKinds = []string{"inventory", "execution", "download_cleanup", "notify", "wake_root"}
+var backgroundKinds = []string{"inventory", "execution", "download_cleanup", "notify", "wake_root", "terminal_cleanup"}
 var backgroundScanKinds = []string{"source_tasks", "source_cache", "source_downloads", "source_demands", "activation", "task_reconciliation", "quota_waiters", "cache_cleanup", "reader_cleanup", "upload_cleanup", "task_cleanup", "download_expiry", "receipt_cleanup", "download_quota", "storage_orphans", "storage_inventory", "history_tasks", "history_intents", "history_work", "history_receipts", "history_downloads", "history_uploads", "history_upload_receipts", "history_scans", "history_statistics", "history_maintenance", "history_workers", "diagnostic_retention", "retry_request_retention"}
 
 type backgroundStatus struct {

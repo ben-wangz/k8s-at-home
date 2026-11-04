@@ -29,6 +29,9 @@ func (r *Records) DeleteRootBlobDemandRecord(ctx context.Context, demand BlobDem
 		if current.SchemaVersion != solidificationRecordSchema || current.RootTaskID != demand.RootTaskID || current.IntentID != demand.IntentID || current.DemandID != demand.DemandID {
 			return errors.New("root blob demand index conflicts with its identity")
 		}
+		if !demand.CreatedAt.IsZero() && current != demand {
+			return storage.ErrConditionFailed
+		}
 		if err := r.store.DeleteIfMatch(ctx, key, object.Version); errors.Is(err, storage.ErrConditionFailed) {
 			continue
 		} else if errors.Is(err, storage.ErrNotFound) {

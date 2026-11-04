@@ -119,10 +119,15 @@ type Records struct {
 	maxBlobIntents int
 	idleTimeout    time.Duration
 	capacityMu     sync.Mutex
+	demandLocks    [64]chan struct{}
 }
 
 func NewRecords(store storage.Store) *Records {
-	return &Records{store: store, maxBlobIntents: 10000, idleTimeout: 24 * time.Hour}
+	r := &Records{store: store, maxBlobIntents: 10000, idleTimeout: 24 * time.Hour}
+	for i := range r.demandLocks {
+		r.demandLocks[i] = make(chan struct{}, 1)
+	}
+	return r
 }
 
 func (r *Records) SetMaxBlobIntents(limit int) {

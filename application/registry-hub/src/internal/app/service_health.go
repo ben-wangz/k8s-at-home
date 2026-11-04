@@ -21,7 +21,7 @@ func (s *Service) runHealthProbes(ctx context.Context) {
 	group.Add(2)
 	go func() {
 		defer group.Done()
-		s.runHealthProbe(ctx, func(ctx context.Context) error { return storage.Probe(ctx, s.store) }, &s.storageHealthy, &s.storageProbeAt, &s.storageProbeSuccess)
+		s.runHealthProbe(ctx, func(probeCtx context.Context) error { return storage.ProbeWithCleanupContext(probeCtx, ctx, s.store) }, &s.storageHealthy, &s.storageProbeAt, &s.storageProbeSuccess)
 	}()
 	go func() {
 		defer group.Done()

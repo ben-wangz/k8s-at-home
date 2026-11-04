@@ -115,6 +115,7 @@ func TestSolidifiedBlobTaskCleansTransferredProtectionReference(t *testing.T) {
 	if err := fixture.processor.TaskTerminal(ctx, &blobTask); err != nil {
 		t.Fatalf("terminal cleanup for blob task with transferred protection = %v", err)
 	}
+	drainBackgroundWork(t, fixture.service, "terminal_cleanup")
 	completed, err := fixture.service.tasks.Get(ctx, blobTask.ID)
 	if err != nil || !completed.TerminalCleanupComplete || completed.GCProtected || len(completed.SessionIDs) != 0 {
 		t.Fatalf("completed blob task = %#v, error = %v", completed, err)

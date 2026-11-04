@@ -17,6 +17,9 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 	}
 	defer func() { _ = m.leases.Release(context.Background(), currentLease) }()
 	latest, err := m.Get(parent, task.ID)
+	if err == nil && (latest.Status == Solidified || latest.Status == Failed || latest.Status == Cancelled) {
+		return
+	}
 	if err != nil || latest.CancelRequested {
 		if err == nil {
 			latest.Status = Cancelled
@@ -28,6 +31,9 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 				_ = m.clearWakeRequest(parent, latest.ID)
 			}
 		}
+		return
+	}
+	if !dispatchEligible(latest, time.Now()) {
 		return
 	}
 	latest.Status = Running

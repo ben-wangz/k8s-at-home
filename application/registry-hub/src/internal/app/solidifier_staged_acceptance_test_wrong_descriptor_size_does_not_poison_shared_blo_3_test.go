@@ -118,6 +118,7 @@ func TestRootlessVerifiedBlobProtectionCanBeCancelledOrExpired(t *testing.T) {
 			if err := f.processor.TaskTerminal(ctx, &task); err != nil {
 				t.Fatal(err)
 			}
+			drainBackgroundWork(t, f.service, "terminal_cleanup")
 			if state := f.service.gate.State(); state.ProtectionSessionCount != 0 || state.ReservedDistributionBytes != 0 {
 				t.Fatalf("rootless safe termination retained protection = %#v", state)
 			}

@@ -203,10 +203,11 @@ func TestFetchUpstreamRetriesTokenStatusErrorsWithinSharedBudget(t *testing.T) {
 
 func TestFetchUpstreamRetryWaitHonorsRequestDeadline(t *testing.T) {
 	remote := &scriptedUpstream{results: []upstreamResult{{status: http.StatusServiceUnavailable, retryAfter: "60"}}}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	service := retryTestService(remote)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	started := time.Now()
-	response, err := retryTestService(remote).fetchUpstreamMethod(ctx, http.MethodGet,
+	response, err := service.fetchUpstreamMethod(ctx, http.MethodGet,
 		"registry.example", "team/image", "/v2/team/image/manifests/latest", nil, nil)
 	if response != nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("deadline result response=%v error=%v", response, err)

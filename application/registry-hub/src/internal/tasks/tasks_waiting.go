@@ -155,13 +155,16 @@ func (m *Manager) ExpireIdle(ctx context.Context, limit int) (int, error) {
 	return removed, nil
 }
 
-func (m *Manager) CancelIfExpired(ctx context.Context, id string, cutoff time.Time) (bool, error) {
+func (m *Manager) cancelExpiredTask(ctx context.Context, id string, cutoff time.Time) (bool, error) {
 	for attempt := 0; attempt < 16; attempt++ {
 		task, err := m.Get(ctx, id)
 		if err != nil {
 			return false, err
 		}
 		if task.ExpiresAt.IsZero() || task.ExpiresAt.After(cutoff) || task.Status == Cancelled || task.Status == RepairPending || !isActive(task.Status) && !task.GCProtected || task.CancelRequested || task.CleanupStarted {
+			return false, nil
+		}
+		if task.TerminalCleanupID != "" && !task.TerminalCleanupComplete && (task.Status == Failed || task.Status == Solidified) {
 			return false, nil
 		}
 		if task.Status == Running && !task.RootPublished {

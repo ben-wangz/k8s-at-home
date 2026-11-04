@@ -9,29 +9,30 @@ import (
 )
 
 type protectionRecoveryProgress struct {
-	Generation            string    `json:"generation"`
-	Owner                 string    `json:"owner"`
-	Fence                 uint64    `json:"fence"`
-	GateEpoch             uint64    `json:"gateEpoch"`
-	Phase                 string    `json:"phase"`
-	GateState             string    `json:"gateState"`
-	Substep               string    `json:"substep,omitempty"`
-	EntityID              string    `json:"entityID,omitempty"`
-	Processed             uint64    `json:"processed"`
-	CursorEntities        uint64    `json:"cursorEntities"`
-	NestedEntities        uint64    `json:"nestedEntities"`
-	PageOffset            int       `json:"pageOffset"`
-	SessionOffset         int       `json:"sessionOffset"`
-	EntityOffset          int       `json:"entityOffset"`
-	RepresentationEntries uint64    `json:"representationEntries"`
-	ReferenceHalf         int       `json:"referenceHalf"`
-	RemoteVerifiedBytes   int64     `json:"remoteVerifiedBytes"`
-	Yields                uint64    `json:"yields"`
-	Reason                string    `json:"reason,omitempty"`
-	StartedAt             time.Time `json:"startedAt"`
-	ProgressAt            time.Time `json:"progressAt"`
-	CheckpointAt          time.Time `json:"checkpointAt"`
-	NextAttemptAt         time.Time `json:"nextAttemptAt"`
+	Generation            string           `json:"generation"`
+	Trigger               *recoveryTrigger `json:"trigger,omitempty"`
+	Owner                 string           `json:"owner"`
+	Fence                 uint64           `json:"fence"`
+	GateEpoch             uint64           `json:"gateEpoch"`
+	Phase                 string           `json:"phase"`
+	GateState             string           `json:"gateState"`
+	Substep               string           `json:"substep,omitempty"`
+	EntityID              string           `json:"entityID,omitempty"`
+	Processed             uint64           `json:"processed"`
+	CursorEntities        uint64           `json:"cursorEntities"`
+	NestedEntities        uint64           `json:"nestedEntities"`
+	PageOffset            int              `json:"pageOffset"`
+	SessionOffset         int              `json:"sessionOffset"`
+	EntityOffset          int              `json:"entityOffset"`
+	RepresentationEntries uint64           `json:"representationEntries"`
+	ReferenceHalf         int              `json:"referenceHalf"`
+	RemoteVerifiedBytes   int64            `json:"remoteVerifiedBytes"`
+	Yields                uint64           `json:"yields"`
+	Reason                string           `json:"reason,omitempty"`
+	StartedAt             time.Time        `json:"startedAt"`
+	ProgressAt            time.Time        `json:"progressAt"`
+	CheckpointAt          time.Time        `json:"checkpointAt"`
+	NextAttemptAt         time.Time        `json:"nextAttemptAt"`
 }
 
 func (s *Service) observeRecoveryCheckpoint(c protectionRecoveryCheckpoint) {
@@ -40,6 +41,7 @@ func (s *Service) observeRecoveryCheckpoint(c protectionRecoveryCheckpoint) {
 		progress.GateState = s.gate.State().State
 	}
 	progress.EntityOffset, progress.RepresentationEntries = c.Index, c.Representations.Cursor.Entities
+	progress.Trigger = c.Trigger
 	if progress.EntityID == "" && (c.Phase == "remote_operations" || c.Phase == "validate_initial" || c.Phase == "validate_final") && c.Index < len(c.SessionIDs) {
 		progress.EntityID = c.SessionIDs[c.Index]
 	}

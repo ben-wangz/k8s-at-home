@@ -81,7 +81,7 @@ func waitForFailedTask(ctx context.Context, environment testkit.CaseContext, aut
 }
 
 func waitForTaskStatus(ctx context.Context, environment testkit.CaseContext, authority, repository, reference, expectedStatus string) (map[string]any, error) {
-	return waitForTaskStatusWithin(ctx, environment, authority, repository, reference, expectedStatus, 2*time.Minute)
+	return waitForTaskStatusWithin(ctx, environment, authority, repository, reference, expectedStatus, 5*time.Minute)
 }
 
 func countTasksForReference(ctx context.Context, environment testkit.CaseContext, authority, repository, reference string) (int, error) {

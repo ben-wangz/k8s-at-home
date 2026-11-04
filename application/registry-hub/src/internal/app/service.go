@@ -107,7 +107,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	controlled := &recoveryStore{Store: store}
 	store = newObservedStore(controlled, serviceMetrics, logger)
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	err = storage.Probe(probeCtx, store)
+	err = storage.ProbeWithCleanupContext(probeCtx, context.Background(), store)
 	probeCancel()
 	if err != nil {
 		logger.Warn("storage conditional operation probe failed", "backend", cfg.StorageBackend, "error_class", "storage")

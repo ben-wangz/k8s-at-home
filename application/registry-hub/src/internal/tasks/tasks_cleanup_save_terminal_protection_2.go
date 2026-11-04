@@ -59,6 +59,9 @@ func (m *Manager) Retry(ctx context.Context, id string) (Task, error) {
 	if task.CleanupStarted {
 		return Task{}, errors.New("task history cleanup has started")
 	}
+	if task.TerminalCleanupID != "" && !task.TerminalCleanupComplete {
+		return Task{}, errors.New("terminal protection cleanup is pending")
+	}
 	capacityRound := task.Status == Failed && task.ErrorClass == "capacity_limit" && task.Kind == RootKind && task.RootDigest != "" && !task.RootPublished
 	if task.Status == Failed && (!task.Retryable && !capacityRound || task.RootDigest == "" && task.BlobDigest == "") {
 		return Task{}, errors.New("task is not retryable")
@@ -90,6 +93,7 @@ func (m *Manager) Retry(ctx context.Context, id string) (Task, error) {
 	task.ErrorMessage = ""
 	task.CancelRequested = false
 	task.TerminalCleanupComplete = false
+	task.TerminalCleanupID = ""
 	task.Retryable = false
 	task.UpdatedAt = time.Now().UTC()
 	if err := m.save(ctx, &task); err != nil {
@@ -98,7 +102,7 @@ func (m *Manager) Retry(ctx context.Context, id string) (Task, error) {
 	return task, nil
 }
 
-func (m *Manager) Cancel(ctx context.Context, id string) (Task, error) {
+func (m *Manager) cancelTask(ctx context.Context, id string) (Task, error) {
 	var task Task
 	for attempt := 0; attempt < 16; attempt++ {
 		current, err := m.Get(ctx, id)
@@ -107,6 +111,9 @@ func (m *Manager) Cancel(ctx context.Context, id string) (Task, error) {
 		}
 		if current.CleanupStarted {
 			return Task{}, errors.New("task history cleanup has started")
+		}
+		if current.Status == Failed && current.TerminalCleanupID != "" && !current.TerminalCleanupComplete {
+			return Task{}, errors.New("terminal protection cleanup is pending")
 		}
 		switch current.Status {
 		case Solidified:

@@ -8,6 +8,8 @@ import (
 	"registry-hub/internal/tasks"
 )
 
+var errTerminalRemoteUnknown = errors.New("terminal task has an unresolved remote operation")
+
 func (r *protectionRecovery) terminalDemandStep(ctx context.Context, task tasks.Task) error {
 	c := &r.checkpoint
 	if task.Kind != tasks.RootKind {
@@ -116,6 +118,9 @@ func (r *protectionRecovery) terminalSessionStep(ctx context.Context, task tasks
 		return nil
 	}
 	if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil {
+		if _, terminal := ctx.Value(terminalWriteScopeKey{}).(*terminalWriteScope); terminal && (session.UncertainRemoteResult || session.RemoteWrite != nil) {
+			return errTerminalRemoteUnknown
+		}
 		return ErrProtectionBusy
 	}
 	if id == legacyGrandfatheredSessionID && (session.ReservationClass != "legacy" || session.ScopeID != legacyGrandfatheredScopeID) {

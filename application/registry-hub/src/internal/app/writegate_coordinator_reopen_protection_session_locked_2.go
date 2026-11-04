@@ -43,6 +43,8 @@ func (g *writeGate) BeginStartupRecovery(ctx context.Context) (bool, error) {
 	}
 	g.state.RecoveryBarrier = true
 	g.state.RecoveryReason = "startup_reconcile"
+	g.state.RecoveryID = requestID()
+	g.state.RecoveryTrigger = barrierTrigger(ctx, "startup_reconcile")
 	g.state.UpdatedAt = time.Now().UTC()
 	if err := g.persistLocked(ctx); err != nil {
 		g.failClosedLocked("startup_recovery_unknown")

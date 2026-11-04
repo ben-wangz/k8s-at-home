@@ -66,16 +66,18 @@ func TestSharedBlobWakeNotifiesEveryWaitingRootIdempotently(t *testing.T) {
 func newTerminalDemandFixture(t *testing.T) (*Service, *tasks.Manager, *tasks.Records) {
 	t.Helper()
 	ctx := context.Background()
-	store, err := filesystem.New(t.TempDir())
+	base, err := filesystem.New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
+	store := &recoveryStore{Store: base}
 	t.Cleanup(func() { _ = store.Close() })
 	gate, err := newWriteGate(ctx, store)
 	if err != nil {
 		t.Fatal(err)
 	}
 	service := &Service{store: store, gate: gate, records: tasks.NewRecords(store)}
+	gate.recovery = store
 	processor := &solidifier{service: service, gate: gate}
 	manager, err := tasks.NewManager(store, 1, 10, processor)
 	if err != nil {

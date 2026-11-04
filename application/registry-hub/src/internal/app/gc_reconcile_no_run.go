@@ -25,7 +25,11 @@ func (c *gcController) ReconcileNoRun(ctx context.Context, confirmedNoExecutor b
 	if c.service.cfg.GCMode != "disabled" {
 		return gcRun{}, &gcReconciliationConflict{reason: "no-run reconciliation requires GC execution to be disabled"}
 	}
-	if err := storage.Probe(ctx, c.service.store); err != nil {
+	lifecycle := c.service.ctx
+	if lifecycle == nil {
+		lifecycle = ctx
+	}
+	if err := storage.ProbeWithCleanupContext(ctx, lifecycle, c.service.store); err != nil {
 		return gcRun{}, err
 	}
 

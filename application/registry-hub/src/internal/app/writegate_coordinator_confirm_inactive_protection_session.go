@@ -15,13 +15,17 @@ func (g *writeGate) confirmInactiveProtectionSessionReleased(ctx context.Context
 		return err
 	}
 	if err := g.reloadLocked(ctx); err != nil {
-		g.failClosedLocked("protection_release_reconcile_unknown")
+		if !terminalMutationKnown(ctx) {
+			g.failClosedLocked("protection_release_reconcile_unknown")
+		}
 		return err
 	}
 	if containsString(g.state.SessionIDs, sessionID) {
 		return ErrRecoveryBarrier
 	}
-	if _, recovering := ctx.Value(recoveryWriteGuardKey{}).(recoveryWriteGuard); !recovering {
+	_, recovering := ctx.Value(recoveryWriteGuardKey{}).(recoveryWriteGuard)
+	_, terminal := ctx.Value(terminalWriteScopeKey{}).(*terminalWriteScope)
+	if !recovering && !terminal {
 		if err := g.validateProtectionStateLocked(ctx, false); err != nil {
 			return err
 		}
@@ -76,7 +80,9 @@ func (g *writeGate) confirmInactiveProtectionSessionReleased(ctx context.Context
 	session.State = "released"
 	session.CancelPhase = "released"
 	if err := g.saveProtectionSession(ctx, &session); err != nil {
-		g.failClosedLocked("protection_release_unknown")
+		if !terminalMutationKnown(ctx) {
+			g.failClosedLocked("protection_release_unknown")
+		}
 		return err
 	}
 	g.signalLocked()

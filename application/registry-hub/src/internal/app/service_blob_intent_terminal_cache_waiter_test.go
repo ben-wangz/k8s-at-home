@@ -66,6 +66,7 @@ func TestBlobTerminalStateWakesProtectedCacheWaiterWithoutReservation(t *testing
 	if err := processor.TaskTerminal(ctx, &terminalTask); err != nil {
 		t.Fatalf("finish terminal blob task: %v", err)
 	}
+	drainBackgroundWork(t, service, "terminal_cleanup")
 	awakened, err := manager.Get(ctx, waitingTask.ID)
 	if err != nil {
 		t.Fatal(err)

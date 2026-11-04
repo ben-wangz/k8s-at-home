@@ -53,6 +53,7 @@ type gateRecord struct {
 	RecoveryReason                 string           `json:"recoveryReason,omitempty"`
 	RecoveryID                     string           `json:"recoveryID,omitempty"`
 	RecoveryFence                  uint64           `json:"recoveryFence,omitempty"`
+	RecoveryTrigger                *recoveryTrigger `json:"recoveryTrigger,omitempty"`
 	ProtectionSessionCount         int              `json:"protectionSessionCount,omitempty"`
 	NewProtectionSessionCount      int              `json:"newProtectionSessionCount,omitempty"`
 }

@@ -16,6 +16,7 @@ func recoveryLedger(state gateRecord) string {
 	state.RecoveryBarrier, state.RecoveryReason = false, ""
 	state.RecoveryID, state.RecoveryFence = "", 0
 	state.ErrorClass = ""
+	state.RecoveryTrigger = nil
 	data, _ := json.Marshal(state)
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
@@ -48,6 +49,17 @@ func (g *writeGate) claimProtectionRecovery(ctx context.Context, fence uint64) (
 	}
 	if !g.state.RecoveryBarrier || g.state.RecoveryID == "" {
 		g.state.RecoveryID = requestID()
+	}
+	if previous.RecoveryBarrier && previous.RecoveryTrigger != nil && (!g.state.RecoveryBarrier || g.state.RecoveryTrigger == nil) {
+		g.state.RecoveryTrigger = previous.RecoveryTrigger
+		if previous.RecoveryID != "" {
+			g.state.RecoveryID = previous.RecoveryID
+		}
+	}
+	if !previous.RecoveryBarrier && !g.state.RecoveryBarrier {
+		g.state.RecoveryTrigger = barrierTrigger(ctx, "startup_reconcile")
+	} else if g.state.RecoveryTrigger == nil {
+		g.state.RecoveryTrigger = &recoveryTrigger{Kind: "unknown", Reason: "trigger_evidence_missing"}
 	}
 	g.state.RecoveryFence = fence
 	g.state.RecoveryBarrier, g.state.RecoveryReason = true, "startup_reconcile"

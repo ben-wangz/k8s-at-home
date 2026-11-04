@@ -81,9 +81,14 @@ func (s *solidifier) cancelBlobIntentKnownUnowned(ctx context.Context, intentID 
 		}
 		return "", nil
 	default:
-		_, err := s.tasks.Cancel(ctx, intentID)
+		cancelled, err := s.tasks.Cancel(ctx, intentID)
 		if err != nil {
 			return "demand_task_cancel_unknown", err
+		}
+		if cancelled.CancelRequested {
+			if _, err := s.service.records.SetBlobIntentState(ctx, intentID, tasks.IntentCancelled, "no_demand", "no active blob demands remain"); err != nil {
+				return "demand_intent_cancel_unknown", err
+			}
 		}
 		return "", nil
 	}

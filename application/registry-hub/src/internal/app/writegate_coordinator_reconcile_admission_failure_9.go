@@ -89,6 +89,7 @@ func (g *writeGate) failClosedLocked(reason string) {
 	}
 	if !g.state.RecoveryBarrier {
 		g.state.RecoveryID = ""
+		g.state.RecoveryTrigger = &recoveryTrigger{Kind: "unknown", Reason: reason, TriggeredAt: time.Now().UTC()}
 	}
 	g.state.State = "failed_unknown"
 	g.state.ErrorClass = "storage"
@@ -118,7 +119,9 @@ func (g *writeGate) updateProtectionSession(ctx context.Context, sessionID strin
 		return err
 	}
 	if err := g.saveProtectionSession(ctx, &session); err != nil {
-		g.failClosedLocked("protection_state_unknown")
+		if !terminalMutationKnown(ctx) {
+			g.failClosedLocked("protection_state_unknown")
+		}
 		return err
 	}
 	g.signalLocked()

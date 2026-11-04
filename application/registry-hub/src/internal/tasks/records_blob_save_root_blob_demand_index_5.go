@@ -53,16 +53,18 @@ func (r *Records) saveRootBlobDemandIndex(ctx context.Context, link BlobDemand) 
 	return storage.ErrUnavailable
 }
 
-func (r *Records) markBlobIntentDemandProgress(ctx context.Context, intentID string, progressAt time.Time) error {
+func (r *Records) markBlobIntentDemandProgress(ctx context.Context, intentID string, progressAt time.Time, force ...bool) error {
 	for attempt := 0; attempt < 16; attempt++ {
 		intent, err := r.GetBlobIntent(ctx, intentID)
 		if err != nil {
 			return err
 		}
-		if !intent.LastProgressAt.Before(progressAt) {
+		if !intent.LastProgressAt.Before(progressAt) && (len(force) == 0 || !force[0]) {
 			return nil
 		}
-		intent.LastProgressAt = progressAt
+		if intent.LastProgressAt.Before(progressAt) {
+			intent.LastProgressAt = progressAt
+		}
 		intent.DemandRevision++
 		intent.WakeAcknowledged = false
 		deadline := r.idleExpiry(progressAt)
@@ -73,7 +75,7 @@ func (r *Records) markBlobIntentDemandProgress(ctx context.Context, intentID str
 			continue
 		} else if errors.Is(err, storage.ErrUnknownCommit) {
 			latest, readErr := r.GetBlobIntent(ctx, intentID)
-			if readErr == nil && !latest.LastProgressAt.Before(progressAt) {
+			if readErr == nil && !latest.LastProgressAt.Before(progressAt) && latest.DemandRevision >= intent.DemandRevision {
 				return nil
 			}
 			continue
@@ -172,6 +174,9 @@ func (r *Records) RemoveBlobDemand(ctx context.Context, demand BlobDemand) error
 			return err
 		}
 		if current.RootTaskID != demand.RootTaskID {
+			return storage.ErrConditionFailed
+		}
+		if !demand.CreatedAt.IsZero() && current != demand {
 			return storage.ErrConditionFailed
 		}
 		if err := r.store.DeleteIfMatch(ctx, key, version); errors.Is(err, storage.ErrConditionFailed) {

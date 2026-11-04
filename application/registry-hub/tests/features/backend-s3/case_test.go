@@ -32,6 +32,7 @@ func TestCompareObjectSnapshotsAllowsBackgroundProgressWithoutLosingCheckpoints(
 		"diagnostics/v1/storage/checkpoint.json", "diagnostics/v1/workers/protection_recovery.json",
 		"diagnostics/v1/event-budgets/20261102.json", "inventory/v1/checkpoint.json", "inventory/v1/lifecycle/root.json",
 		"inventory/v1/projection-revisions/root.json", "system/gc/state.json", "downloads/v1/quota.json",
+		"system/recovery/protection.json", "tasks/state/task.json",
 	} {
 		t.Run(relative, func(t *testing.T) {
 			key := backendS3Prefix + "/" + relative
@@ -60,7 +61,7 @@ func TestCompareObjectSnapshotsAllowsTransientCoordinationCleanup(t *testing.T) 
 
 func TestCompareObjectSnapshotsPreservesImmutablePayloadAndUnknownState(t *testing.T) {
 	for _, relative := range []string{
-		"cache/objects/blob/data", "tasks/state/task.json", "solidification/graphs/root/nodes/node.json",
+		"cache/objects/blob/data", "solidification/graphs/root/nodes/node.json",
 		"inventory/v1/snapshots/report/entries/image.json", "diagnostics/v1/storage/snapshots/report/objects/00000000.json",
 		"background/v1/unknown.json", "background/v1/statistics-checkpoints-archive/protection.json",
 	} {

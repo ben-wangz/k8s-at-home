@@ -101,6 +101,10 @@ func (g *writeGate) ReleaseProtection(ctx context.Context, sessionID, reason str
 	}
 	g.state.UpdatedAt = time.Now().UTC()
 	if err := g.persistLocked(ctx); err != nil {
+		if terminalMutationKnown(ctx) {
+			g.state = previous
+			return err
+		}
 		if reconcileErr := g.reloadLocked(ctx); reconcileErr != nil {
 			g.failClosedLocked("protection_release_unknown")
 			return errors.Join(err, reconcileErr)

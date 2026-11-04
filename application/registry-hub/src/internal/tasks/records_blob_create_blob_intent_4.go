@@ -127,6 +127,12 @@ func (r *Records) LinkBlobDemand(ctx context.Context, intentID, demandID string)
 }
 
 func (r *Records) LinkBlobDemandScope(ctx context.Context, intentID, demandID, rootTaskID, scopeID, sessionID string, reservedBytes int64) error {
+	return r.WithBlobDemandLock(ctx, intentID, func(ctx context.Context) error {
+		return r.linkBlobDemandScope(ctx, intentID, demandID, rootTaskID, scopeID, sessionID, reservedBytes)
+	})
+}
+
+func (r *Records) linkBlobDemandScope(ctx context.Context, intentID, demandID, rootTaskID, scopeID, sessionID string, reservedBytes int64) error {
 	if !validID(intentID) || !validID(demandID) {
 		return errors.New("blob intent and demand IDs must be valid")
 	}
@@ -136,7 +142,7 @@ func (r *Records) LinkBlobDemandScope(ctx context.Context, intentID, demandID, r
 	if reservedBytes < 0 || scopeID == "" && (sessionID != "" || reservedBytes != 0) || scopeID != "" && (sessionID == "" || !validID(sessionID)) {
 		return errors.New("blob demand protection scope is invalid")
 	}
-	if _, err := r.GetBlobIntent(ctx, intentID); err != nil {
+	if err := r.validateDemandAdmission(ctx, intentID); err != nil {
 		return err
 	}
 	key := blobDemandKey(intentID, demandID)
@@ -151,18 +157,21 @@ func (r *Records) LinkBlobDemandScope(ctx context.Context, intentID, demandID, r
 		if current.ScopeID != "" && scopeID != "" && (current.RootTaskID != rootTaskID || current.ScopeID != scopeID || current.SessionID != sessionID || current.ReservedBytes != reservedBytes) {
 			return storage.ErrConditionFailed
 		}
+		unchanged := version != "" && (scopeID == "" || current.RootTaskID == rootTaskID && current.ScopeID == scopeID && current.SessionID == sessionID && current.ReservedBytes == reservedBytes)
+		if unchanged {
+			if err := r.saveRootBlobDemandIndex(ctx, current); err != nil {
+				return err
+			}
+			return r.markBlobIntentDemandProgress(ctx, intentID, current.CreatedAt)
+		}
 		if scopeID != "" {
-			unchanged := version != "" && current.RootTaskID == rootTaskID && current.ScopeID == scopeID && current.SessionID == sessionID && current.ReservedBytes == reservedBytes
 			current.RootTaskID = rootTaskID
 			current.ScopeID = scopeID
 			current.SessionID = sessionID
 			current.ReservedBytes = reservedBytes
-			if unchanged {
-				if err := r.saveRootBlobDemandIndex(ctx, current); err != nil {
-					return err
-				}
-				return r.markBlobIntentDemandProgress(ctx, intentID, current.CreatedAt)
-			}
+		}
+		if err := r.markBlobIntentDemandProgress(ctx, intentID, current.CreatedAt, true); err != nil {
+			return err
 		}
 		data, err := json.Marshal(current)
 		if err != nil {

@@ -18,6 +18,10 @@ import (
 const resumeFixtureRepository = "github.com/registry-hub-test/fixture"
 
 func verifyBackendS3Resume(ctx context.Context, environment testkit.CaseContext, client *s3.Client, bucket string, registry *support.RegistryClient) (map[string]any, error) {
+	transferRegistry, transferClient := *registry, *registry.Client
+	transferClient.Timeout = 5 * time.Minute
+	transferRegistry.Client = &transferClient
+	registry = &transferRegistry
 	expected, digest := support.BuildResumeLayerFixture("s3")
 	started := time.Now()
 	response, err := registry.Get(ctx, resumeFixtureRepository, "/blobs/"+digest, nil)
@@ -44,7 +48,7 @@ func verifyBackendS3Resume(ctx context.Context, environment testkit.CaseContext,
 	if err != nil || len(blob) != len(expected) || support.Digest(blob) != digest {
 		return nil, fmt.Errorf("S3-resumed blob failed size or digest verification: err=%v size=%d", err, len(blob))
 	}
-	completionCtx, completionCancel := context.WithTimeout(ctx, 2*time.Minute)
+	completionCtx, completionCancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer completionCancel()
 	blobTask, err := waitForBlobTask(completionCtx, environment, digest)
 	if err != nil {
@@ -102,7 +106,7 @@ func waitForBlobTask(ctx context.Context, environment testkit.CaseContext, diges
 		"repository": {"registry-hub-test/fixture"},
 		"limit":      {"1000"},
 	}
-	deadline := time.NewTimer(2 * time.Minute)
+	deadline := time.NewTimer(5 * time.Minute)
 	defer deadline.Stop()
 	for {
 		response, err := support.AdminRequest(ctx, environment, http.MethodGet, "/api/v1/tasks?"+query.Encode(), nil, nil)

@@ -163,7 +163,10 @@ func (g *writeGate) SetRecoveryBarrier(ctx context.Context, reason string) error
 		return err
 	}
 	if !g.state.RecoveryBarrier {
-		g.state.RecoveryID = ""
+		g.state.RecoveryID = requestID()
+		g.state.RecoveryTrigger = barrierTrigger(ctx, reason)
+	} else if g.state.RecoveryTrigger == nil || g.state.RecoveryTrigger.Kind == "unknown" {
+		g.state.RecoveryTrigger = barrierTrigger(ctx, reason)
 	}
 	g.state.RecoveryBarrier = true
 	g.state.RecoveryReason = reason

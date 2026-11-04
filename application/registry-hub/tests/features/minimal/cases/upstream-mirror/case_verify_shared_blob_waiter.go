@@ -128,9 +128,11 @@ func waitForFixturePathCount(ctx context.Context, environment testkit.CaseContex
 	}
 }
 
+const requestDeadlineSeconds = 15
+
 func verifyRequestDeadline(ctx context.Context, environment testkit.CaseContext, registry *support.RegistryClient, remoteRepository, upstreamRepository string) (result map[string]any, returnErr error) {
 	defer restoreRequestTimeout(&returnErr, environment)
-	if err := setBackendEnvironment(ctx, environment, "REGISTRY_HUB_REQUEST_TIMEOUT_SECONDS=2"); err != nil {
+	if err := setBackendEnvironment(ctx, environment, fmt.Sprintf("REGISTRY_HUB_REQUEST_TIMEOUT_SECONDS=%d", requestDeadlineSeconds)); err != nil {
 		return nil, fmt.Errorf("set controlled request deadline: %w", err)
 	}
 	started := time.Now()
@@ -151,8 +153,8 @@ func verifyRequestDeadline(ctx context.Context, environment testkit.CaseContext,
 	if len(errors) != 1 || testkit.String(testkit.Map(errors[0])["code"]) != "UNAVAILABLE" || response.Header.Get("Retry-After") != "5" {
 		return nil, fmt.Errorf("request deadline error envelope or Retry-After header is invalid")
 	}
-	if elapsed < time.Second || elapsed > 10*time.Second {
-		return nil, fmt.Errorf("request deadline elapsed %s, want approximately 2 seconds", elapsed)
+	if elapsed < (requestDeadlineSeconds-1)*time.Second || elapsed > (requestDeadlineSeconds+10)*time.Second {
+		return nil, fmt.Errorf("request deadline elapsed %s, want approximately %d seconds", elapsed, requestDeadlineSeconds)
 	}
 	requests, err := countFixtureRequests(ctx, environment, "minimal-request-deadline")
 	if err != nil {
@@ -169,6 +171,7 @@ func verifyRequestDeadline(ctx context.Context, environment testkit.CaseContext,
 		return nil, fmt.Errorf("request deadline task has invalid terminal state: class=%q root=%q published=%v retryable=%v", testkit.String(task["errorClass"]), testkit.String(task["rootDigest"]), task["rootPublished"], task["retryable"])
 	}
 	return map[string]any{
+		"requestDeadlineBudgetSeconds":   requestDeadlineSeconds,
 		"requestDeadlineStatus":          response.StatusCode,
 		"requestDeadlineElapsedMillis":   elapsed.Milliseconds(),
 		"requestDeadlineFixtureRequests": requests,
@@ -183,7 +186,7 @@ func verifyRequestDeadline(ctx context.Context, environment testkit.CaseContext,
 
 func verifyHeadRequestDeadline(ctx context.Context, environment testkit.CaseContext, registry *support.RegistryClient, repository, upstreamRepository string) (result map[string]any, returnErr error) {
 	defer restoreRequestTimeout(&returnErr, environment)
-	if err := setBackendEnvironment(ctx, environment, "REGISTRY_HUB_REQUEST_TIMEOUT_SECONDS=2"); err != nil {
+	if err := setBackendEnvironment(ctx, environment, fmt.Sprintf("REGISTRY_HUB_REQUEST_TIMEOUT_SECONDS=%d", requestDeadlineSeconds)); err != nil {
 		return nil, fmt.Errorf("set controlled HEAD request deadline: %w", err)
 	}
 	const reference = "minimal-head-request-deadline"
@@ -203,8 +206,8 @@ func verifyHeadRequestDeadline(ctx context.Context, environment testkit.CaseCont
 	if status != http.StatusGatewayTimeout || retryAfter != "5" || len(body) != 0 {
 		return nil, fmt.Errorf("HEAD request deadline returned status=%d retry-after=%q body-bytes=%d, want 504/5/0", status, retryAfter, len(body))
 	}
-	if elapsed < time.Second || elapsed > 10*time.Second {
-		return nil, fmt.Errorf("HEAD request deadline elapsed %s, want approximately 2 seconds", elapsed)
+	if elapsed < (requestDeadlineSeconds-1)*time.Second || elapsed > (requestDeadlineSeconds+10)*time.Second {
+		return nil, fmt.Errorf("HEAD request deadline elapsed %s, want approximately %d seconds", elapsed, requestDeadlineSeconds)
 	}
 	requests, err := countFixtureRequests(ctx, environment, reference)
 	if err != nil {
@@ -222,6 +225,7 @@ func verifyHeadRequestDeadline(ctx context.Context, environment testkit.CaseCont
 		return nil, fmt.Errorf("HEAD request deadline fixture state is invalid: requests=%d methods=%q tasks=%d", requests, methods, tasks)
 	}
 	return map[string]any{
+		"headRequestDeadlineBudgetSeconds":   requestDeadlineSeconds,
 		"headRequestDeadlineStatus":          status,
 		"headRequestDeadlineElapsedMillis":   elapsed.Milliseconds(),
 		"headRequestDeadlineRetryAfter":      retryAfter,

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 )
 
 var (
@@ -53,6 +54,10 @@ type Store interface {
 }
 
 func Probe(ctx context.Context, store Store) error {
+	return ProbeWithCleanupContext(ctx, ctx, store)
+}
+
+func ProbeWithCleanupContext(ctx, lifecycle context.Context, store Store) error {
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
 		return err
@@ -65,26 +70,32 @@ func Probe(ctx context.Context, store Store) error {
 		return fmt.Errorf("storage probe initial create: %w", err)
 	}
 	if _, err := store.Put(ctx, key, bytes.NewReader(first), int64(len(first)), PutOptions{IfAbsent: true}); !errors.Is(err, ErrAlreadyExists) {
-		_ = store.DeleteIfMatch(ctx, key, entry.Version)
 		if err != nil {
-			return fmt.Errorf("storage probe conditional create: %w", err)
+			return probeCleanup(lifecycle, store, key, entry.Version, fmt.Errorf("storage probe conditional create: %w", err))
 		}
-		return errors.New("storage does not enforce conditional create")
+		return probeCleanup(lifecycle, store, key, entry.Version, errors.New("storage does not enforce conditional create"))
 	}
 	updated, err := store.Put(ctx, key, bytes.NewReader(second), int64(len(second)), PutOptions{IfMatch: entry.Version})
 	if err != nil {
-		_ = store.DeleteIfMatch(ctx, key, entry.Version)
-		return fmt.Errorf("storage probe conditional update: %w", err)
+		return probeCleanup(lifecycle, store, key, entry.Version, fmt.Errorf("storage probe conditional update: %w", err))
 	}
 	if err := store.DeleteIfMatch(ctx, key, entry.Version); !errors.Is(err, ErrConditionFailed) {
-		_ = store.DeleteIfMatch(ctx, key, updated.Version)
 		if err != nil {
-			return fmt.Errorf("storage probe conditional delete: %w", err)
+			return probeCleanup(lifecycle, store, key, updated.Version, fmt.Errorf("storage probe conditional delete: %w", err))
 		}
-		return errors.New("storage does not enforce conditional delete")
+		return probeCleanup(lifecycle, store, key, updated.Version, errors.New("storage does not enforce conditional delete"))
 	}
 	if err := store.DeleteIfMatch(ctx, key, updated.Version); err != nil {
 		return fmt.Errorf("storage probe cleanup delete: %w", err)
 	}
 	return nil
+}
+
+func probeCleanup(lifecycle context.Context, store Store, key, version string, cause error) error {
+	ctx, cancel := context.WithTimeout(lifecycle, 5*time.Second)
+	defer cancel()
+	if err := store.DeleteIfMatch(ctx, key, version); err != nil {
+		return errors.Join(cause, fmt.Errorf("storage probe auxiliary cleanup: %w", err))
+	}
+	return cause
 }

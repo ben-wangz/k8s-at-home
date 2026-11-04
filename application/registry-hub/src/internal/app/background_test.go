@@ -38,7 +38,7 @@ func backgroundUntilError(s *Service, kinds ...string) error {
 func backgroundTestPass(s *Service, kinds ...string) (bool, error) {
 	ctx := context.Background()
 	q := workqueue.Queue{Store: s.store}
-	steps := map[string]backgroundStep{"inventory": s.projectManifestStep, "execution": s.projectExecutionStep, "download_cleanup": s.cleanupDownloadStep, "notify": s.notificationStep, "wake_root": s.wakeRootStep}
+	steps := map[string]backgroundStep{"inventory": s.projectManifestStep, "execution": s.projectExecutionStep, "download_cleanup": s.cleanupDownloadStep, "notify": s.notificationStep, "wake_root": s.wakeRootStep, "terminal_cleanup": s.terminalCleanupStep}
 	pending := false
 	for _, kind := range kinds {
 		cursor := inventory.Cursor{}
