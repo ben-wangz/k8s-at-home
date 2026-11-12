@@ -40,24 +40,24 @@ func TestPushAndDeleteSerializeAgainstRootPublicationThroughTagLease(t *testing.
 	rootDigest := artifact.CalculateSHA256(rootBody)
 	var mu sync.Mutex
 	tagPresent := false
-	getCount := 0
+	tagReadCount := 0
 	putCount := 0
 	deleteCount := 0
-	firstGetStarted := make(chan struct{})
-	releaseFirstGet := make(chan struct{})
-	var releaseFirstGetOnce sync.Once
-	releaseFirst := func() { releaseFirstGetOnce.Do(func() { close(releaseFirstGet) }) }
+	firstTagReadStarted := make(chan struct{})
+	continueFirstTagRead := make(chan struct{})
+	var releaseFirstTagReadOnce sync.Once
+	releaseFirstTagRead := func() { releaseFirstTagReadOnce.Do(func() { close(continueFirstTagRead) }) }
 	server := newLocalRegistry(t, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.Method {
-		case http.MethodGet:
+		case http.MethodGet, http.MethodHead:
 			mu.Lock()
-			getCount++
-			currentGet := getCount
+			tagReadCount++
+			currentRead := tagReadCount
 			present := tagPresent
 			mu.Unlock()
-			if currentGet == 1 {
-				close(firstGetStarted)
-				<-releaseFirstGet
+			if currentRead == 1 {
+				close(firstTagReadStarted)
+				<-continueFirstTagRead
 			}
 			if !present {
 				writeManifestMiss(writer)
@@ -90,7 +90,7 @@ func TestPushAndDeleteSerializeAgainstRootPublicationThroughTagLease(t *testing.
 			http.NotFound(writer, request)
 		}
 	}))
-	t.Cleanup(releaseFirst)
+	t.Cleanup(releaseFirstTagRead)
 	cache := artifact.NewCache(store)
 	service := &Service{
 		cfg: config.Config{Limits: config.Limits{
@@ -131,7 +131,7 @@ func TestPushAndDeleteSerializeAgainstRootPublicationThroughTagLease(t *testing.
 	publishResult := make(chan error, 1)
 	go func() { publishResult <- processor.publishRootTag(ctx, &task, taskLease) }()
 	select {
-	case <-firstGetStarted:
+	case <-firstTagReadStarted:
 	case <-time.After(5 * time.Second):
 		t.Fatal("root publication did not reach the held tag read")
 	}
@@ -156,10 +156,10 @@ func TestPushAndDeleteSerializeAgainstRootPublicationThroughTagLease(t *testing.
 		t.Fatalf("push during root publication = %d, want 409: %s", pushResponse.Code, pushResponse.Body.String())
 	}
 	mu.Lock()
-	registryCallsDuringPush := getCount + putCount + deleteCount
+	registryCallsDuringPush := tagReadCount + putCount + deleteCount
 	mu.Unlock()
 	if registryCallsDuringPush != 1 {
-		t.Fatalf("Registry calls while push lost the tag lease = %d, want only the held solidification GET", registryCallsDuringPush)
+		t.Fatalf("Registry calls while push lost the tag lease = %d, want only the held solidification tag read", registryCallsDuringPush)
 	}
 	unchanged, err := service.generation(ctx, authority, repository, reference)
 	if err != nil || unchanged.Generation != initialGeneration.Generation {
@@ -176,7 +176,7 @@ func TestPushAndDeleteSerializeAgainstRootPublicationThroughTagLease(t *testing.
 		t.Fatalf("generation changed during rejected delete: %#v err=%v", unchanged, err)
 	}
 
-	releaseFirst()
+	releaseFirstTagRead()
 	select {
 	case err := <-publishResult:
 		if err != nil {

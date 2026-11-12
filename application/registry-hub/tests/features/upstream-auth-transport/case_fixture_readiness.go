@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -99,14 +101,8 @@ func waitBackendServiceEndpoint(ctx context.Context, environment testkit.CaseCon
 					}
 				}
 				endpoints, endpointErr := testkit.KubectlGet(ctx, environment.Namespace, "endpoints", environment.Fullname)
-				if endpointErr == nil {
-					for _, rawSubset := range testkit.Slice(endpoints["subsets"]) {
-						for _, rawAddress := range testkit.Slice(testkit.Map(rawSubset)["addresses"]) {
-							if _, ok := readyIPs[testkit.String(testkit.Map(rawAddress)["ip"])]; ok {
-								return nil
-							}
-						}
-					}
+				if endpointErr == nil && hasReadyBackendServiceEndpoint(endpoints, readyIPs) && backendClientPortOpen(ctx, environment.ClientURL) {
+					return nil
 				}
 			}
 		}
@@ -118,6 +114,32 @@ func waitBackendServiceEndpoint(ctx context.Context, environment testkit.CaseCon
 		case <-ticker.C:
 		}
 	}
+}
+
+func hasReadyBackendServiceEndpoint(endpoints map[string]any, readyIPs map[string]struct{}) bool {
+	for _, rawSubset := range testkit.Slice(endpoints["subsets"]) {
+		for _, rawAddress := range testkit.Slice(testkit.Map(rawSubset)["addresses"]) {
+			if _, ok := readyIPs[testkit.String(testkit.Map(rawAddress)["ip"])]; ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func backendClientPortOpen(ctx context.Context, clientURL string) bool {
+	endpoint, err := url.Parse(clientURL)
+	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
+		return false
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	connection, err := (&net.Dialer{}).DialContext(probeCtx, "tcp", endpoint.Host)
+	if err != nil {
+		return false
+	}
+	_ = connection.Close()
+	return true
 }
 
 func waitProxyReady(ctx context.Context, environment testkit.CaseContext) error {
