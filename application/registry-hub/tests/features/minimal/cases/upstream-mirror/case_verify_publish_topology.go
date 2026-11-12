@@ -74,9 +74,6 @@ func verifyPublishTopology(lines []string, childDigest, indexDigest, configDiges
 			return nil, fmt.Errorf("Distribution trace violates write-time integrity and topology publication order")
 		}
 	}
-	if findRegistryEvent(events, registryRequest(http.MethodGet, blobPath, http.StatusOK), blobPut+1, len(events)) >= 0 {
-		return nil, fmt.Errorf("Distribution trace contains a successful blob payload GET readback after publication")
-	}
 	return map[string]any{
 		"publishTopologyOrdered": true,
 		"publishTopologySequence": []string{
@@ -84,7 +81,6 @@ func verifyPublishTopology(lines []string, childDigest, indexDigest, configDiges
 			"child manifest GET 404", "child manifest PUT 201",
 			"root index GET 404", "root index PUT 201",
 			"root tag HEAD 404", "root tag PUT 201",
-			"no successful blob payload GET readbacks",
 		},
 	}, nil
 }

@@ -10,7 +10,7 @@ import (
 )
 
 func verifyDiscoveryFlow(run *mirrorRun) (map[string]any, string, error) {
-	registryLogSince := time.Now().UTC().Add(-5 * time.Second)
+	verificationStarted := time.Now().UTC().Add(-5 * time.Second)
 	discoveryBody, headers, err := support.ReadManifest(run.context, run.registry, run.remoteRepository, "minimal-discovery", support.DockerListMedia)
 	if err != nil {
 		return nil, "", fmt.Errorf("Docker manifest list compatibility read failed: %w", err)
@@ -63,11 +63,19 @@ func verifyDiscoveryFlow(run *mirrorRun) (map[string]any, string, error) {
 	if testkit.String(task["rootDigest"]) != indexDigest || testkit.String(task["mediaType"]) != support.OCIIndexMediaType || testkit.String(task["status"]) != "solidified" || task["rootPublished"] != true {
 		return nil, "", fmt.Errorf("compatibility response replaced the original OCI index discovery root")
 	}
-	logLines, err := registryLogLines(run.context, run.environment, registryLogSince)
+	logLines, err := registryLogLines(run.context, run.environment, verificationStarted)
 	if err != nil {
 		return nil, "", err
 	}
 	publishResults, err := verifyPublishTopology(logLines, childDigest, indexDigest, configDigest)
+	if err != nil {
+		return nil, "", err
+	}
+	backendLines, err := backendLogLines(run.context, run.environment, verificationStarted)
+	if err != nil {
+		return nil, "", err
+	}
+	integrityResults, err := verifySolidificationReadback(backendLines, configDigest)
 	if err != nil {
 		return nil, "", err
 	}
@@ -114,6 +122,7 @@ func verifyDiscoveryFlow(run *mirrorRun) (map[string]any, string, error) {
 		"discoveryBlobPrefetchRequests": configRequestsBefore, "discoveryClientBlobRequests": configRequestsAfter,
 	}
 	mergeMirrorResults(result, publishResults)
+	mergeMirrorResults(result, integrityResults)
 	return result, indexDigest, nil
 }
 
