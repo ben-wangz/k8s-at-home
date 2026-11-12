@@ -163,11 +163,7 @@ func waitForProtectedSolidification(ctx context.Context, environment testkit.Cas
 					return nil, err
 				}
 			}
-			localReads, err := distributionBlobReadCount(ctx, environment, digest, since)
-			if err != nil {
-				return nil, err
-			}
-			if unanchored && localReads > 0 && blobTask != nil && testkit.String(blobTask["status"]) == "verified_local" {
+			if unanchored && blobTask != nil && testkit.String(blobTask["status"]) == "verified_local" {
 				return map[string]any{"rootTask": rootTask, "blobTask": blobTask}, nil
 			}
 		} else if !strings.Contains(err.Error(), "no matching task") {

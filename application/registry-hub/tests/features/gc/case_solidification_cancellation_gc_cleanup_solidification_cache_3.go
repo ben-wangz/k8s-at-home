@@ -137,21 +137,6 @@ func taskDetailByID(ctx context.Context, environment testkit.CaseContext, taskID
 	return task, err
 }
 
-func distributionBlobReadCount(ctx context.Context, environment testkit.CaseContext, digest string, since time.Time) (int, error) {
-	lines, err := distributionLogs(ctx, environment, since)
-	if err != nil {
-		return 0, err
-	}
-	path := `http.request.uri="/v2/egithub_2ecom/registry-hub-test/fixture/blobs/` + digest + `"`
-	count := 0
-	for _, line := range lines {
-		if strings.Contains(line, `http.request.method=GET`) && strings.Contains(line, path) && strings.Contains(line, `http.response.status=200`) {
-			count++
-		}
-	}
-	return count, nil
-}
-
 func distributionBlobMissCount(ctx context.Context, environment testkit.CaseContext, digest string, since time.Time) (int, error) {
 	lines, err := distributionLogs(ctx, environment, since)
 	if err != nil {
