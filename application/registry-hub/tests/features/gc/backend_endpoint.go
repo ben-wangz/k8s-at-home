@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"time"
 
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/support"
 	"github.com/ben-wangz/registry-hub-tests/internal/testkit"
@@ -16,25 +17,35 @@ func useBackendPodForGC(ctx context.Context, environment testkit.CaseContext, re
 		return err
 	}
 	selector := testkit.Map(testkit.Map(testkit.Map(deployment["spec"])["selector"])["matchLabels"])
-	pods, err := testkit.KubectlList(ctx, environment.Namespace, "get", "pods")
-	if err != nil {
-		return err
-	}
-	for _, pod := range pods {
-		metadata, status := testkit.Map(pod.Raw["metadata"]), testkit.Map(pod.Raw["status"])
-		if metadata["deletionTimestamp"] != nil || !matchesLabels(testkit.Map(metadata["labels"]), selector) ||
-			!hasControllerKind(testkit.Slice(metadata["ownerReferences"]), "ReplicaSet") || testkit.String(status["phase"]) != "Running" {
-			continue
-		}
-		endpoint, err := backendClientAddress(environment.ClientURL, testkit.String(status["podIP"]))
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		pods, err := testkit.KubectlList(waitCtx, environment.Namespace, "get", "pods")
 		if err != nil {
 			return err
 		}
-		// The client Service excludes unready Pods while unresolved GC keeps writes closed.
-		registry.Base = endpoint
-		return nil
+		for _, pod := range pods {
+			metadata, status := testkit.Map(pod.Raw["metadata"]), testkit.Map(pod.Raw["status"])
+			if metadata["deletionTimestamp"] != nil || !matchesLabels(testkit.Map(metadata["labels"]), selector) ||
+				!hasControllerKind(testkit.Slice(metadata["ownerReferences"]), "ReplicaSet") || testkit.String(status["phase"]) != "Running" {
+				continue
+			}
+			endpoint, err := backendClientAddress(environment.ClientURL, testkit.String(status["podIP"]))
+			if err != nil {
+				return err
+			}
+			// The client Service excludes unready Pods while unresolved GC keeps writes closed.
+			registry.Base = endpoint
+			return nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("backend Deployment has no running Pod for GC admission checks: %w", waitCtx.Err())
+		case <-ticker.C:
+		}
 	}
-	return fmt.Errorf("backend Deployment has no running Pod for GC admission checks")
 }
 
 func backendClientAddress(clientURL, podIP string) (string, error) {
