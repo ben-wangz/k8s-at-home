@@ -30,6 +30,7 @@ func verifyPublishTopology(lines []string, childDigest, indexDigest, configDiges
 	childPath := repositoryPath + "/manifests/" + childDigest
 	indexPath := repositoryPath + "/manifests/" + indexDigest
 	tagPath := repositoryPath + "/manifests/minimal-discovery"
+	blobMiss := findRegistryEvent(events, registryRequest(http.MethodHead, blobPath, http.StatusNotFound), 0, len(events))
 	blobPut := findRegistryEvent(events, func(event registryAccessEvent) bool {
 		return event.method == http.MethodPut && event.status == http.StatusCreated && strings.HasPrefix(event.path, repositoryPath+"/blobs/uploads/") && event.query.Get("digest") == configDigest
 	}, 0, len(events))
@@ -42,34 +43,50 @@ func verifyPublishTopology(lines []string, childDigest, indexDigest, configDiges
 		}
 		return nil, fmt.Errorf("Distribution trace has no verified config blob upload for %s; observed uploads: %v", configDigest, uploads)
 	}
-	blobRead := findRegistryEvent(events, registryRequest(http.MethodGet, blobPath, http.StatusOK), blobPut+1, len(events))
+	blobConfirmed := findRegistryEvent(events, registryRequest(http.MethodHead, blobPath, http.StatusOK), blobPut+1, len(events))
 	childPut := findRegistryEvent(events, registryRequest(http.MethodPut, childPath, http.StatusCreated), blobPut+1, len(events))
-	childMiss := findLastRegistryEvent(events, registryRequest(http.MethodGet, childPath, http.StatusNotFound), 0, childPut)
-	childRead := findRegistryEvent(events, registryRequest(http.MethodGet, childPath, http.StatusOK), childPut+1, len(events))
+	childMiss := findLastRegistryEvent(events, registryRequest(http.MethodGet, childPath, http.StatusNotFound), blobConfirmed+1, childPut)
 	indexPut := findRegistryEvent(events, registryRequest(http.MethodPut, indexPath, http.StatusCreated), childPut+1, len(events))
-	indexMiss := findLastRegistryEvent(events, registryRequest(http.MethodGet, indexPath, http.StatusNotFound), childRead+1, indexPut)
-	indexRead := findRegistryEvent(events, registryRequest(http.MethodGet, indexPath, http.StatusOK), indexPut+1, len(events))
-	tagPut := findRegistryEvent(events, registryRequest(http.MethodPut, tagPath, http.StatusCreated), indexPut+1, len(events))
-	tagMiss := findLastRegistryEvent(events, registryRequest(http.MethodGet, tagPath, http.StatusNotFound), indexRead+1, tagPut)
-	tagRead := findRegistryEvent(events, registryRequest(http.MethodGet, tagPath, http.StatusOK), tagPut+1, len(events))
-	sequence := []int{blobPut, blobRead, childMiss, childPut, childRead, indexMiss, indexPut, indexRead, tagMiss, tagPut, tagRead}
-	for _, index := range sequence {
-		if index < 0 {
-			return nil, fmt.Errorf("Distribution trace is missing a topology publication or read-verification request")
+	indexMiss := findLastRegistryEvent(events, registryRequest(http.MethodGet, indexPath, http.StatusNotFound), childPut+1, indexPut)
+	tagMiss := findLastRegistryEvent(events, registryRequest(http.MethodHead, tagPath, http.StatusNotFound), indexPut+1, len(events))
+	tagPut := findRegistryEvent(events, registryRequest(http.MethodPut, tagPath, http.StatusCreated), tagMiss+1, len(events))
+	steps := []struct {
+		name  string
+		index int
+	}{
+		{name: "config blob HEAD miss", index: blobMiss},
+		{name: "config blob PUT", index: blobPut},
+		{name: "config blob HEAD confirmation", index: blobConfirmed},
+		{name: "child manifest miss", index: childMiss},
+		{name: "child manifest PUT", index: childPut},
+		{name: "index manifest miss", index: indexMiss},
+		{name: "index manifest PUT", index: indexPut},
+		{name: "root tag HEAD miss", index: tagMiss},
+		{name: "root tag PUT", index: tagPut},
+	}
+	sequence := make([]int, 0, len(steps))
+	for _, step := range steps {
+		if step.index < 0 {
+			return nil, fmt.Errorf("Distribution trace is missing %s", step.name)
 		}
+		sequence = append(sequence, step.index)
 	}
 	for index := 1; index < len(sequence); index++ {
 		if sequence[index] <= sequence[index-1] {
-			return nil, fmt.Errorf("Distribution trace violates blob, child, index, and root tag publication order")
+			return nil, fmt.Errorf("Distribution trace violates write-time integrity and topology publication order")
 		}
+	}
+	if findRegistryEvent(events, registryRequest(http.MethodGet, blobPath, http.StatusOK), blobPut+1, len(events)) >= 0 {
+		return nil, fmt.Errorf("Distribution trace contains a successful blob payload GET readback after publication")
 	}
 	return map[string]any{
 		"publishTopologyOrdered": true,
 		"publishTopologySequence": []string{
-			"config blob PUT 201", "config blob verification GET 200",
-			"child manifest existence GET 404", "child manifest PUT 201", "child manifest verification GET 200",
-			"root index existence GET 404", "root index PUT 201", "root index verification GET 200",
-			"root tag existence GET 404", "root tag PUT 201", "root tag verification GET 200",
+			"config blob HEAD 404", "config blob PUT 201", "config blob HEAD 200",
+			"child manifest GET 404", "child manifest PUT 201",
+			"root index GET 404", "root index PUT 201",
+			"root tag HEAD 404", "root tag PUT 201",
+			"no successful blob payload GET readbacks",
 		},
 	}, nil
 }
