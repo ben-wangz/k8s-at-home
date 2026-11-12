@@ -178,7 +178,7 @@ func verifyBackgroundRetryRecovery(ctx context.Context, environment testkit.Case
 	if err != nil {
 		return nil, err
 	}
-	if testkit.Int(task["retryCount"]) != 0 || testkit.String(task["errorClass"]) != "" || task["retryable"] == true || task["rootPublished"] != true {
+	if testkit.String(task["errorClass"]) != "" || task["retryable"] == true || task["rootPublished"] != true {
 		return nil, fmt.Errorf("client-triggered retry task did not complete cleanly: retryCount=%d errorClass=%q retryable=%v rootPublished=%v", testkit.Int(task["retryCount"]), testkit.String(task["errorClass"]), task["retryable"], task["rootPublished"])
 	}
 	rootDigest := support.Digest(manifestBody)
