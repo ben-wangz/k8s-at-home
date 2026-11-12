@@ -143,6 +143,48 @@ func TestBlobIntentDeduplicatesConcurrentDemandsAndStartsNewRoundAfterCancellati
 	}
 }
 
+func TestActiveBlobIntentAcceptsDifferentMediaTypeForSameCachePayload(t *testing.T) {
+	store, err := filesystem.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	records := NewRecords(store)
+	ctx := context.Background()
+	identity := BlobIdentity{Authority: "registry.example", Repository: "team/image", Digest: "sha256:" + strings.Repeat("d", 64)}
+	intent, _, err := records.EnsureBlobIntent(ctx, identity, 2, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent, err = records.SetBlobIntentReady(ctx, intent.ID, "application/vnd.oci.image.config.v1+json", "cache-v1", 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	current, err := records.SetBlobIntentReady(ctx, intent.ID, "application/octet-stream", "cache-v1", 128)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.ID != intent.ID || current.State != IntentReady || current.MediaType != intent.MediaType {
+		t.Fatalf("active intent after media type change = %#v, want same ready intent", current)
+	}
+
+	for _, change := range []struct {
+		name    string
+		version string
+		size    int64
+	}{
+		{name: "cache version", version: "cache-v2", size: 128},
+		{name: "size", version: "cache-v1", size: 129},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			if _, err := records.SetBlobIntentReady(ctx, intent.ID, "application/octet-stream", change.version, change.size); err == nil {
+				t.Fatal("active intent accepted a changed cache payload")
+			}
+		})
+	}
+}
+
 func TestVerifiedBlobIntentStartsNewRoundWhenCacheVersionChanges(t *testing.T) {
 	store, err := filesystem.New(t.TempDir())
 	if err != nil {

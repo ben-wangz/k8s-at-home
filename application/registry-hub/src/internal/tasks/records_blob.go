@@ -128,14 +128,14 @@ func (r *Records) SetBlobIntentReady(ctx context.Context, id, mediaType, dataVer
 			intentID = current.ID
 			continue
 		}
+		// A digest-addressed blob can have multiple OCI descriptor media types.
 		if intent.State == IntentAnchored || intent.State == IntentReady || intent.State == IntentRunning || intent.State == IntentRetryWait {
-			if intent.MediaType != mediaType || intent.CacheVersion != dataVersion || intent.ActualSize != actualSize {
-				return BlobIntent{}, errors.New("blob intent cache version changed within an active round")
+			if intent.CacheVersion != dataVersion || intent.ActualSize != actualSize {
+				return BlobIntent{}, fmt.Errorf("blob intent cache identity changed within an active round: cache_version=%q/%q size=%d/%d", intent.CacheVersion, dataVersion, intent.ActualSize, actualSize)
 			}
 			return intent, nil
 		}
 		if intent.State == IntentVerified {
-			// Distribution stores blob bytes independently of their media type.
 			if intent.CacheVersion == dataVersion && intent.ActualSize == actualSize {
 				return intent, nil
 			}

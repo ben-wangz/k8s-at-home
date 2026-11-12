@@ -132,5 +132,12 @@ func (s *Service) enqueueBlobIntent(ctx context.Context, intent tasks.BlobIntent
 			return task, created, err
 		}
 	}
+	// A cache commit can race a blob worker that already yielded on a cache miss.
+	if task.Status == tasks.WaitingCache && task.WaitReason == "cache_entry_unavailable" {
+		task, err = s.tasks.Wake(ctx, task.ID)
+		if err != nil {
+			return task, created, err
+		}
+	}
 	return task, created, nil
 }
