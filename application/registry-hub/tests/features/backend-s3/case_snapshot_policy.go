@@ -19,7 +19,8 @@ func mutableBackendObject(key string) bool {
 	relative := strings.TrimPrefix(key, backendS3Prefix+"/")
 	switch relative {
 	case "system/gc/state.json", "system/recovery/protection.json", "downloads/v1/quota.json", "inventory/v1/checkpoint.json", "inventory/v1/current.json", "inventory/v1/retention.json", "inventory/v1/work-retention.json",
-		"background/v1/quota-signal.json", "diagnostics/v1/storage/checkpoint.json", "diagnostics/v1/storage/current.json", "diagnostics/v1/coverage.json", "inventory/v1/fragment-retention.json":
+		"background/v1/quota-signal.json", "diagnostics/v1/storage/checkpoint.json", "diagnostics/v1/storage/current.json", "diagnostics/v1/coverage.json", "inventory/v1/fragment-retention.json",
+		"tasks/dispatch/v1/repair.json":
 		return true
 	}
 	for _, prefix := range []string{

@@ -34,7 +34,7 @@ func TestCompareObjectSnapshotsAllowsBackgroundProgressWithoutLosingCheckpoints(
 		"inventory/v1/projection-revisions/root.json", "system/gc/state.json", "downloads/v1/quota.json",
 		"inventory/v1/latest-work/root.json", "inventory/v1/retention.json", "inventory/v1/work-retention.json",
 		"background/v1/quota-signal.json",
-		"system/recovery/protection.json", "tasks/state/task.json",
+		"system/recovery/protection.json", "tasks/state/task.json", "tasks/dispatch/v1/repair.json",
 		"solidification/blobs/intents/intent.json",
 		"system/solidification/sessions/session.json",
 		"inventory/v1/fragment-retention.json", "inventory/v1/fragments/image/image.json", "inventory/v1/fragments/content/content.json",
