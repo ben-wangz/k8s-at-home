@@ -50,7 +50,7 @@ func (runtime *fixtureRuntime) buildInlineFixtures() error {
 	if err != nil {
 		return fmt.Errorf("fixture missing-blob manifest is invalid: %w", err)
 	}
-	runtime.gcCancellationManifest, err = buildInlineManifest(runtime.config, []byte("gc-cancellation-missing-layer"), nil, []string{"https://github.com/v2/registry-hub-test/fixture/url-must-not-fetch-gc-cancellation"})
+	runtime.gcCancellationManifest, err = buildGCCancellationManifest(runtime.config, []byte("gc-cancellation-missing-layer"), []string{"https://github.com/v2/registry-hub-test/fixture/url-must-not-fetch-gc-cancellation"})
 	if err != nil {
 		return fmt.Errorf("fixture GC-cancellation manifest is invalid: %w", err)
 	}
@@ -85,6 +85,33 @@ func (runtime *fixtureRuntime) buildInlineFixtures() error {
 		return fmt.Errorf("fixture inline-data type-mismatch manifest is invalid: %w", err)
 	}
 	return nil
+}
+
+func buildGCCancellationManifest(config, layer []byte, urls []string) (inlineManifestFixture, error) {
+	configDigest := "sha256:" + hex.EncodeToString(sha256Bytes(config))
+	layerDigest := "sha256:" + hex.EncodeToString(sha256Bytes(layer))
+	manifest, err := json.Marshal(map[string]any{
+		"schemaVersion": 2,
+		"mediaType":     "application/vnd.oci.image.manifest.v1+json",
+		"config": map[string]any{
+			"mediaType": "application/vnd.oci.image.config.v1+json",
+			"size":      len(config),
+			"digest":    configDigest,
+		},
+		"layers": []any{map[string]any{
+			"mediaType": "application/vnd.oci.image.layer.v1.tar",
+			"size":      len(layer),
+			"digest":    layerDigest,
+			"urls":      urls,
+		}},
+	})
+	if err != nil {
+		return inlineManifestFixture{}, err
+	}
+	return inlineManifestFixture{
+		Manifest: manifest, ManifestDigest: "sha256:" + hex.EncodeToString(sha256Bytes(manifest)),
+		Config: config, ConfigDigest: configDigest, Layer: layer, LayerDigest: layerDigest,
+	}, nil
 }
 
 func (runtime *fixtureRuntime) buildDiscoveryFixtures() error {

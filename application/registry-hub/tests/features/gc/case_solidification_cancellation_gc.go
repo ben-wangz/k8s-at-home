@@ -3,7 +3,6 @@ package gc
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/support"
@@ -21,19 +20,15 @@ func verifySolidificationCancellationGC(ctx context.Context, environment testkit
 		return nil, fmt.Errorf("read cancellation fixture manifest: %w", err)
 	}
 	var manifest support.Manifest
-	if err := json.Unmarshal(manifestBytes, &manifest); err != nil || manifest.Config == nil || len(manifest.Layers) != 1 || manifest.Config.Data == "" {
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil || manifest.Config == nil || len(manifest.Layers) != 1 || manifest.Config.Data != "" {
 		return nil, fmt.Errorf("cancellation fixture manifest is incomplete")
-	}
-	configBytes, err := base64.StdEncoding.DecodeString(manifest.Config.Data)
-	if err != nil || len(configBytes) != manifest.Config.Size || support.Digest(configBytes) != manifest.Config.Digest {
-		return nil, fmt.Errorf("cancellation fixture inline config is invalid")
 	}
 	clientBytes, err := support.ReadBlob(ctx, registry, repository, manifest.Config.Digest)
 	if err != nil {
-		return nil, fmt.Errorf("inline config read failed: %w", err)
+		return nil, fmt.Errorf("config blob read failed: %w", err)
 	}
-	if !bytes.Equal(clientBytes, configBytes) {
-		return nil, fmt.Errorf("inline config read returned unexpected bytes")
+	if len(clientBytes) != manifest.Config.Size || support.Digest(clientBytes) != manifest.Config.Digest {
+		return nil, fmt.Errorf("config blob read returned unexpected bytes")
 	}
 	tasks, err := waitForProtectedSolidification(ctx, environment, repository, reference, manifest.Config.Digest, startedAt)
 	if err != nil {
@@ -88,7 +83,7 @@ func verifySolidificationCancellationGC(ctx context.Context, environment testkit
 	if err != nil {
 		return nil, fmt.Errorf("post-GC client blob read failed: %w", err)
 	}
-	if !bytes.Equal(refetched, configBytes) {
+	if !bytes.Equal(refetched, clientBytes) {
 		return nil, fmt.Errorf("post-GC client blob read returned unexpected bytes")
 	}
 	upstreamAfter, err := fixtureBlobRequestCount(ctx, environment, manifest.Config.Digest)
