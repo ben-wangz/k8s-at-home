@@ -7,6 +7,8 @@ import (
 
 func (s *Service) startBackgroundWorkers(ctx context.Context) {
 	s.backgroundSlots = make(chan struct{}, 2)
+	s.backgroundScheduler = &backgroundScheduler{capacity: cap(s.backgroundSlots)}
+	s.backgroundReady = map[string]chan struct{}{}
 	s.collectorSlots = make(chan struct{}, 1)
 	collectorPace := time.NewTicker(250 * time.Millisecond)
 	s.collectorPace = collectorPace.C
@@ -23,8 +25,9 @@ func (s *Service) startBackgroundWorkers(ctx context.Context) {
 	queues := []struct {
 		kind string
 		step backgroundStep
-	}{{"inventory", s.projectManifestStep}, {"execution", s.projectExecutionStep}, {"download_cleanup", s.cleanupDownloadStep}, {"notify", s.notificationStep}, {"wake_root", s.wakeRootStep}, {"terminal_cleanup", s.terminalCleanupStep}}
+	}{{"inventory", s.projectManifestStep}, {"execution", s.projectExecutionStep}, {"download_cleanup", s.cleanupDownloadStep}, {"notify", s.notificationStep}, {"wake_root", s.wakeRootStep}, {"terminal_cleanup", s.terminalCleanupStep}, {"quota_wake", s.quotaWakeStep}, {"cache_verification", s.cacheVerificationStep}, {"distribution_verification", s.distributionVerificationStep}}
 	for _, queue := range queues {
+		s.backgroundReady[queue.kind] = make(chan struct{}, 1)
 		workers = append(workers, func(ctx context.Context) { s.runBackgroundQueue(ctx, queue.kind, queue.step) })
 	}
 	for _, worker := range workers {

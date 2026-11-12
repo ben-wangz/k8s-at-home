@@ -17,41 +17,65 @@ func waitForTaskStatusWithin(ctx context.Context, environment testkit.CaseContex
 		"digest":     {reference},
 		"limit":      {"100"},
 	}
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
-	lastStatus := "not_observed"
-	for {
-		response, err := support.AdminRequest(ctx, environment, http.MethodGet, "/api/v1/tasks?"+query.Encode(), nil, nil)
+	return waitTaskStatus(ctx, query, reference, expectedStatus, timeout, func(path string) (map[string]any, error) {
+		response, err := support.AdminRequest(ctx, environment, http.MethodGet, path, nil, nil)
 		if err != nil {
 			return nil, err
 		}
-		var page map[string]any
-		if _, err := support.DecodeJSON(response, 4<<20, &page); err != nil {
+		var document map[string]any
+		_, err = support.DecodeJSON(response, 4<<20, &document)
+		return document, err
+	})
+}
+
+func waitTaskStatus(ctx context.Context, query url.Values, reference, expectedStatus string, timeout time.Duration, read func(string) (map[string]any, error)) (map[string]any, error) {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	lastStatus, id, token := "not_observed", "", ""
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-deadline.C:
+			return nil, fmt.Errorf("upstream import task %q did not reach %s within %s (last status %s)", reference, expectedStatus, timeout, lastStatus)
+		default:
+		}
+		path := "/api/v1/tasks?" + query.Encode()
+		if token != "" {
+			path += "&token=" + url.QueryEscape(token)
+		}
+		if id != "" {
+			path = "/api/v1/tasks/" + url.PathEscape(id) + "?graphLimit=1&ownerLimit=1"
+		}
+		page, err := read(path)
+		if err != nil {
 			return nil, err
 		}
-		for _, item := range testkit.Slice(page["items"]) {
+		items := testkit.Slice(page["items"])
+		if id != "" {
+			items = []any{page}
+		}
+		for _, item := range items {
 			task := testkit.Map(item)
 			if testkit.String(task["reference"]) != reference {
 				continue
 			}
+			id = testkit.String(task["id"])
+			if id == "" {
+				return nil, fmt.Errorf("upstream import task %q has no ID", reference)
+			}
 			lastStatus = testkit.String(task["status"])
 			if lastStatus == expectedStatus {
-				id := testkit.String(task["id"])
-				if id == "" {
-					return nil, fmt.Errorf("upstream import task %q has no ID", reference)
-				}
-				detailResponse, err := support.AdminRequest(ctx, environment, http.MethodGet, "/api/v1/tasks/"+url.PathEscape(id), nil, nil)
-				if err != nil {
-					return nil, err
-				}
-				var detail map[string]any
-				if _, err := support.DecodeJSON(detailResponse, 4<<20, &detail); err != nil {
-					return nil, err
-				}
-				return detail, nil
+				return read("/api/v1/tasks/" + url.PathEscape(id))
 			}
 			if lastStatus == "failed" || lastStatus == "cancelled" || lastStatus == "solidified" {
 				return nil, fmt.Errorf("upstream import task %q ended in %s, want %s (%s)", reference, lastStatus, expectedStatus, testkit.String(task["errorClass"]))
+			}
+		}
+		if id == "" {
+			token = testkit.String(page["nextToken"])
+			if token != "" {
+				continue
 			}
 		}
 		select {

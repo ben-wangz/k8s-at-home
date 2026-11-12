@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"registry-hub/internal/artifact"
@@ -13,20 +14,27 @@ import (
 )
 
 func (fixture *closurePublicationFixture) serveManifest(writer http.ResponseWriter, request *http.Request, reference string) {
-	if request.Method == http.MethodGet {
+	if request.Method == http.MethodGet || request.Method == http.MethodHead {
 		fixture.objectMu.Lock()
 		object, exists := fixture.objects[reference]
 		fixture.objectMu.Unlock()
 		if !exists {
 			writer.Header().Set("Content-Type", "application/json")
 			writer.WriteHeader(http.StatusNotFound)
-			_, _ = io.WriteString(writer, `{"errors":[{"code":"MANIFEST_UNKNOWN"}]}`)
+			if request.Method == http.MethodGet {
+				_, _ = io.WriteString(writer, `{"errors":[{"code":"MANIFEST_UNKNOWN"}]}`)
+			}
 			return
 		}
-		fixture.verifiedReads.Add(1)
 		writer.Header().Set("Content-Type", object.mediaType)
+		writer.Header().Set("Content-Length", fmt.Sprint(len(object.body)))
 		writer.Header().Set("Docker-Content-Digest", object.digest)
-		_, _ = writer.Write(object.body)
+		if request.Method == http.MethodGet {
+			fixture.verifiedReads.Add(1)
+			_, _ = writer.Write(object.body)
+		} else {
+			writer.WriteHeader(http.StatusOK)
+		}
 		return
 	}
 	if request.Method != http.MethodPut {
@@ -157,8 +165,8 @@ func (fixture *closurePublicationFixture) resumeRootAndVerify(t *testing.T) {
 	if fixture.task.Checkpoints[fixture.rootDigest] != "verified" || fixture.task.Checkpoints[fixture.childDigest] != "verified" {
 		t.Fatalf("solidification checkpoints = %#v", fixture.task.Checkpoints)
 	}
-	if fixture.verifiedReads.Load() < 4 {
-		t.Fatalf("Distribution verification reads = %d, want blob, child, root digest, and root tag", fixture.verifiedReads.Load())
+	if fixture.verifiedReads.Load() != 0 {
+		t.Fatalf("successful solidification read back %d Distribution payloads, want 0", fixture.verifiedReads.Load())
 	}
 	fixture.assertRootPublished(t)
 	removed, err := fixture.cache.Cleanup(fixture.ctx, time.Now().Add(time.Minute), 100)

@@ -77,6 +77,13 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 	}
 	current, currentErr := m.Get(parent, latest.ID)
 	if currentErr == nil {
+		latest.QuotaWakeRevision, latest.QuotaWakeState = current.QuotaWakeRevision, current.QuotaWakeState
+		if current.ProtectionAssociatedAt.After(latest.ProtectionAssociatedAt) {
+			latest.ScopeID, latest.SessionIDs = current.ScopeID, current.SessionIDs
+			latest.ProtectionSessionID, latest.ProtectionOwnerID = current.ProtectionSessionID, current.ProtectionOwnerID
+			latest.RequestedBytes, latest.ReservedBytes, latest.GCProtected = current.RequestedBytes, current.ReservedBytes, current.GCProtected
+			latest.ProtectionAssociatedAt = current.ProtectionAssociatedAt
+		}
 		if current.ManifestObservedAt.After(latest.ManifestObservedAt) {
 			latest.ManifestObservedAt, latest.ManifestGeneration = current.ManifestObservedAt, current.ManifestGeneration
 		}
@@ -87,6 +94,7 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 			latest.CancelPhase = current.CancelPhase
 		}
 		latest.version = current.version
+		latest.Dispatch = current.Dispatch
 	}
 	if latest.CancelRequested || errors.Is(err, ErrCancelled) {
 		latest.Status = Cancelled
@@ -101,6 +109,7 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 			latest.Status = yielded.Status
 			latest.WaitReason = yielded.Reason
 			if yielded.Status == WaitingQuota {
+				latest.ExecutableAt = time.Time{}
 				if latest.QuotaWaitAt.IsZero() || latest.QuotaWaitReason != yielded.Reason {
 					latest.QuotaWaitAt = time.Now().UTC()
 					latest.QuotaWaitReason = yielded.Reason

@@ -19,24 +19,31 @@ func (s *Service) cacheUpstreamBlobUntil(ctx context.Context, routed route.Route
 	identity := objectLeaseKey(routed.Upstream, routed.RemoteRepo, routed.Reference)
 	owner := requestID()
 	for {
-		if cached, err := s.cache.GetAny(ctx, routed.Upstream, routed.RemoteRepo, routed.Reference); err == nil {
-			_ = cached.Body.Close()
+		inspection, inspectErr := s.cache.InspectAny(ctx, routed.Upstream, routed.RemoteRepo, routed.Reference, "application/octet-stream")
+		if inspectErr != nil && !errors.Is(inspectErr, storage.ErrNotFound) {
+			return withUpstreamBlobStage("cache_preflight_verify", inspectErr)
+		}
+		if inspection.Present {
 			return nil
-		} else if !errors.Is(err, storage.ErrNotFound) {
-			return err
+		}
+		if inspection.Unknown {
+			if err := s.cache.RefreshVerification(ctx, inspection.CachedRepresentation, nil); err != nil {
+				return withUpstreamBlobStage("cache_preflight_verify", err)
+			}
+			return nil
 		}
 		objectLease, err := s.tasks.Leases().Acquire(ctx, "objects/"+identity, owner, objectLeaseTTL)
 		if err == nil {
 			return s.downloadSharedBlob(ctx, routed, objectLease)
 		}
 		if !errors.Is(err, lease.ErrHeld) {
-			return err
+			return withUpstreamBlobStage("object_lease_acquire", err)
 		}
 		if time.Now().After(deadline) {
-			return &upstreamBlobFetchError{
+			return withUpstreamBlobStage("object_lease_wait", &upstreamBlobFetchError{
 				status: http.StatusServiceUnavailable, retryAfter: "5",
 				err: errors.New("timed out waiting for shared object download"),
-			}
+			})
 		}
 		timer := time.NewTimer(200 * time.Millisecond)
 		select {
@@ -55,17 +62,26 @@ func (s *Service) downloadSharedBlob(ctx context.Context, routed route.Route, ob
 	defer func() {
 		cancel()
 		if renewErr := <-renewDone; result == nil && renewErr != nil {
-			result = renewErr
+			result = withUpstreamBlobStage("object_lease_renewal", renewErr)
 		}
 		releaseCtx, releaseCancel := context.WithTimeout(context.WithoutCancel(leaseCtx), 5*time.Second)
 		defer releaseCancel()
 		_ = s.tasks.Leases().Release(releaseCtx, objectLease)
 	}()
-	if cached, err := s.cache.GetAny(leaseCtx, routed.Upstream, routed.RemoteRepo, routed.Reference); err == nil {
-		_ = cached.Body.Close()
+	inspection, inspectErr := s.cache.InspectAny(leaseCtx, routed.Upstream, routed.RemoteRepo, routed.Reference, "application/octet-stream")
+	if inspectErr != nil && !errors.Is(inspectErr, storage.ErrNotFound) {
+		return withUpstreamBlobStage("cache_preflight_verify", inspectErr)
+	}
+	if inspection.Present {
 		return nil
-	} else if !errors.Is(err, storage.ErrNotFound) {
-		return err
+	}
+	if inspection.Unknown {
+		if err := s.cache.RefreshVerification(leaseCtx, inspection.CachedRepresentation, func(guardCtx context.Context) error {
+			return s.tasks.Leases().Validate(guardCtx, objectLease)
+		}); err != nil {
+			return withUpstreamBlobStage("cache_preflight_verify", err)
+		}
+		return nil
 	}
 	identity := objectLeaseKey(routed.Upstream, routed.RemoteRepo, routed.Reference)
 	maxBytes := s.cfg.Limits.ObjectBytes
@@ -120,14 +136,20 @@ func (s *Service) downloadSharedBlob(ctx context.Context, routed route.Route, ob
 	if err != nil {
 		var persistenceErr *download.PersistenceError
 		var guardErr *download.GuardError
-		if errors.As(err, &persistenceErr) || errors.As(err, &guardErr) || errors.Is(err, download.ErrQuotaExceeded) {
-			return err
+		if errors.As(err, &persistenceErr) {
+			return withUpstreamBlobStage(persistenceErr.Stage, err)
+		}
+		if errors.As(err, &guardErr) {
+			return withUpstreamBlobStage("download_guard", err)
+		}
+		if errors.Is(err, download.ErrQuotaExceeded) {
+			return withUpstreamBlobStage("download_quota", err)
 		}
 		var statusErr *download.StatusError
 		if errors.As(err, &statusErr) {
-			return &upstreamBlobFetchError{status: statusErr.Code, retryAfter: statusErr.RetryAfter, err: err}
+			return withUpstreamBlobStage("upstream_fetch", &upstreamBlobFetchError{status: statusErr.Code, retryAfter: statusErr.RetryAfter, err: err})
 		}
-		return &upstreamBlobFetchError{err: err}
+		return withUpstreamBlobStage("upstream_fetch", &upstreamBlobFetchError{err: err})
 	}
 	mediaType, _, parseErr := mime.ParseMediaType(downloadResult.MediaType)
 	if parseErr != nil || mediaType == "" {
@@ -135,20 +157,21 @@ func (s *Service) downloadSharedBlob(ctx context.Context, routed route.Route, ob
 	}
 	body, size, err := manager.Open(transferCtx, identity, routed.Reference, maxBytes)
 	if err != nil {
-		return err
+		return withUpstreamBlobStage("download_chunk_reopen", err)
 	}
 	defer body.Close()
-	if err := s.cache.PutChecked(transferCtx, routed.Upstream, routed.RemoteRepo, routed.Reference, mediaType, body, size, func() error {
+	committed, err := s.cache.PutCheckedRepresentation(storage.WithIOPurpose(transferCtx, "download_assembly"), routed.Upstream, routed.RemoteRepo, routed.Reference, mediaType, body, size, func() error {
 		return s.tasks.Leases().Validate(transferCtx, objectLease)
-	}); err != nil {
+	})
+	if err != nil {
 		if errors.Is(err, artifact.ErrDigestMismatch) {
 			_ = manager.Discard(transferCtx, identity, routed.Reference, objectLease.FencingToken)
 		}
-		return err
+		return withUpstreamBlobStage("cache_representation_commit", err)
 	}
 	if err := s.tasks.Leases().Validate(transferCtx, objectLease); err != nil {
-		return err
+		return withUpstreamBlobStage("object_lease_validate", err)
 	}
-	s.deferDownloadCleanup(transferCtx, routed.Upstream, routed.RemoteRepo, identity, routed.Reference, objectLease.FencingToken)
+	s.deferDownloadCleanup(transferCtx, routed.Upstream, routed.RemoteRepo, identity, routed.Reference, objectLease.FencingToken, committed.DataVersion)
 	return nil
 }

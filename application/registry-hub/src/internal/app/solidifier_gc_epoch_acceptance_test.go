@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"registry-hub/internal/artifact"
+	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
 )
@@ -38,7 +39,14 @@ func TestGCFailureRestartRecoveryInvalidatesLocalObservation(t *testing.T) {
 			f.service.registry, f.processor.registry = registry, registry
 			task := &tasks.Task{ID: strings.Repeat("a", 32), Authority: "ghcr.io", Repository: "team/image"}
 			path := "/v2/local/blobs/" + blob.digest
-			if err := f.processor.verifyOrReuseLocalBlob(ctx, task, blob, task.ID, path); err != nil {
+			verify := func(session string) error {
+				leaseCtx, release, err := acquireContentLease(ctx, lease.NewManager(f.service.store), task.Authority, task.Repository, blob.digest, "gc-test")
+				if err != nil {
+					return err
+				}
+				return errors.Join(f.processor.verifyOrReuseLocalBlob(leaseCtx, task, blob, session, path), release())
+			}
+			if err := verify(task.ID); err != nil {
 				t.Fatal(err)
 			}
 			oldEpoch := f.service.gate.State().Epoch
@@ -83,7 +91,7 @@ func TestGCFailureRestartRecoveryInvalidatesLocalObservation(t *testing.T) {
 			if _, err := f.service.records.FindLocalObservation(ctx, task.Authority, task.Repository, tasks.GraphBlob, blob.digest, blob.size, 0, gate.State().Epoch); !errors.Is(err, storage.ErrNotFound) {
 				t.Fatalf("old observation reused after GC = %v", err)
 			}
-			if err := f.processor.verifyOrReuseLocalBlob(ctx, task, blob, strings.Repeat("c", 32), path); err != nil {
+			if err := verify(strings.Repeat("c", 32)); err != nil {
 				t.Fatal(err)
 			}
 			if reads.Load() != 2 {

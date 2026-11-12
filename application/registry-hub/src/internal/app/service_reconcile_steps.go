@@ -32,11 +32,20 @@ func (s *Service) runTaskReconciliation(ctx context.Context) {
 		if s.recoveryStarting.Load() || gate.RecoveryBarrier {
 			return nil
 		}
+		if err := s.enqueueQuotaTransition(ctx, task); err != nil {
+			return err
+		}
+		if err := s.wakeCoveredBlob(ctx, task); err != nil {
+			return err
+		}
 		if isTerminalTask(task.Status) && !task.TerminalCleanupComplete {
 			return processor.TaskTerminal(ctx, &task)
 		}
 		if gate.RecoveryBarrier || gate.State != "open" || task.CancelRequested {
 			return nil
+		}
+		if task.Status == tasks.WaitingDeps && task.WaitReason == "distribution_verification" {
+			return s.reconcileVerificationWait(ctx, task)
 		}
 		if task.Status == tasks.WaitingDeps && (task.WaitReason == "gc_admission" || task.WaitReason == "protection_transfer" || task.WaitReason == "manifest_scope_admission") {
 			_, err = s.tasks.Wake(ctx, task.ID)
@@ -113,35 +122,34 @@ func (s *Service) runProtectionRecovery(ctx context.Context) {
 }
 
 func (s *Service) runQuotaReconciliation(ctx context.Context) {
-	oldest := map[string]tasks.Task{}
-	lastKey := ""
-	s.runSourceSweep(ctx, "quota_waiters", "tasks/state/", func(ctx context.Context, entry storage.Entry) error {
-		if entry.Key <= lastKey {
-			for reason, candidate := range oldest {
-				if err := s.wakeQuotaCandidate(ctx, reason, candidate, s.gate.State()); err != nil {
-					return err
-				}
-			}
-			oldest = map[string]tasks.Task{}
-		}
-		lastKey = entry.Key
+	s.runSourceSweepWithState(ctx, "quota_waiters", "tasks/state/", func(ctx context.Context, entry storage.Entry, checkpoint *sourceSweepCheckpoint) error {
 		task, _, err := inventory.Read[tasks.Task](ctx, s.store, entry.Key)
 		if err != nil {
 			return err
 		}
-		reason := task.WaitReason
-		eligible := task.Status == tasks.WaitingQuota
-		if (task.Status == tasks.Pending || task.Status == tasks.Running) && !task.QuotaWaitAt.IsZero() {
-			reason, eligible = task.QuotaWaitReason, true
+		if checkpoint.QuotaCandidates == nil {
+			checkpoint.QuotaCandidates = map[string]tasks.Task{}
 		}
-		if eligible && !task.CancelRequested && (reason == "distribution_quota" || reason == "protected_cache_capacity") {
-			current := oldest[reason]
-			if current.ID == "" || quotaCandidateBefore(task, current) {
-				oldest[reason] = task
-			}
+		selectQuotaCandidate(checkpoint.QuotaCandidates, task)
+		return s.wakeCoveredBlob(ctx, task)
+	}, s.completeQuotaScan)
+}
+
+func (s *Service) completeQuotaScan(ctx context.Context, checkpoint *sourceSweepCheckpoint) error {
+	reasons := []string{"distribution_quota", "protected_cache_capacity"}
+	for checkpoint.QuotaWakeIndex < len(reasons) {
+		if !sourceBudgetAvailable(ctx) {
+			return errSourceBudgetYield
 		}
-		return nil
-	})
+		reason := reasons[checkpoint.QuotaWakeIndex]
+		if err := s.wakeQuotaCandidate(ctx, reason, checkpoint.QuotaCandidates[reason], s.gate.State()); err != nil {
+			return err
+		}
+		checkpoint.QuotaWakeIndex++
+	}
+	checkpoint.QuotaLastCandidates = checkpoint.QuotaCandidates
+	checkpoint.QuotaCandidates, checkpoint.QuotaWakeIndex = nil, 0
+	return nil
 }
 
 func quotaCandidateBefore(left, right tasks.Task) bool {
@@ -159,14 +167,14 @@ func quotaCandidateBefore(left, right tasks.Task) bool {
 }
 
 func (s *Service) wakeQuotaCandidate(ctx context.Context, reason string, waiter tasks.Task, gate gateRecord) error {
-	if gate.State != "open" || gate.RecoveryBarrier {
+	if waiter.ID == "" || gate.State != "open" || gate.RecoveryBarrier {
 		return nil
 	}
 	current, err := s.tasks.Get(ctx, waiter.ID)
 	if errors.Is(err, storage.ErrNotFound) {
 		return nil
 	}
-	if err != nil || current.Status != tasks.WaitingQuota || current.WaitReason != reason || current.CancelRequested {
+	if err != nil || current.Status != tasks.WaitingQuota || current.WaitReason != reason || current.CancelRequested || current.Generation != waiter.Generation || current.RoundID != waiter.RoundID {
 		return err
 	}
 	return s.wakeFittingQuotaWaiter(ctx, reason, current, gate)

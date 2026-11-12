@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"registry-hub/internal/diagnostics"
+	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 )
 
@@ -27,6 +28,9 @@ func (q Queue) save(ctx context.Context, job *Job) error {
 	diagnostics.Record(&job.DiagnosticOutbox, event)
 	data, err := json.Marshal(job)
 	if err != nil {
+		return err
+	}
+	if err := inventory.ValidateWriteGuard(ctx); err != nil {
 		return err
 	}
 	entry, err := q.Store.Put(ctx, Key(job.Kind, job.ID), bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfMatch: job.Version})

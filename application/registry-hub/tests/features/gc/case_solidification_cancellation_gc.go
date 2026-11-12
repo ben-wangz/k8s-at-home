@@ -51,6 +51,9 @@ func verifySolidificationCancellationGC(ctx context.Context, environment testkit
 	if err != nil {
 		return nil, err
 	}
+	if err := verifyCleanupSummariesAfterRestart(ctx, environment, cancelled); err != nil {
+		return nil, err
+	}
 	gate, err := gcStatus(ctx, environment)
 	if err != nil {
 		return nil, err
@@ -119,6 +122,8 @@ func verifySolidificationCancellationGC(ctx context.Context, environment testkit
 		"reference": reference, "taskID": testkit.String(testkit.Map(tasks["rootTask"])["id"]), "taskStatusAfterCancel": "cancelled",
 		"cancelResponseStatus": testkit.Int(cancelled["cancelResponseStatus"]), "cancelledTasks": cancelled["taskIDs"],
 		"cancelResponses":                         cancelled["responses"],
+		"cleanupSummaries":                        cancelled["cleanupSummaries"],
+		"cleanupSummaryRestartVerified":           cancelled["cleanupSummaryRestartVerified"],
 		"manualCacheEntriesRemovedWhileProtected": testkit.Int(cacheCleanup["cacheRemoved"]),
 		"duplicateCacheMissingWhileProtected":     cacheCleanup["targetCacheMissing"] == true,
 		"protectionSessionBlockedGC":              blocked, "cancellationQuiesced": cancelled["quiesced"] == true,

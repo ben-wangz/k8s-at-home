@@ -17,18 +17,21 @@ func CreateProxyFixture(ctx context.Context, environment testkit.CaseContext, se
 		"registry-hub.io/managed-by": "registry-hub-test-fixture",
 		"registry-hub.io/fixture":    fixtureName,
 	}
-	configData := make(map[string]string, len(fixtureSources)+len(extraConfig))
-	for name, source := range fixtureSources {
+	configData := make(map[string]string, len(extraConfig))
+	for name := range fixtureSources {
 		if !strings.HasSuffix(name, ".go") || strings.Contains(name, "/") || name == "" {
 			return fmt.Errorf("upstream fixture source name %q is invalid", name)
 		}
-		configData[name] = source
 	}
 	for key, value := range extraConfig {
 		if key == "" || strings.HasSuffix(key, ".go") || strings.Contains(key, "/") {
 			return fmt.Errorf("upstream fixture ConfigMap key %q is invalid", key)
 		}
 		configData[key] = value
+	}
+	image, err := buildProxyImage(ctx, environment, fixtureSources)
+	if err != nil {
+		return err
 	}
 	resources := []map[string]any{
 		{
@@ -56,9 +59,7 @@ func CreateProxyFixture(ctx context.Context, environment testkit.CaseContext, se
 					"seccompProfile": map[string]any{"type": "RuntimeDefault"},
 				},
 				"containers": []map[string]any{{
-					"name": "proxy", "image": proxyImage, "imagePullPolicy": "IfNotPresent",
-					"command": []string{"/bin/sh", "-c"},
-					"args":    []string{"CGO_ENABLED=0 GOCACHE=/tmp/gocache GO111MODULE=off go run /fixture/*.go"},
+					"name": "proxy", "image": image, "imagePullPolicy": "IfNotPresent",
 					"envFrom": []map[string]any{{"secretRef": map[string]any{"name": secretName}}},
 					"ports":   []map[string]any{{"name": "http", "containerPort": 8080}},
 					"readinessProbe": map[string]any{

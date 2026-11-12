@@ -59,8 +59,8 @@ func TestBlobWorkerUsesDistributionWhenCacheWasCleaned(t *testing.T) {
 	if !errors.As(err, &yielded) || yielded.Status != tasks.VerifiedLocal {
 		t.Fatalf("worker result = %v, want verified_local while awaiting manifest anchor", err)
 	}
-	if requests.Load() < 2 {
-		t.Fatalf("Distribution requests = %d, want a presence check and content verification", requests.Load())
+	if requests.Load() != 1 {
+		t.Fatalf("Distribution requests = %d, want one digest-indexed HEAD", requests.Load())
 	}
 	intent, err = service.records.GetBlobIntent(ctx, task.ID)
 	if err != nil {

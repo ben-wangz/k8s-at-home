@@ -64,7 +64,7 @@ func (s *Service) enqueueBlobIntent(ctx context.Context, intent tasks.BlobIntent
 	if err != nil {
 		return tasks.Task{}, false, err
 	}
-	if current.State != tasks.IntentReady && current.State != tasks.IntentRetryWait {
+	if current.State != tasks.IntentReady && current.State != tasks.IntentRetryWait && current.State != tasks.IntentWaitingQuota {
 		return tasks.Task{}, false, storage.ErrConditionFailed
 	}
 	intent = current
@@ -122,6 +122,13 @@ func (s *Service) enqueueBlobIntent(ctx context.Context, intent tasks.BlobIntent
 	}
 	if protected {
 		if err := s.tasks.ReconcileProtectionState(ctx, task.ID, session.ScopeID, []string{session.ID}, session.ReservedBytes, session.ReservedBytes); err != nil {
+			return task, created, err
+		}
+		task, err = s.tasks.Get(ctx, task.ID)
+		if err == nil {
+			err = s.wakeCoveredBlob(ctx, task)
+		}
+		if err != nil {
 			return task, created, err
 		}
 	}

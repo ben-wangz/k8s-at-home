@@ -9,7 +9,6 @@ import (
 	"registry-hub/internal/artifact"
 	"registry-hub/internal/config"
 	"registry-hub/internal/distribution"
-	"registry-hub/internal/download"
 	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
@@ -58,50 +57,14 @@ func manifestReadHeaders() http.Header {
 }
 
 func (s *solidifier) Process(ctx context.Context, task *tasks.Task, taskLease lease.Lease) (result error) {
+	ctx = context.WithValue(ctx, diagnosticContextKey{}, backgroundDiagnosticContext{Kind: "solidification", Scope: "execution", WorkID: task.ID})
 	ctx = context.WithValue(ctx, storageOperationIDKey{}, task.ID)
 	ctx = context.WithValue(ctx, diagnosticTaskKey{}, task)
+	ctx, performance := withSolidificationPerformance(ctx)
 	if s.gate.State().RecoveryBarrier {
 		return tasks.WaitFor(tasks.WaitingDeps, "gc_admission")
 	}
-	defer func() {
-		if result == nil || s.service == nil || s.service.logger == nil || errors.Is(result, context.Canceled) {
-			return
-		}
-		var yielded *tasks.Yield
-		if errors.As(result, &yielded) {
-			return
-		}
-		class := "solidification"
-		var failure *tasks.Failure
-		if errors.As(result, &failure) {
-			class = failure.Class
-		}
-		if errors.Is(result, lease.ErrLost) {
-			class = "fencing"
-		} else if errors.Is(result, artifact.ErrDigestMismatch) {
-			class = "digest_mismatch"
-		}
-		if errors.Is(result, artifact.ErrDigestMismatch) {
-			s.service.metrics.recordEvent("digest_mismatch")
-		}
-		if errors.Is(result, lease.ErrLost) || errors.Is(result, storage.ErrLeaseLost) {
-			s.service.metrics.recordEvent("lease_lost")
-		}
-		fields := []any{"task_id", task.ID, "error_class", class}
-		var stage *solidificationFailureStage
-		if errors.As(result, &failure) && errors.As(failure.Err, &stage) {
-			fields = append(fields, "failure_stage", stage.name)
-			if stage.sessionID != "" {
-				fields = append(fields, "session_id", stage.sessionID)
-			}
-		}
-		var downloadErr *download.PersistenceError
-		if errors.As(result, &downloadErr) {
-			fields = append(fields, "download_stage", downloadErr.Stage)
-		}
-		fields = append(fields, "error", result)
-		s.service.logger.Warn("solidification failed", fields...)
-	}()
+	defer func() { s.logSolidificationResult(task, performance, result) }()
 	releaseSlot, ok := s.service.acquireSolidificationSlot(ctx, false)
 	if !ok {
 		if ctx.Err() != nil {
@@ -111,6 +74,9 @@ func (s *solidifier) Process(ctx context.Context, task *tasks.Task, taskLease le
 		return temporary("solidification_busy", errors.New("solidification worker slot is unavailable"))
 	}
 	defer releaseSlot()
+	if err := s.consumeVerificationResult(ctx, task); err != nil {
+		return err
+	}
 	if task.Kind == tasks.BlobKind {
 		return s.processBlob(ctx, task, taskLease)
 	}

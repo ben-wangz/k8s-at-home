@@ -11,6 +11,52 @@ import (
 
 func (s *Service) validateRetrySource(ctx context.Context, job workqueue.Job) error {
 	switch job.Kind {
+	case "distribution_verification":
+		var work distributionVerificationWork
+		if json.Unmarshal(job.Payload, &work) != nil {
+			return storage.ErrCorruptObject
+		}
+		_, valid, err := s.distributionVerificationSource(ctx, work)
+		if err != nil {
+			return err
+		}
+		if !valid {
+			return workqueue.ErrSourceMissing
+		}
+		return s.validateDiagnosticGeneration(ctx, work.Authority, work.Repository, work.Digest, work.Generation)
+	case "cache_verification":
+		var source cacheVerificationWork
+		if json.Unmarshal(job.Payload, &source) != nil {
+			return storage.ErrCorruptObject
+		}
+		if err := s.validateDiagnosticGeneration(ctx, source.Identity.Authority, source.Identity.Repository, source.Identity.Digest, source.Generation); err != nil {
+			return err
+		}
+		inspection, err := s.cache.Inspect(ctx, source.Identity.Authority, source.Identity.Repository, source.Identity.Digest, source.MediaType)
+		if err != nil {
+			return err
+		}
+		if inspection.DataVersion != source.CacheVersion || inspection.Size != source.Size || inspection.PayloadFingerprint != source.Fingerprint {
+			return storage.ErrConditionFailed
+		}
+		if !inspection.Present && !inspection.Unknown {
+			return workqueue.ErrSourceMissing
+		}
+	case "quota_wake":
+		var source quotaWakeWork
+		if json.Unmarshal(job.Payload, &source) != nil {
+			return storage.ErrCorruptObject
+		}
+		current, err := s.tasks.Get(ctx, source.TaskID)
+		if errors.Is(err, storage.ErrNotFound) {
+			return workqueue.ErrSourceMissing
+		}
+		if err != nil {
+			return err
+		}
+		if current.Generation != source.Generation || current.RoundID != source.RoundID || current.QuotaWakeRevision != source.Revision || current.ProtectionSessionID != source.SessionID {
+			return storage.ErrConditionFailed
+		}
 	case "terminal_cleanup":
 		var source terminalCleanupWork
 		if json.Unmarshal(job.Payload, &source) != nil {

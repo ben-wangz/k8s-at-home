@@ -40,10 +40,13 @@ func (c *Cache) readMetadataEntry(ctx context.Context, key string) (cacheMetadat
 			return cacheMetadata{}, object.Version, storage.ErrCorruptObject
 		}
 		switch metadata.SchemaVersion {
-		case cacheSchemaCurrent:
+		case cachePayloadSchemaCurrent:
 			return metadata, object.Version, nil
-		case cacheSchemaPrevious:
-			metadata.SchemaVersion = cacheSchemaCurrent
+		case cachePayloadSchemaPrevious, cacheSchemaPrevious:
+			if metadata.IntegrityState == "" {
+				metadata.IntegrityState = "legacy_unknown"
+			}
+			metadata.SchemaVersion = cachePayloadSchemaCurrent
 			updated, marshalErr := json.Marshal(metadata)
 			if marshalErr != nil {
 				return cacheMetadata{}, "", marshalErr
@@ -77,7 +80,7 @@ func validCacheMetadataKey(key string, metadata cacheMetadata) bool {
 }
 
 func (c *Cache) ensureComplete(ctx context.Context, identity string, metadata cacheMetadata, dataVersion string) error {
-	marker := cacheComplete{SchemaVersion: cacheSchemaCurrent, Authority: metadata.Authority, Repository: metadata.Repository, Digest: metadata.Digest, MediaType: metadata.MediaType, Size: metadata.Size, DataVersion: dataVersion, CompletedAt: time.Now().UTC()}
+	marker := cacheComplete{SchemaVersion: cachePayloadSchemaCurrent, Authority: metadata.Authority, Repository: metadata.Repository, Digest: metadata.Digest, MediaType: metadata.MediaType, Size: metadata.Size, DataVersion: dataVersion, CompletedAt: time.Now().UTC(), IntegrityState: metadata.IntegrityState, IntegrityDigest: metadata.IntegrityDigest, IntegritySize: metadata.IntegritySize, IntegrityMethod: metadata.IntegrityMethod, IntegrityVerifiedAt: metadata.IntegrityVerifiedAt, IntegrityBackendAlgorithm: metadata.IntegrityBackendAlgorithm, IntegrityBackendValue: metadata.IntegrityBackendValue, IntegrityBackendScope: metadata.IntegrityBackendScope}
 	data, err := json.Marshal(marker)
 	if err != nil {
 		return err
@@ -85,6 +88,23 @@ func (c *Cache) ensureComplete(ctx context.Context, identity string, metadata ca
 	key := cacheCompleteKey(identity, metadata.MediaType)
 	_, err = c.store.Put(ctx, key, bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfAbsent: true})
 	if errors.Is(err, storage.ErrAlreadyExists) {
+		if verifyErr := c.verifyComplete(ctx, identity, metadata); verifyErr == nil {
+			marker, readErr := c.readComplete(ctx, identity, metadata.MediaType)
+			if readErr != nil {
+				return readErr
+			}
+			if validIntegrityProof(metadata, metadata.Digest) && !integrityProofMatches(metadata, marker, metadata.Digest) {
+				return c.updateCompleteIntegrity(ctx, identity, metadata)
+			}
+			return nil
+		}
+		marker, readErr := c.readComplete(ctx, identity, metadata.MediaType)
+		if readErr != nil || marker.DataVersion != metadata.DataVersion || marker.Size != metadata.Size {
+			return errors.Join(storage.ErrCorruptObject, readErr)
+		}
+		if updateErr := c.updateCompleteIntegrity(ctx, identity, metadata); updateErr != nil {
+			return updateErr
+		}
 		return c.verifyComplete(ctx, identity, metadata)
 	}
 	return err
@@ -95,10 +115,18 @@ func (c *Cache) verifyComplete(ctx context.Context, identity string, metadata ca
 	if err != nil {
 		return err
 	}
-	if marker.SchemaVersion != cacheSchemaCurrent || marker.Authority != metadata.Authority || marker.Repository != metadata.Repository || marker.Digest != metadata.Digest || marker.MediaType != metadata.MediaType || marker.Size != metadata.Size || marker.DataVersion != metadata.DataVersion {
+	return verifyCompleteMarker(identity, metadata, marker)
+}
+
+func verifyCompleteMarker(identity string, metadata cacheMetadata, marker cacheComplete) error {
+	if marker.SchemaVersion != cachePayloadSchemaCurrent || marker.Authority != metadata.Authority || marker.Repository != metadata.Repository || marker.Digest != metadata.Digest || marker.MediaType != metadata.MediaType || marker.Size != metadata.Size || marker.DataVersion != metadata.DataVersion {
 		return errors.Join(storage.ErrCorruptObject, errors.New("cache complete marker identity is invalid"))
 	}
 	return nil
+}
+
+func integrityProofMatches(metadata cacheMetadata, marker cacheComplete, digest string) bool {
+	return validIntegrityProof(metadata, digest) && marker.IntegrityState == metadata.IntegrityState && marker.IntegrityDigest == metadata.IntegrityDigest && marker.IntegritySize == metadata.IntegritySize && marker.IntegrityMethod == metadata.IntegrityMethod && !marker.IntegrityVerifiedAt.IsZero() && marker.IntegrityVerifiedAt.Equal(metadata.IntegrityVerifiedAt) && marker.IntegrityBackendAlgorithm == metadata.IntegrityBackendAlgorithm && marker.IntegrityBackendValue == metadata.IntegrityBackendValue && marker.IntegrityBackendScope == metadata.IntegrityBackendScope
 }
 
 func (c *Cache) readComplete(ctx context.Context, identity, mediaType string) (cacheComplete, error) {
@@ -130,10 +158,10 @@ func (c *Cache) readCompleteKey(ctx context.Context, key string) (cacheComplete,
 			return cacheComplete{}, storage.ErrCorruptObject
 		}
 		switch marker.SchemaVersion {
-		case cacheSchemaCurrent:
+		case cachePayloadSchemaCurrent:
 			return marker, nil
-		case cacheSchemaPrevious:
-			marker.SchemaVersion = cacheSchemaCurrent
+		case cachePayloadSchemaPrevious, cacheSchemaPrevious:
+			marker.SchemaVersion = cachePayloadSchemaCurrent
 			updated, marshalErr := json.Marshal(marker)
 			if marshalErr != nil {
 				return cacheComplete{}, marshalErr
@@ -164,26 +192,8 @@ func validCacheCompleteKey(key string, marker cacheComplete) bool {
 }
 
 func (c *Cache) verifyData(ctx context.Context, key, digest string, size int64, version string) error {
-	object, err := c.store.Get(ctx, key)
-	if err != nil {
-		return err
-	}
-	defer object.Body.Close()
-	if object.Size != size || object.Version != version {
-		return errors.Join(storage.ErrCorruptObject, errors.New("cache object changed during verification"))
-	}
-	hasher, err := Hasher(digest)
-	if err != nil {
-		return err
-	}
-	count, err := io.Copy(hasher, object.Body)
-	if err != nil {
-		return err
-	}
-	if count != size || digestValue(digest, hasher) != digest {
-		return errors.Join(storage.ErrCorruptObject, errors.New("cache object failed digest or size verification"))
-	}
-	return nil
+	_, err := c.openVerifiedPayload(ctx, key, digest, size, version, false)
+	return err
 }
 
 func cacheIdentity(authority, repository, digest string) string {
@@ -205,22 +215,6 @@ func cacheCompleteKey(identity, mediaType string) string {
 	return "cache/objects/" + identity + "/complete/" + hex.EncodeToString(hash[:]) + ".json"
 }
 
-func digestValue(reference string, hasher interface{ Sum([]byte) []byte }) string {
-	algorithm := strings.SplitN(reference, ":", 2)[0]
-	return algorithm + ":" + hex.EncodeToString(hasher.Sum(nil))
-}
-
-type hashingReader struct {
-	reader io.Reader
-	hasher hash.Hash
-	count  int64
-}
-
-func (r *hashingReader) Read(buffer []byte) (int, error) {
-	n, err := r.reader.Read(buffer)
-	if n > 0 {
-		_, _ = r.hasher.Write(buffer[:n])
-		r.count += int64(n)
-	}
-	return n, err
+func digestValue(reference string, hasher hash.Hash) string {
+	return storage.DigestFromHasher(reference, hasher)
 }

@@ -22,7 +22,7 @@ func (s *Service) demandExecutionWork(ctx context.Context, demand tasks.BlobDema
 	if err != nil {
 		return workqueue.Job{}, false, err
 	}
-	q := workqueue.Queue{Store: s.store}
+	q := s.backgroundQueue()
 	started, err := q.Read(ctx, "execution", workqueue.ID("execution", executionSource(intent.ID, intent.Identity.Digest, intent.Generation)))
 	if errors.Is(err, storage.ErrNotFound) {
 		return workqueue.Job{}, false, nil

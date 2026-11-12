@@ -44,8 +44,11 @@ func (s *Service) reconcileBlobIntent(ctx context.Context, intent tasks.BlobInte
 		}
 	}
 	if intent.State == tasks.IntentWaitingCache || intent.State == tasks.IntentWaitingQuota {
-		cached, cacheErr := s.cache.GetAnyRetained(ctx, intent.Identity.Authority, intent.Identity.Repository, intent.Identity.Digest)
-		if errors.Is(cacheErr, storage.ErrNotFound) {
+		cached, cacheErr := s.inspectReadyBlob(ctx, s.cache, intent.Identity.Authority, intent.Identity.Repository, intent.Identity.Digest)
+		if cacheErr != nil {
+			return cacheErr
+		}
+		if !cached.Present {
 			if !intent.ExpiresAt.IsZero() && !intent.ExpiresAt.After(time.Now().UTC()) {
 				if err := s.expireIdleBlobIntent(ctx, intent, time.Now().UTC()); err != nil {
 					return err
@@ -53,11 +56,7 @@ func (s *Service) reconcileBlobIntent(ctx context.Context, intent tasks.BlobInte
 			}
 			return nil
 		}
-		if cacheErr != nil {
-			return cacheErr
-		}
 		ready, readyErr := s.records.SetBlobIntentReady(ctx, intent.ID, cached.MediaType, cached.DataVersion, cached.Size)
-		_ = cached.Body.Close()
 		if readyErr != nil {
 			return readyErr
 		}

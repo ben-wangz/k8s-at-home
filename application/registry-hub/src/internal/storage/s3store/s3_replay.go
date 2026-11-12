@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"golang.org/x/sys/unix"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
+	"registry-hub/internal/storage"
 	"sync"
 )
 
@@ -48,14 +50,16 @@ func (m *replayManager) usage() (int64, int64, int) {
 }
 
 type replaySource struct {
-	manager  *replayManager
-	size     int64
-	digest   [sha256.Size]byte
-	data     []byte
-	path     string
-	charged  int64
-	inMemory bool
-	once     sync.Once
+	manager        *replayManager
+	size           int64
+	digest         [sha256.Size]byte
+	expectedDigest string
+	expectedHash   hash.Hash
+	data           []byte
+	path           string
+	charged        int64
+	inMemory       bool
+	once           sync.Once
 }
 
 type replayRange struct {
@@ -106,14 +110,26 @@ func (c replayConfig) withDefaults() replayConfig {
 }
 
 func (m *replayManager) prepare(ctx context.Context, source io.Reader, size int64) (*replaySource, error) {
+	return m.prepareVerified(ctx, source, size, "")
+}
+
+func (m *replayManager) prepareVerified(ctx context.Context, source io.Reader, size int64, expectedDigest string) (*replaySource, error) {
 	if source == nil || size < 0 {
 		return nil, errors.New("S3 replay source and size are required")
+	}
+	var expectedHash hash.Hash
+	if expectedDigest != "" {
+		var err error
+		expectedHash, err = storage.NewDigestHasher(expectedDigest)
+		if err != nil {
+			return nil, err
+		}
 	}
 	inMemory := size <= m.config.perSourceMemory && size <= int64(maxInt()) && m.reserveMemory(size)
 	if !inMemory && !m.reserveDisk(size) {
 		return nil, errors.New("S3 replay resource budget is exhausted")
 	}
-	replay := &replaySource{manager: m, size: size, charged: size, inMemory: inMemory}
+	replay := &replaySource{manager: m, size: size, charged: size, inMemory: inMemory, expectedDigest: expectedDigest, expectedHash: expectedHash}
 	if !inMemory {
 		file, err := os.CreateTemp(m.config.directory, replayFilePrefix+"*.tmp")
 		if err != nil {

@@ -5,7 +5,7 @@ import (
 	"github.com/ben-wangz/registry-hub-tests/internal/testkit"
 )
 
-//go:embed case.json fixture/*.go
+//go:embed case.json fixture/*.go fixture-image/Containerfile
 var assets embed.FS
 
 const (

@@ -1,0 +1,13 @@
+{
+  "id": "quota-convergence",
+  "description": "Verify cached platform solidification with fully occupied covering reservations.",
+  "dependsOn": ["installation"],
+  "timeoutSeconds": 1200,
+  "preconditions": ["The isolated Backend uses its default two ordinary background slots."],
+  "assertions": ["A cached config and layer converge to an anchored platform manifest within 120 seconds of session association with at least 100 unrelated task records."],
+  "checks": [
+    {"id":"quota-convergence.covered-capacity","description":"Wake an existing Distribution quota waiter without a second reservation and record association, wake, execution, and anchor times."}
+  ],
+  "outputs": ["Structured timing, task identities, task count, and upstream fetch evidence."],
+  "requirements": ["docs/operations.md"]
+}

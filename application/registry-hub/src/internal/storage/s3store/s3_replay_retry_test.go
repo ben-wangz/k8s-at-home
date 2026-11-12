@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -76,6 +77,10 @@ func TestPutObjectRetriesWithAnIdenticalReplayableBody(t *testing.T) {
 }
 
 func TestMultipartPartRetryReusesUploadIDPartNumberAndBytes(t *testing.T) {
+	data := append(bytes.Repeat([]byte("x"), 5<<20), []byte("final-part")...)
+	digest := sha256.Sum256(data)
+	wantChecksum := base64.StdEncoding.EncodeToString(digest[:])
+	var receivedChecksum, receivedChecksumType string
 	var mu sync.Mutex
 	var uploadIDs []string
 	var partNumbers []string
@@ -121,25 +126,30 @@ func TestMultipartPartRetryReusesUploadIDPartNumberAndBytes(t *testing.T) {
 			completedObject = append(completedObject, acceptedParts["1"]...)
 			completedObject = append(completedObject, acceptedParts["2"]...)
 			mu.Unlock()
+			receivedChecksum = request.Header.Get("x-amz-checksum-sha256")
+			receivedChecksumType = request.Header.Get("x-amz-checksum-type")
 			writer.Header().Set("Content-Type", "application/xml")
-			_, _ = io.WriteString(writer, `<CompleteMultipartUploadResult><ETag>"complete-etag"</ETag></CompleteMultipartUploadResult>`)
+			_, _ = io.WriteString(writer, `<CompleteMultipartUploadResult><ETag>"complete-etag"</ETag><ChecksumSHA256>`+wantChecksum+`</ChecksumSHA256><ChecksumType>FULL_OBJECT</ChecksumType></CompleteMultipartUploadResult>`)
 		default:
 			http.NotFound(writer, request)
 		}
 	}))
 	defer server.Close()
 	store := newReplayRetryTestStore(t, server.URL, 1, 5<<20)
+	store.checksumSHA256 = true
 	defer store.Close()
 
-	data := append(bytes.Repeat([]byte("x"), 5<<20), []byte("final-part")...)
 	entry, err := store.Put(context.Background(), "test/replay-multipart", bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfAbsent: true})
 	if err != nil {
 		t.Fatalf("multipart Put after SDK retry: %v", err)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if entry.Version != `"complete-etag"` || entry.Size != int64(len(data)) || len(partBodies["1"]) != 2 || len(partBodies["2"]) != 1 {
+	if entry.Version != `"complete-etag"` || entry.Size != int64(len(data)) || entry.ChecksumAlgorithm != "sha256" || entry.ChecksumValue != wantChecksum || entry.ChecksumScope != "complete_object" || len(partBodies["1"]) != 2 || len(partBodies["2"]) != 1 {
 		t.Fatalf("multipart entry=%#v part attempts=%v", entry, partBodies)
+	}
+	if receivedChecksum != wantChecksum || receivedChecksumType != "FULL_OBJECT" {
+		t.Fatalf("multipart checksum=%q type=%q, want %q FULL_OBJECT", receivedChecksum, receivedChecksumType, wantChecksum)
 	}
 	firstPart := data[:5<<20]
 	secondPart := data[5<<20:]

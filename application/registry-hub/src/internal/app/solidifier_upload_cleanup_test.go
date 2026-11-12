@@ -9,6 +9,7 @@ import (
 	"registry-hub/internal/artifact"
 	"registry-hub/internal/config"
 	"registry-hub/internal/lease"
+	"registry-hub/internal/storage"
 	"registry-hub/internal/storage/filesystem"
 	"registry-hub/internal/tasks"
 	"strings"
@@ -26,9 +27,11 @@ type solidifierUploadTestOptions struct {
 	verifyStatus           int
 	cancelAfterCreate      bool
 	cancelBeforeCheckpoint bool
+	cancelAfterCommit      bool
 	cleanupStatus          int
 	blockCleanup           bool
 	blockPUT               bool
+	corruptCachePayload    bool
 	invalidLocation        string
 
 	logOutput *bytes.Buffer
@@ -53,6 +56,7 @@ type solidifierUploadTestRegistry struct {
 	putRequests      int
 	deleteRequests   int
 	statusRequests   int
+	getRequests      int
 	lastCleanupToken string
 	setupErr         error
 	cleanupStarted   chan struct{}
@@ -87,7 +91,13 @@ func newSolidifierUploadTestFixture(t *testing.T, options solidifierUploadTestOp
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	cache := artifact.NewCache(store)
+	var cacheStore storage.Store = store
+	var corruption *corruptingPayloadStore
+	if options.corruptCachePayload {
+		corruption = &corruptingPayloadStore{Store: store, opener: store}
+		cacheStore = corruption
+	}
+	cache := artifact.NewCache(cacheStore)
 	data := []byte("solidifier upload cleanup payload")
 	digest := artifact.CalculateSHA256(data)
 	const mediaType = "application/vnd.oci.image.layer.v1.tar"
@@ -131,12 +141,11 @@ func newSolidifierUploadTestFixture(t *testing.T, options solidifierUploadTestOp
 	if err != nil {
 		t.Fatalf("create blob intent: %v", err)
 	}
-	cached, err := cache.GetAnyRetained(ctx, identity.Authority, identity.Repository, digest)
-	if err != nil {
-		t.Fatalf("read cached blob version: %v", err)
+	inspection, err := cache.InspectAny(ctx, identity.Authority, identity.Repository, digest, mediaType)
+	if err != nil || !inspection.Present {
+		t.Fatalf("inspect cached blob version: %+v, %v", inspection, err)
 	}
-	cacheVersion := cached.DataVersion
-	_ = cached.Body.Close()
+	cacheVersion := inspection.DataVersion
 	intent, err = service.records.SetBlobIntentReady(ctx, intent.ID, mediaType, cacheVersion, int64(len(data)))
 	if err != nil {
 		t.Fatalf("set blob intent ready: %v", err)
@@ -150,6 +159,33 @@ func newSolidifierUploadTestFixture(t *testing.T, options solidifierUploadTestOp
 		registry: registryState, solidifier: solidification, manager: manager,
 		task: task, data: data, digest: digest,
 	}
+}
+
+type corruptingPayloadStore struct {
+	storage.Store
+	opener storage.PayloadOpener
+}
+
+func (s *corruptingPayloadStore) OpenPayload(ctx context.Context, key string) (storage.Payload, error) {
+	payload, err := s.opener.OpenPayload(ctx, key)
+	if err == nil && storage.IOPurpose(ctx) == "distribution_upload" && strings.HasSuffix(key, "/data") {
+		payload.Body = &corruptingPayloadReader{PayloadReader: payload.Body}
+	}
+	return payload, err
+}
+
+type corruptingPayloadReader struct {
+	storage.PayloadReader
+	changed bool
+}
+
+func (r *corruptingPayloadReader) Read(buffer []byte) (int, error) {
+	n, err := r.PayloadReader.Read(buffer)
+	if n > 0 && !r.changed {
+		buffer[0] ^= 0xff
+		r.changed = true
+	}
+	return n, err
 }
 
 func (f *solidifierUploadTestFixture) acquireTaskLease(t *testing.T) lease.Lease {

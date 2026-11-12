@@ -5,18 +5,24 @@ import (
 	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/lease"
+	"registry-hub/internal/tasks"
 	"time"
 )
 
 type sourceSweepCheckpoint struct {
-	Status           backgroundScanStatus     `json:"status"`
-	Cursor           inventory.Cursor         `json:"cursor"`
-	Backoff          map[string]entityBackoff `json:"backoff"`
-	Round            uint64                   `json:"round"`
-	RoundFailed      bool                     `json:"roundFailed"`
-	ScanRetries      int                      `json:"scanRetries"`
-	NextRound        time.Time                `json:"nextRound"`
-	DiagnosticOutbox []diagnostics.Event      `json:"diagnosticOutbox,omitempty"`
+	QuotaLastCandidates map[string]tasks.Task    `json:"quotaLastCandidates,omitempty"`
+	QuotaSignalRevision uint64                   `json:"quotaSignalRevision,omitempty"`
+	QuotaGateState      string                   `json:"quotaGateState,omitempty"`
+	QuotaCandidates     map[string]tasks.Task    `json:"quotaCandidates,omitempty"`
+	QuotaWakeIndex      int                      `json:"quotaWakeIndex,omitempty"`
+	Status              backgroundScanStatus     `json:"status"`
+	Cursor              inventory.Cursor         `json:"cursor"`
+	Backoff             map[string]entityBackoff `json:"backoff"`
+	Round               uint64                   `json:"round"`
+	RoundFailed         bool                     `json:"roundFailed"`
+	ScanRetries         int                      `json:"scanRetries"`
+	NextRound           time.Time                `json:"nextRound"`
+	DiagnosticOutbox    []diagnostics.Event      `json:"diagnosticOutbox,omitempty"`
 }
 
 func sourceSweepKey(kind string) string { return "background/v1/source-checkpoints/" + kind + ".json" }

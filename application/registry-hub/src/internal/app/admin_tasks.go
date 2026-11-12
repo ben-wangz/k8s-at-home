@@ -146,11 +146,13 @@ func (s *Service) retryTask(ctx context.Context, id string) (tasks.Task, error) 
 	if err != nil {
 		return tasks.Task{}, err
 	}
-	cached, err := s.cache.GetAnyRetained(ctx, intent.Identity.Authority, intent.Identity.Repository, intent.Identity.Digest)
+	cached, err := s.inspectReadyBlob(ctx, s.cache, intent.Identity.Authority, intent.Identity.Repository, intent.Identity.Digest)
 	if err != nil {
 		return tasks.Task{}, err
 	}
-	defer cached.Body.Close()
+	if !cached.Present {
+		return tasks.Task{}, errors.New("cache integrity verification is pending")
+	}
 	nextIntent, err := s.records.StartBlobIntentRound(ctx, intent.ID)
 	if err != nil {
 		return tasks.Task{}, err
@@ -175,6 +177,9 @@ func (s *Service) retryTask(ctx context.Context, id string) (tasks.Task, error) 
 
 func taskAdminView(task tasks.Task) adminTaskView {
 	task.DiagnosticOutbox = nil
+	task.QuotaWakeState = ""
+	task.Dispatch = nil
+	task.VerificationWorkID = ""
 	protected := task.GCProtected || len(task.SessionIDs) > 0 || task.ProtectionSessionID != ""
 	return adminTaskView{Task: task, GCProtectionActive: protected}
 }

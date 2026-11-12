@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"registry-hub/internal/artifact"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
 )
@@ -16,19 +17,29 @@ func (s *Service) scheduleCachedBlobIntent(identity tasks.BlobIdentity) {
 }
 
 func (s *Service) processCachedBlobIntent(ctx context.Context, identity tasks.BlobIdentity) error {
-	cached, err := s.cache.GetAnyRetained(ctx, identity.Authority, identity.Repository, identity.Digest)
-	if errors.Is(err, storage.ErrNotFound) {
+	cached, err := s.inspectReadyBlob(ctx, s.cache, identity.Authority, identity.Repository, identity.Digest)
+	if err != nil {
+		return err
+	}
+	if !cached.Present {
 		return nil
 	}
+	generation, err := s.generation(ctx, identity.Authority, identity.Repository, identity.Digest)
 	if err != nil {
 		return err
 	}
-	defer cached.Body.Close()
-	intent, err := s.ensureBlobIntentForIdentity(ctx, identity)
+	intent, _, err := s.records.EnsureBlobIntentForReconciliation(ctx, identity, generation.Generation)
 	if err != nil {
 		return err
 	}
-	return s.activateBlobIntent(ctx, intent, cached)
+	if intent.CancelRequested || intent.Generation != generation.Generation ||
+		intent.State == tasks.IntentCancelled || intent.State == tasks.IntentFailed || intent.State == tasks.IntentAnchored {
+		return nil
+	}
+	if err := s.records.LinkBlobDemand(ctx, intent.ID, intent.ID); err != nil {
+		return err
+	}
+	return s.activateBlobIntent(ctx, intent, artifact.CachedObject{Authority: identity.Authority, Repository: identity.Repository, Digest: identity.Digest, MediaType: cached.MediaType, Size: cached.Size, DataVersion: cached.DataVersion})
 }
 
 func (s *Service) reconcileCachedBlobIntentPage(ctx context.Context, token string) (string, error) {

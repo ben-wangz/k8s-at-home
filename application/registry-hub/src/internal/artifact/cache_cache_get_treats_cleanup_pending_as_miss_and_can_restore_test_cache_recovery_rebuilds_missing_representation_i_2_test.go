@@ -75,5 +75,7 @@ func TestCacheGetAnyRejectsIncompleteIndexedRepresentation(t *testing.T) {
 	}
 	if _, err := cache.GetAny(ctx, "ghcr.io", "team/image", digest); !errors.Is(err, storage.ErrUnavailable) {
 		t.Fatalf("GetAny error = %v, want ErrUnavailable", err)
+	} else if stage := CacheReadFailureStage(err); stage != "completion_marker_verify_missing" {
+		t.Fatalf("GetAny failure stage = %q, want completion_marker_verify_missing", stage)
 	}
 }

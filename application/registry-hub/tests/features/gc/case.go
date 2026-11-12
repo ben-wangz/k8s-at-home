@@ -164,6 +164,9 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err := verifyPVCConsumers(ctx, environment, ""); err != nil {
 		return err
 	}
+	if err := waitForRegistryService(ctx, upstreamRegistry); err != nil {
+		return err
+	}
 	solidificationGC, err := verifySolidificationCancellationGC(ctx, environment, upstreamRegistry, upstreamRepository)
 	if err != nil {
 		return err

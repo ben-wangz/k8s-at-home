@@ -48,9 +48,14 @@ func TestLocalBlobObservationSkipsRepeatedDistributionBodyRead(t *testing.T) {
 	task := &tasks.Task{ID: strings.Repeat("a", 32), Authority: "ghcr.io", Repository: "team/image"}
 	blob := contentRef{digest: digest, size: int64(len(body))}
 	path := "/v2/local/blobs/" + digest
+	leaseCtx, release, err := acquireContentLease(ctx, lease.NewManager(store), task.Authority, task.Repository, digest, "observation-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
 
 	for range 2 {
-		if err := processor.verifyOrReuseLocalBlob(ctx, task, blob, task.ID, path); err != nil {
+		if err := processor.verifyOrReuseLocalBlob(leaseCtx, task, blob, task.ID, path); err != nil {
 			t.Fatalf("verify local blob: %v", err)
 		}
 	}

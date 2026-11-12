@@ -11,6 +11,8 @@ import (
 	"reflect"
 	"registry-hub/internal/artifact"
 	"registry-hub/internal/lease"
+	"registry-hub/internal/route"
+	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
 	"time"
 )
@@ -54,17 +56,14 @@ func (s *solidifier) publishRootTag(ctx context.Context, task *tasks.Task, taskL
 	if err := s.service.inventoryStart(ctx, task, task.RootDigest); err != nil {
 		return err
 	}
-	current, err := s.registry.Do(tagCtx, http.MethodGet, path, nil, manifestReadHeaders(), nil, 0)
+	current, err := s.registry.Do(tagCtx, http.MethodHead, path, nil, manifestReadHeaders(), nil, 0)
 	if err != nil {
 		return temporary("distribution", err)
 	}
 	if current.StatusCode == http.StatusOK {
 		digest := current.Header.Get("Docker-Content-Digest")
 		_ = current.Body.Close()
-		if digest == task.RootDigest {
-			if err := s.verifyLocalObject(tagCtx, path, task.RootDigest, root.Size); err != nil {
-				return err
-			}
+		if digest == task.RootDigest && current.ContentLength == root.Size && sameMediaType(current.Header.Get("Content-Type"), task.MediaType) {
 			if err := s.resolveRemoteWrite(tagCtx, protectionSessionID, remoteWrite); err != nil {
 				return err
 			}
@@ -80,7 +79,13 @@ func (s *solidifier) publishRootTag(ctx context.Context, task *tasks.Task, taskL
 		if err := s.tasks.AbortRootPublish(tagCtx, task, taskLease); err != nil {
 			return err
 		}
-		return temporary("distribution", fmt.Errorf("Distribution tag GET returned status %d", current.StatusCode))
+		return temporary("distribution", fmt.Errorf("Distribution tag HEAD returned status %d", current.StatusCode))
+	}
+	if !confirmedMiss(current, http.MethodHead, route.EndpointManifest) {
+		if err := s.tasks.AbortRootPublish(tagCtx, task, taskLease); err != nil {
+			return err
+		}
+		return temporary("distribution", errors.New("Distribution returned an untrusted manifest miss"))
 	}
 	object, err := s.cache.GetRetained(tagCtx, task.Authority, task.Repository, task.RootDigest, task.MediaType)
 	if err != nil {
@@ -90,6 +95,9 @@ func (s *solidifier) publishRootTag(ctx context.Context, task *tasks.Task, taskL
 		return temporary("storage", err)
 	}
 	defer object.Body.Close()
+	if object.Size != root.Size {
+		return permanent("manifest_invalid", errors.New("cached root size differs from its descriptor"))
+	}
 	if err := s.tasks.CheckActive(tagCtx, task, taskLease); err != nil {
 		return err
 	}
@@ -99,13 +107,14 @@ func (s *solidifier) publishRootTag(ctx context.Context, task *tasks.Task, taskL
 	if err := s.tasks.Leases().Validate(tagCtx, tagLease); err != nil {
 		return temporary("tag_lease", err)
 	}
-	if err := s.tasks.Leases().Validate(tagCtx, tagLease); err != nil {
-		return temporary("tag_lease", err)
-	}
 	if err := s.markRemoteWrite(tagCtx, protectionSessionID, remoteWrite); err != nil {
 		return err
 	}
-	put, err := s.registry.Do(tagCtx, http.MethodPut, path, nil, http.Header{"Content-Type": []string{task.MediaType}}, object.Body, object.Size)
+	uploadReader, err := newUploadIntegrityReader(ctx, object.Body, task.RootDigest, object.Size)
+	if err != nil {
+		return permanent("manifest_invalid", err)
+	}
+	put, err := s.registry.Do(tagCtx, http.MethodPut, path, nil, http.Header{"Content-Type": []string{task.MediaType}}, uploadReader, object.Size)
 	if err != nil {
 		return temporary("distribution", err)
 	}
@@ -113,18 +122,18 @@ func (s *solidifier) publishRootTag(ctx context.Context, task *tasks.Task, taskL
 	if put.StatusCode != http.StatusCreated || put.Header.Get("Docker-Content-Digest") != task.RootDigest {
 		return temporary("distribution", errors.New("root tag publication was not confirmed"))
 	}
+	if err := uploadReader.Finalize(); err != nil {
+		return temporary("distribution_integrity", err)
+	}
 	if protectionSessionID != "" {
 		if err := s.gate.MarkProtectionContentObserved(tagCtx, protectionSessionID); err != nil {
 			return temporary("protection_state", err)
 		}
 	}
-	if err := s.verifyLocalObject(ctx, path, task.RootDigest, root.Size); err != nil {
+	if err := s.resolveRemoteWrite(tagCtx, protectionSessionID, remoteWrite); err != nil {
 		return err
 	}
-	if err := s.resolveRemoteWrite(ctx, protectionSessionID, remoteWrite); err != nil {
-		return err
-	}
-	return s.tasks.MarkRootPublished(ctx, task, taskLease)
+	return s.tasks.MarkRootPublished(tagCtx, task, taskLease)
 }
 
 func (s *solidifier) verifyLocalObject(ctx context.Context, path, digest string, size int64) error {
@@ -146,7 +155,16 @@ func (s *solidifier) verifyLocalObject(ctx context.Context, path, digest string,
 	if err != nil {
 		return permanent("manifest_invalid", err)
 	}
+	started := time.Now()
 	count, err := io.Copy(hasher, io.LimitReader(response.Body, size+1))
+	if performance, ok := ctx.Value(solidificationPerformanceKey{}).(*solidificationPerformance); ok {
+		performance.readbackBytes += count
+		performance.readback += time.Since(started)
+	}
+	if s.service != nil {
+		s.service.metrics.recordPayload(storage.WithIOPurpose(ctx, "distribution_readback"), "read", count, time.Since(started))
+		s.service.metrics.recordPayload(storage.WithIOPurpose(ctx, "distribution_readback"), "hash", count, time.Since(started))
+	}
 	if err != nil || count != size || artifact.DigestFromHasher(digest, hasher) != digest {
 		return permanent("distribution_invalid", errors.New("Distribution object failed digest or size verification"))
 	}

@@ -39,7 +39,9 @@ func TestForegroundDownloadPersistenceFailureUsesStorageResponse(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, routed.RawPath, nil)
 	response := httptest.NewRecorder()
 	meta := &requestMeta{requestID: "request-storage-failure"}
+	started := time.Now()
 	service.serveUpstreamBlob(response, request, routed, meta)
+	service.logRegistryRequest(meta, http.MethodGet, response.Code, time.Since(started))
 
 	if response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") != "5" || meta.errorClass != "storage" {
 		t.Fatalf("response status=%d retry-after=%q class=%q body=%q", response.Code, response.Header().Get("Retry-After"), meta.errorClass, response.Body.String())

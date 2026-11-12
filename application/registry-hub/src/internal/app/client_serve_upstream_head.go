@@ -24,12 +24,11 @@ func (s *Service) serveUpstreamHead(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	if routed.Endpoint == route.EndpointBlob {
-		if cached, err := s.cache.GetAny(request.Context(), routed.Upstream, routed.RemoteRepo, routed.Reference); err == nil {
-			_ = cached.Body.Close()
+		if cached, err := s.cache.InspectAny(request.Context(), routed.Upstream, routed.RemoteRepo, routed.Reference, "application/octet-stream"); err == nil && cached.Present {
 			meta.cacheSource = "cache"
 			writeHead(writer, cached.MediaType, cached.Digest, cached.Size)
 			return
-		} else if !errors.Is(err, storage.ErrNotFound) {
+		} else if err != nil && !errors.Is(err, storage.ErrNotFound) {
 			meta.errorClass = "storage"
 			registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "temporary storage is unavailable")
 			return

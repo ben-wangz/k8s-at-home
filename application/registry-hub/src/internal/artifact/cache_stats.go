@@ -57,7 +57,7 @@ func (c *Cache) Stats(ctx context.Context, orphanAfter time.Duration) (CacheStat
 				if readErr != nil {
 					return CacheStats{}, readErr
 				}
-				if metadata.SchemaVersion != cacheSchemaCurrent || metadata.Digest == "" || metadata.MediaType == "" || metadata.Size < 0 {
+				if metadata.SchemaVersion != cachePayloadSchemaCurrent || metadata.Digest == "" || metadata.MediaType == "" || metadata.Size < 0 {
 					return CacheStats{}, storage.ErrCorruptObject
 				}
 				metadataByID[identity] = append(metadataByID[identity], representationRecord{mediaType: metadata.MediaType, state: metadata.State})

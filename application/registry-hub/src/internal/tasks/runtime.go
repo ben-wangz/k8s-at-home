@@ -12,6 +12,25 @@ type RuntimeStatus struct {
 	LastProgressAt          time.Time `json:"lastProgressAt"`
 	LastDispatchErrorAt     time.Time `json:"lastDispatchErrorAt"`
 	LastDispatchSucceededAt time.Time `json:"lastDispatchSucceededAt"`
+	DispatchIndexComplete   bool      `json:"dispatchIndexComplete"`
+	DispatchRepairEntities  uint64    `json:"dispatchRepairEntities"`
+	DispatchCandidateReads  uint64    `json:"dispatchCandidateReads"`
+	DispatchRepairReads     uint64    `json:"dispatchRepairReads"`
+	DispatchCandidatePages  uint64    `json:"dispatchCandidatePages"`
+}
+
+func (m *Manager) runtimeDispatchReads(candidates, repairs, pages uint64) {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
+	m.runtime.DispatchCandidateReads += candidates
+	m.runtime.DispatchRepairReads += repairs
+	m.runtime.DispatchCandidatePages += pages
+}
+
+func (m *Manager) runtimeDispatchCoverage(complete bool, entities uint64) {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
+	m.runtime.DispatchIndexComplete, m.runtime.DispatchRepairEntities = complete, entities
 }
 
 func (m *Manager) Runtime() RuntimeStatus {

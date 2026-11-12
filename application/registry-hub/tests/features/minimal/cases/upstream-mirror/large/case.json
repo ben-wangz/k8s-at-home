@@ -1,0 +1,11 @@
+{
+  "id": "large-layer-performance",
+  "description": "Measure streaming large-layer cold/cache reads and protected platform anchoring.",
+  "dependsOn": ["installation"],
+  "timeoutSeconds": 7200,
+  "preconditions": ["Run performance scenarios serially with identical resources and size order."],
+  "assertions": ["64/256/1024 MiB client reads match their digests with no additional upstream GETs on cache or Distribution hits.", "Each platform anchors after releasing the controlled capacity blocker."],
+  "checks": [{"id":"large-layer-performance.phases","description":"Capture independent phase timings, payload metrics, task timelines, and performance logs."}],
+  "outputs": ["Per-size timing, before/after metrics, task evidence, and backend logs."],
+  "requirements": ["docs/diagnostics.md"]
+}

@@ -185,6 +185,9 @@ func (s *Service) workerViews(background backgroundStatus) []workerView {
 			view.State = "backoff"
 		}
 		if view.Scan != nil {
+			if view.Scan.WaitReason != "" {
+				view.State, view.WaitReason, view.DependencyGeneration, view.DependencyCheckedAt = "waiting_dependency", view.Scan.WaitReason, view.Scan.DependencyGeneration, view.Scan.DependencyCheckedAt
+			}
 			if view.Scan.LastError != nil && (view.LastError == nil || !view.Scan.LastError.OccurredAt.Before(view.LastError.OccurredAt)) {
 				view.LastError, view.RecoveredAt = view.Scan.LastError, view.Scan.RecoveredAt
 			}

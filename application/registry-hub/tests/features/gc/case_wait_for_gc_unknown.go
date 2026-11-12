@@ -165,7 +165,7 @@ func verifyFailedGCJob(ctx context.Context, environment testkit.CaseContext, sta
 }
 
 func waitForGC(ctx context.Context, environment testkit.CaseContext) (map[string]any, error) {
-	for {
+	return waitForGCStatus(ctx, func(ctx context.Context) (map[string]any, error) {
 		response, err := support.AdminRequest(ctx, environment, http.MethodGet, "/api/v1/gc", nil, nil)
 		if err != nil {
 			return nil, err
@@ -174,14 +174,23 @@ func waitForGC(ctx context.Context, environment testkit.CaseContext) (map[string
 		if _, err := support.DecodeJSON(response, 2<<20, &status); err != nil {
 			return nil, err
 		}
+		return status, nil
+	})
+}
+
+func waitForGCStatus(ctx context.Context, read func(context.Context) (map[string]any, error)) (map[string]any, error) {
+	for {
+		status, err := read(ctx)
+		if err != nil {
+			return nil, err
+		}
 		run := testkit.Map(status["run"])
 		switch state := testkit.String(run["state"]); state {
 		case "succeeded":
-			if testkit.String(testkit.Map(status["gate"])["state"]) != "open" {
-				return nil, fmt.Errorf("GC succeeded without reopening the write gate")
+			if testkit.String(testkit.Map(status["gate"])["state"]) == "open" {
+				run["_gateState"] = "open"
+				return run, nil
 			}
-			run["_gateState"] = testkit.String(testkit.Map(status["gate"])["state"])
-			return run, nil
 		case "failed", "failed_unknown":
 			return nil, fmt.Errorf("GC run ended in state %s", state)
 		}

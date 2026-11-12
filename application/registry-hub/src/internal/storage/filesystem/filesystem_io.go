@@ -1,15 +1,22 @@
 package filesystem
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
 	"os"
+	"registry-hub/internal/storage"
+	"time"
 )
 
-func hashReader(reader io.Reader) (string, error) {
+func hashReader(ctx context.Context, reader io.Reader) (string, error) {
 	hash := sha256.New()
-	if _, err := io.Copy(hash, reader); err != nil {
+	started := time.Now()
+	count, err := io.Copy(hash, storage.ContextReader{Context: ctx, Reader: reader})
+	storage.ObserveIO(ctx, "read", count, time.Since(started))
+	storage.ObserveIO(ctx, "hash", count, time.Since(started))
+	if err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil

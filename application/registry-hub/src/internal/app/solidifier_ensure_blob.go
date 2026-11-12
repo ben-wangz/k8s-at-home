@@ -13,6 +13,8 @@ import (
 )
 
 func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease lease.Lease, blob contentRef) (result error) {
+	ctx, performance := withSolidificationPerformance(ctx)
+	defer s.logSolidificationBlob(task, blob, performance, &result)
 	protectionSessionID := task.ProtectionSessionID
 	finishOperation, err := s.beginProtectedOperation(ctx, protectionSessionID)
 	if err != nil {
@@ -47,11 +49,14 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 	if err := s.service.inventoryStart(ctx, task, blob.digest); err != nil {
 		return err
 	}
+	headStarted := time.Now()
 	response, err := s.registry.Do(ctx, http.MethodHead, path, nil, make(http.Header), nil, 0)
+	performance.verify += time.Since(headStarted)
 	if err != nil {
 		return temporary("distribution", err)
 	}
 	if response.StatusCode == http.StatusOK {
+		performance.source = "distribution"
 		_ = response.Body.Close()
 		if response.ContentLength != blob.size || response.Header.Get("Docker-Content-Digest") != blob.digest {
 			return permanent("distribution_invalid", errors.New("existing Distribution blob does not match its descriptor"))
@@ -59,7 +64,7 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 		if err := s.markRemoteContentObserved(ctx, protectionSessionID); err != nil {
 			return temporary("protection_state", err)
 		}
-		if err := s.verifyOrReuseLocalBlob(ctx, task, blob, taskProtectionSession(task), path); err != nil {
+		if err := s.observeSolidificationBlob(ctx, task, blob, protectionSessionID, "distribution_head_digest"); err != nil {
 			return err
 		}
 		return s.resolveRemoteWrite(ctx, protectionSessionID, remoteWrite)
@@ -76,7 +81,10 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 	if err := s.reserveBlobCacheInput(ctx, task, taskLease); err != nil {
 		return err
 	}
-	object, err := s.cache.GetAnyRetained(ctx, task.Authority, task.Repository, blob.digest)
+	performance.source = "cache"
+	cacheStarted := time.Now()
+	object, err := s.cache.GetAnyRetained(storage.WithIOPurpose(ctx, "distribution_upload"), task.Authority, task.Repository, blob.digest)
+	performance.cacheOpen += time.Since(cacheStarted)
 	if errors.Is(err, storage.ErrNotFound) {
 		if releaseErr := s.releaseProtectedCacheReservation(ctx, task); releaseErr != nil {
 			return temporary("protected_cache_reservation", releaseErr)
@@ -108,6 +116,7 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 	}
 	uploadPath := "/v2/" + internalRepository + "/blobs/uploads/"
 	observer := s.service.observeDistributionTransfer(*task, object.Size)
+	defer func() { performance.uploadedBytes = observer.bytes.Load() }()
 	status, committed := 0, false
 	defer func() { observer.finish(result, status, committed) }()
 	create, err := s.registry.Do(ctx, http.MethodPost, uploadPath, nil, make(http.Header), nil, 0)
@@ -148,7 +157,16 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 		return err
 	}
 	writeStarted = true
-	put, err := s.registry.Do(ctx, http.MethodPut, locationPath, query, http.Header{"Content-Type": []string{"application/octet-stream"}}, observedTransferReader{Reader: object.Body, observer: observer}, object.Size)
+	writeStartedAt := time.Now()
+	uploadReader, err := newUploadIntegrityReader(ctx, object.Body, blob.digest, object.Size)
+	if err != nil {
+		return permanent("manifest_invalid", err)
+	}
+	put, err := s.registry.Do(ctx, http.MethodPut, locationPath, query, http.Header{"Content-Type": []string{"application/octet-stream"}}, observedTransferReader{Reader: uploadReader, observer: observer}, object.Size)
+	performance.upload += time.Since(writeStartedAt)
+	if s.service != nil {
+		s.service.metrics.recordPayload(storage.WithIOPurpose(ctx, "distribution_upload"), "write", observer.bytes.Load(), time.Since(writeStartedAt))
+	}
 	if err != nil {
 		return temporary("distribution", err)
 	}
@@ -157,12 +175,15 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 	if put.StatusCode != http.StatusCreated || put.Header.Get("Docker-Content-Digest") != blob.digest {
 		return temporary("distribution", fmt.Errorf("Distribution blob commit returned status %d", put.StatusCode))
 	}
+	if err := uploadReader.Finalize(); err != nil {
+		return temporary("distribution_integrity", err)
+	}
 	uploadCommitted = true
 	committed = true
 	if err := s.markRemoteContentObserved(ctx, protectionSessionID); err != nil {
 		return temporary("protection_state", err)
 	}
-	if err := s.verifyOrReuseLocalBlob(ctx, task, blob, taskProtectionSession(task), path); err != nil {
+	if err := s.observeSolidificationBlob(ctx, task, blob, protectionSessionID, "distribution_upload_digest"); err != nil {
 		return err
 	}
 	if err := s.resolveRemoteWrite(ctx, protectionSessionID, remoteWrite); err != nil {
@@ -189,4 +210,31 @@ func (s *solidifier) confirmBlobAfterUpload(ctx context.Context, task *tasks.Tas
 		}
 	}
 	return s.verifyLocalObject(ctx, path, digest, size)
+}
+
+func (s *solidifier) observeSolidificationBlob(ctx context.Context, task *tasks.Task, blob contentRef, sessionID, basis string) error {
+	ownership, ok := ctx.Value(contentLeaseContextKey{}).(contentLeaseOwnership)
+	if !ok || ownership.holder.Key != "leases/objects/"+objectLeaseKey(task.Authority, task.Repository, blob.digest) {
+		return temporary("object_lease", errors.New("solidification observation requires the content lease"))
+	}
+	if err := ownership.manager.Validate(ctx, ownership.holder); err != nil {
+		return temporary("object_lease", err)
+	}
+	generation, err := s.blobContentGeneration(ctx, task, blob.digest)
+	if err != nil {
+		return temporary("generation", err)
+	}
+	epoch := s.gate.State().Epoch
+	if err := s.requireStableObservationEpoch(ctx, task, blob.digest, generation, epoch); err != nil {
+		return err
+	}
+	if err := ownership.manager.Validate(ctx, ownership.holder); err != nil {
+		return temporary("object_lease", err)
+	}
+	if _, err := s.service.records.FindLocalObservation(ctx, task.Authority, task.Repository, tasks.GraphBlob, blob.digest, blob.size, generation, epoch); err == nil {
+		return s.requireStableObservationEpoch(ctx, task, blob.digest, generation, epoch)
+	} else if !errors.Is(err, storage.ErrNotFound) {
+		return temporary("task_state", err)
+	}
+	return s.recordBlobObservation(ctx, task, blob, sessionID, generation, epoch, basis)
 }

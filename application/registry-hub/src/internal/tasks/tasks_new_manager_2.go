@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"registry-hub/internal/inventory"
 	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
 	"time"
@@ -133,16 +134,31 @@ func (m *Manager) SetDiscovered(ctx context.Context, task *Task, digest, mediaTy
 }
 
 func (m *Manager) Wake(ctx context.Context, id string) (Task, error) {
+	return m.wake(ctx, id, nil)
+}
+
+// WakeMatching rechecks the observed task identity on every conditional-write retry.
+func (m *Manager) WakeMatching(ctx context.Context, expected Task) (Task, error) {
+	return m.wake(ctx, expected.ID, &expected)
+}
+
+func (m *Manager) wake(ctx context.Context, id string, expected *Task) (Task, error) {
 	for attempt := 0; attempt < 16; attempt++ {
 		task, err := m.Get(ctx, id)
 		if err != nil {
 			return Task{}, err
 		}
+		if expected != nil && (task.Generation != expected.Generation || task.RoundID != expected.RoundID || task.AttemptID != expected.AttemptID || task.VerificationWorkID != expected.VerificationWorkID || task.ProtectionSessionID != expected.ProtectionSessionID || task.Status != expected.Status || task.WaitReason != expected.WaitReason || task.QuotaWakeRevision != expected.QuotaWakeRevision || task.CancelRequested) {
+			return Task{}, storage.ErrConditionFailed
+		}
 		if task.CancelRequested {
 			return Task{}, errors.New("task is being cancelled")
 		}
 		if task.Status == Running {
-			if err := m.ensureWakeRequest(ctx, id); err != nil {
+			if err := inventory.ValidateWriteGuard(ctx); err != nil {
+				return Task{}, err
+			}
+			if err := m.ensureTaskWakeRequest(ctx, task); err != nil {
 				return Task{}, err
 			}
 			return task, nil
@@ -157,6 +173,9 @@ func (m *Manager) Wake(ctx context.Context, id string) (Task, error) {
 			return Task{}, errors.New("task is not waiting or running")
 		}
 		task.Status = Pending
+		if task.ExecutableAt.IsZero() {
+			task.ExecutableAt = time.Now().UTC()
+		}
 		task.WaitReason = ""
 		task.QuotaWaitBytes = 0
 		task.QuotaReplaceableBytes = 0

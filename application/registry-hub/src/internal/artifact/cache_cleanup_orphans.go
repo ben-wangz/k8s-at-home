@@ -54,6 +54,8 @@ func (c *Cache) cleanupOrphanEntry(ctx context.Context, entry storage.Entry) (bo
 	unlock := c.lockIdentity(identity)
 	defer unlock()
 	switch {
+	case strings.Contains(entry.Key, "/staging/"):
+		return c.cleanupOrphanStaging(ctx, entry)
 	case strings.Contains(entry.Key, "/representations/") && strings.HasSuffix(entry.Key, ".json"):
 		return c.cleanupOrphanMetadata(ctx, entry)
 	case strings.Contains(entry.Key, "/complete/") && strings.HasSuffix(entry.Key, ".json"):
@@ -78,7 +80,7 @@ func (c *Cache) cleanupOrphanMetadata(ctx context.Context, entry storage.Entry) 
 	if err != nil {
 		return false, errors.Join(storage.ErrCorruptObject, err)
 	}
-	if metadata.SchemaVersion != cacheSchemaCurrent || metadata.Authority == "" || metadata.Repository == "" || metadata.Digest == "" || metadata.MediaType == "" || metadata.Size < 0 || metadata.DataVersion == "" || metadata.State != "complete" && metadata.State != "cleanup_pending" {
+	if metadata.SchemaVersion != cachePayloadSchemaCurrent || metadata.Authority == "" || metadata.Repository == "" || metadata.Digest == "" || metadata.MediaType == "" || metadata.Size < 0 || metadata.DataVersion == "" || metadata.State != "complete" && metadata.State != "cleanup_pending" {
 		return false, storage.ErrCorruptObject
 	}
 	if err := c.verifyComplete(ctx, identity, metadata); err == nil {
@@ -122,7 +124,7 @@ func (c *Cache) cleanupOrphanComplete(ctx context.Context, entry storage.Entry) 
 	if err != nil {
 		return false, errors.Join(storage.ErrCorruptObject, err)
 	}
-	if marker.SchemaVersion != cacheSchemaCurrent || marker.Authority == "" || marker.Repository == "" || marker.Digest == "" || marker.MediaType == "" || marker.Size < 0 || marker.DataVersion == "" {
+	if marker.SchemaVersion != cachePayloadSchemaCurrent || marker.Authority == "" || marker.Repository == "" || marker.Digest == "" || marker.MediaType == "" || marker.Size < 0 || marker.DataVersion == "" {
 		return false, storage.ErrCorruptObject
 	}
 	metadataKey := cacheMetadataKey(identity, marker.MediaType)
@@ -212,15 +214,19 @@ func (c *Cache) removeDataIfUnreferenced(ctx context.Context, identity, expected
 		return err
 	}
 	dataKey := "cache/objects/" + identity + "/data"
+	if expectedVersion != "" {
+		err := c.store.DeleteIfMatch(ctx, dataKey, expectedVersion)
+		if errors.Is(err, storage.ErrNotFound) || errors.Is(err, storage.ErrConditionFailed) {
+			return nil
+		}
+		return err
+	}
 	entry, err := c.store.Head(ctx, dataKey)
 	if errors.Is(err, storage.ErrNotFound) {
 		return nil
 	}
 	if err != nil {
 		return err
-	}
-	if expectedVersion != "" && entry.Version != expectedVersion {
-		return nil
 	}
 	return c.store.DeleteIfMatch(ctx, dataKey, entry.Version)
 }

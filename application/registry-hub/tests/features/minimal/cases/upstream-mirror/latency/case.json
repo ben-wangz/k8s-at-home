@@ -1,0 +1,11 @@
+{
+  "id": "upstream-discovery-latency",
+  "description": "Measure bounded-depth manifest discovery independently of the broad upstream matrix.",
+  "dependsOn": ["upstream-persistence-fixture"],
+  "timeoutSeconds": 360,
+  "preconditions": ["The controlled upstream fixture has been configured and one healthy image has completed."],
+  "assertions": ["The 66-manifest chain reaches the default depth limit within the existing five-minute bound.", "Storage and worker observations are retained before and after the traversal, including failures."],
+  "checks": [{"id":"upstream-discovery-latency.depth-limit","description":"Verify depth-limit outcome and deadline with phase evidence."}],
+  "outputs": ["Depth-limit task evidence, phase timings, worker status, and storage metrics."],
+  "requirements": ["docs/usage.md", "docs/diagnostics.md"]
+}

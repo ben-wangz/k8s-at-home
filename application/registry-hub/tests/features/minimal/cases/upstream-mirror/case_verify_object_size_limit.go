@@ -107,6 +107,12 @@ func verifyClosureLimit(ctx context.Context, environment testkit.CaseContext, re
 }
 
 func setBackendEnvironment(ctx context.Context, environment testkit.CaseContext, entries ...string) error {
+	return testkit.RunPhase(environment, "backend-settings-rollout-readiness", func() error {
+		return applyBackendEnvironment(ctx, environment, entries...)
+	})
+}
+
+func applyBackendEnvironment(ctx context.Context, environment testkit.CaseContext, entries ...string) error {
 	arguments := []string{"-n", environment.Namespace, "set", "env", "deployment/" + environment.Fullname}
 	arguments = append(arguments, entries...)
 	if _, err := testkit.Command(ctx, "kubectl", arguments...); err != nil {

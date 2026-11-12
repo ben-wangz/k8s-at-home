@@ -142,6 +142,11 @@ func cancelAndWaitForTask(ctx context.Context, environment testkit.CaseContext, 
 		return nil, err
 	}
 	result["cancelResponseStatus"] = int64(testkit.Int(response["status"]))
+	summary, err := waitForCleanupReceipt(ctx, environment, taskID, testkit.String(result["terminalCleanupID"]))
+	if err != nil {
+		return nil, err
+	}
+	result["verifiedCleanupSummary"] = summary
 	return result, nil
 }
 

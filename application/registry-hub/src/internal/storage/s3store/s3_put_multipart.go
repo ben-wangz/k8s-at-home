@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -13,6 +14,8 @@ import (
 	"registry-hub/internal/storage"
 	"time"
 )
+
+const multipartCommitVisibilityTimeout = 60 * time.Second
 
 func (s *Store) putMultipart(ctx context.Context, key, name string, source *replaySource, options storage.PutOptions) (storage.Entry, error) {
 	partSizeLimit := s.partSize
@@ -89,6 +92,11 @@ func (s *Store) putMultipart(ctx context.Context, key, name string, source *repl
 		Bucket: aws.String(s.bucket), Key: aws.String(name), UploadId: aws.String(uploadID),
 		MultipartUpload: &types.CompletedMultipartUpload{Parts: parts},
 	}
+	checksum := base64.StdEncoding.EncodeToString(source.digest[:])
+	if s.checksumSHA256 {
+		complete.ChecksumSHA256 = aws.String(checksum)
+		complete.ChecksumType = types.ChecksumTypeFullObject
+	}
 	applyConditions(&complete.IfNoneMatch, &complete.IfMatch, options)
 	ctx, retryObserver := withRetryObserver(ctx)
 	result, err := s.client.CompleteMultipartUpload(ctx, complete)
@@ -114,24 +122,58 @@ func (s *Store) putMultipart(ctx context.Context, key, name string, source *repl
 		}
 		return storage.Entry{}, errors.Join(storage.ErrUnknownCommit, errors.New("S3 CompleteMultipartUpload response did not provide an ETag"), readErr)
 	}
-	return storage.Entry{Key: key, Version: version, Size: source.size}, nil
+	if s.checksumSHA256 && result.ChecksumSHA256 != nil && aws.ToString(result.ChecksumSHA256) != checksum {
+		resolved, ok, readErr := s.resolvePut(ctx, key, source.size, source.digest[:], operationID)
+		if ok {
+			return resolved, nil
+		}
+		return storage.Entry{}, errors.Join(storage.ErrUnknownCommit, storage.ErrCorruptObject, readErr)
+	}
+	if retryObserver.retried.Load() {
+		entry, ok, readErr := s.resolveRetriedMultipartCommit(ctx, key, source.size, source.digest[:], operationID)
+		if ok {
+			return entry, nil
+		}
+		return storage.Entry{}, errors.Join(storage.ErrUnknownCommit, errors.New("S3 multipart completion was retried and could not be confirmed"), readErr)
+	}
+	entry := storage.Entry{Key: key, Version: version, Size: source.size}
+	if s.checksumSHA256 && aws.ToString(result.ChecksumSHA256) == checksum && result.ChecksumType == types.ChecksumTypeFullObject {
+		entry.ChecksumAlgorithm, entry.ChecksumValue, entry.ChecksumScope = "sha256", checksum, "complete_object"
+	}
+	return entry, nil
 }
 
-func applyConditions(ifNoneMatch, ifMatch **string, options storage.PutOptions) {
-	if options.IfAbsent {
-		*ifNoneMatch = aws.String("*")
-	}
-	if options.IfMatch != "" {
-		*ifMatch = aws.String(options.IfMatch)
-	}
+func (s *Store) resolveRetriedMultipartCommit(ctx context.Context, key string, size int64, expected []byte, operationID string) (storage.Entry, bool, error) {
+	return s.resolveRetriedMultipartCommitWithin(ctx, key, size, expected, operationID, multipartCommitVisibilityTimeout)
 }
 
-func mapPutError(err error, options storage.PutOptions) error {
-	mapped := mapError(err)
-	if options.IfAbsent && errors.Is(mapped, storage.ErrConditionFailed) {
-		return storage.ErrAlreadyExists
+func (s *Store) resolveRetriedMultipartCommitWithin(ctx context.Context, key string, size int64, expected []byte, operationID string, timeout time.Duration) (storage.Entry, bool, error) {
+	visibilityCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	backoff := 250 * time.Millisecond
+	for {
+		_, err := s.Head(visibilityCtx, key)
+		if err == nil {
+			return s.resolvePut(ctx, key, size, expected, operationID)
+		}
+		if !errors.Is(err, storage.ErrNotFound) && !errors.Is(err, storage.ErrUnavailable) && !errors.Is(err, storage.ErrTimeout) {
+			return storage.Entry{}, false, err
+		}
+		timer := time.NewTimer(backoff)
+		select {
+		case <-visibilityCtx.Done():
+			timer.Stop()
+			if ctx.Err() != nil {
+				return storage.Entry{}, false, ctx.Err()
+			}
+			return storage.Entry{}, false, errors.Join(storage.ErrTimeout, errors.New("S3 multipart object did not become visible after a retried completion"))
+		case <-timer.C:
+		}
+		backoff *= 2
+		if backoff > 4*time.Second {
+			backoff = 4 * time.Second
+		}
 	}
-	return mapped
 }
 
 func (s *Store) resolvePut(ctx context.Context, key string, size int64, expected []byte, operationID string) (storage.Entry, bool, error) {

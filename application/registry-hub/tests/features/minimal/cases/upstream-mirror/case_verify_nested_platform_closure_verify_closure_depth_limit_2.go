@@ -14,6 +14,12 @@ import (
 )
 
 func verifyClosureDepthLimit(ctx context.Context, environment testkit.CaseContext, registry *support.RegistryClient, repository, upstreamRepository string) (map[string]any, error) {
+	return runMirrorPhase(environment, mirrorPhase{"closure-depth-limit", func() (map[string]any, error) {
+		return checkClosureDepthLimit(ctx, environment, registry, repository, upstreamRepository)
+	}})
+}
+
+func checkClosureDepthLimit(ctx context.Context, environment testkit.CaseContext, registry *support.RegistryClient, repository, upstreamRepository string) (map[string]any, error) {
 	root, digests, err := expectedClosureDepthFixture()
 	if err != nil {
 		return nil, err

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 )
 
@@ -60,6 +61,9 @@ func (r *Records) putCacheProtectionReference(ctx context.Context, key string, r
 		}
 		if !errors.Is(getErr, storage.ErrNotFound) {
 			return getErr
+		}
+		if err := inventory.ValidateWriteGuard(ctx); err != nil {
+			return err
 		}
 		_, err = r.store.Put(ctx, key, bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfAbsent: true})
 		if errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrAlreadyExists) {

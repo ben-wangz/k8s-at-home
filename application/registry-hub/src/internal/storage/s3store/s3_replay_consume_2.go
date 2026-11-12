@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"registry-hub/internal/storage"
 )
 
 func (r *replaySource) consume(ctx context.Context, source io.Reader, file *os.File) error {
@@ -40,6 +41,9 @@ func (r *replaySource) consume(ctx context.Context, source io.Reader, file *os.F
 				r.data = append(r.data, chunk...)
 			}
 			_, _ = hash.Write(chunk)
+			if r.expectedHash != nil {
+				_, _ = r.expectedHash.Write(chunk)
+			}
 			remaining -= int64(read)
 		}
 		if readErr != nil {
@@ -76,6 +80,9 @@ func (r *replaySource) consume(ctx context.Context, source io.Reader, file *os.F
 		if noProgress >= 99 {
 			return io.ErrNoProgress
 		}
+	}
+	if r.expectedHash != nil && storage.DigestFromHasher(r.expectedDigest, r.expectedHash) != r.expectedDigest {
+		return storage.ErrDigestMismatch
 	}
 	copy(r.digest[:], hash.Sum(nil))
 	return nil

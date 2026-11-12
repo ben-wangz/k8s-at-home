@@ -8,7 +8,7 @@ import (
 )
 
 func adminBackgroundOperations(api huma.API) []huma.Operation {
-	params := []*huma.Param{adminPathParam("kind", "Background work kind: inventory, execution, download_cleanup, terminal_cleanup, notify, or wake_root.")}
+	params := []*huma.Param{adminPathParam("kind", "Background work kind: inventory, execution, download_cleanup, terminal_cleanup, quota_wake, cache_verification, distribution_verification, notify, or wake_root.")}
 	jobParams := append(append([]*huma.Param{}, params...), adminPathParam("jobID", "Persistent background work ID."))
 	job := adminJSONResponse("Durable background work with opaque revisions and safe resource associations.", adminSchema[backgroundJobView](api))
 	pageParams := append(append([]*huma.Param{}, params...), diagnosticParams(workQueryFields...)...)

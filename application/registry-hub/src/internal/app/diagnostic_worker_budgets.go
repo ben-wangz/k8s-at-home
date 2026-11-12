@@ -17,6 +17,10 @@ func (s *Service) configureWorkerBudgets(view *workerView) {
 		}
 	}
 	switch view.ID {
+	case "cache_verification", "download_cleanup", "cache_cleanup", "distribution_verification":
+		view.AdmissionPool, view.AdmissionCapacity = "solidification", cap(s.solidificationSlots)
+		view.SharedConcurrency = view.AdmissionCapacity
+		view.ExecutionBudgetSeconds = s.cacheVerificationBudget().Seconds()
 	case "storage_inventory":
 		view.AdmissionPool, view.AdmissionCapacity, view.SharedConcurrency = "storage_collector", 1, 0
 		view.ExecutionBudgetSeconds, view.AdmissionBudgetSeconds, view.CheckpointBudgetSeconds = 15, 15, 5

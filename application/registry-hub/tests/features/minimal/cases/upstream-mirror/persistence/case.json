@@ -1,0 +1,11 @@
+{
+  "id": "upstream-persistence-fixture",
+  "description": "Build and verify one completed upstream image for storage persistence tests.",
+  "dependsOn": ["installation"],
+  "timeoutSeconds": 360,
+  "preconditions": ["An isolated backend and controlled upstream fixture are available."],
+  "assertions": ["The client supplies missing blob demand and the root solidifies within 90 seconds.", "Local reads preserve bytes and avoid additional upstream requests."],
+  "checks": [{"id":"upstream-persistence-fixture.solidification","description":"Verify one completed image and local reads."}],
+  "outputs": ["Completed task identity, repository, reference, manifest digest, and phase timings."],
+  "requirements": ["docs/usage.md"]
+}

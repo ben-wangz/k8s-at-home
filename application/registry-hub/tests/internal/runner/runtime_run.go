@@ -43,9 +43,9 @@ func (runtime *Runtime) Run(ctx context.Context, options RunOptions) error {
 	needsPodman := options.Image == "" && !options.Reuse
 	if !options.CreateOnly {
 		for _, caseID := range plan.Order {
-			if caseID == "initializer-faults" || caseID == "client-interop" || caseID == "podman-upstream-pull" {
+			switch caseID {
+			case "initializer-faults", "client-interop", "podman-upstream-pull", "upstream-mirror", "upstream-persistence-fixture", "large-layer-performance", "feature-upstream-auth-transport", "feature-gc", "quota-convergence":
 				needsPodman = true
-				break
 			}
 		}
 	}

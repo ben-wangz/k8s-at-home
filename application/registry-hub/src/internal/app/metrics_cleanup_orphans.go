@@ -46,6 +46,7 @@ func (s *observedStore) record(ctx context.Context, operation string, err error,
 		budget.operations.Add(1)
 	}
 	result := s.metrics.recordStorage(operation, err, time.Since(started))
+	s.metrics.recordStorageWork(ctx, operation, result, time.Since(started))
 	if err != nil && !expectedStorageError(err) && s.logger != nil {
 		fields := []any{"operation", operation, "error_class", result}
 		if meta, ok := ctx.Value(requestMetaKey{}).(*requestMeta); ok && meta.requestID != "" {

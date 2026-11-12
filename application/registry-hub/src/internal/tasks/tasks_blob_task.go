@@ -21,7 +21,7 @@ func (m *Manager) EnqueueBlobProtected(ctx context.Context, intent BlobIntent, s
 func (m *Manager) enqueueBlob(ctx context.Context, intent BlobIntent, scopeID string, reservedBytes int64) (Task, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if intent.ID == "" || intent.State != IntentReady && intent.State != IntentRetryWait || intent.Identity.Authority == "" || intent.Identity.Repository == "" || intent.Identity.Digest == "" || intent.MediaType == "" || intent.CacheVersion == "" || intent.ActualSize < 0 || intent.ProtectionSessionID == "" && (scopeID != "" || reservedBytes != 0) || intent.ProtectionSessionID != "" && scopeID == "" {
+	if intent.ID == "" || intent.State != IntentReady && intent.State != IntentRetryWait && intent.State != IntentWaitingQuota || intent.Identity.Authority == "" || intent.Identity.Repository == "" || intent.Identity.Digest == "" || intent.MediaType == "" || intent.CacheVersion == "" || intent.ActualSize < 0 || intent.ProtectionSessionID == "" && (scopeID != "" || reservedBytes != 0) || intent.ProtectionSessionID != "" && scopeID == "" {
 		return Task{}, false, errors.New("ready blob intent is incomplete")
 	}
 	if existing, err := m.Get(ctx, intent.ID); err == nil {
@@ -31,6 +31,9 @@ func (m *Manager) enqueueBlob(ctx context.Context, intent BlobIntent, scopeID st
 		return existing, false, nil
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		return Task{}, false, err
+	}
+	if intent.State == IntentWaitingQuota {
+		return Task{}, false, storage.ErrConditionFailed
 	}
 	active, err := m.listActive(ctx)
 	if err != nil {

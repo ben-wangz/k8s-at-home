@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"registry-hub/internal/artifact"
+	"registry-hub/internal/inventory"
+	"registry-hub/internal/lease"
 	"registry-hub/internal/route"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
@@ -79,8 +81,16 @@ func (s *solidifier) assignStagedBlobScopes(ctx context.Context, task *tasks.Tas
 }
 
 func (s *solidifier) distributionBlobPresent(ctx context.Context, task *tasks.Task, blob contentRef, sessionID string) (bool, error) {
+	leaseCtx, release, err := acquireContentLease(ctx, s.tasks.Leases(), task.Authority, task.Repository, blob.digest, task.ID)
+	if err != nil {
+		if errors.Is(err, lease.ErrHeld) {
+			return false, temporary("object_busy", err)
+		}
+		return false, temporary("object_lease", err)
+	}
+	defer release()
 	path := "/v2/" + s.internalName(task.Authority, task.Repository) + "/blobs/" + blob.digest
-	response, err := s.registry.Do(ctx, http.MethodHead, path, nil, make(http.Header), nil, 0)
+	response, err := s.registry.Do(leaseCtx, http.MethodHead, path, nil, make(http.Header), nil, 0)
 	if err != nil {
 		return false, temporary("distribution", err)
 	}
@@ -100,11 +110,11 @@ func (s *solidifier) distributionBlobPresent(ctx context.Context, task *tasks.Ta
 		return false, permanent("distribution_invalid", errors.New("existing Distribution blob does not match its descriptor"))
 	}
 	if sessionID != "" {
-		if err := s.gate.MarkProtectionContentObserved(ctx, sessionID); err != nil {
+		if err := s.gate.MarkProtectionContentObserved(leaseCtx, sessionID); err != nil {
 			return false, temporary("protection_state", err)
 		}
 	}
-	if err := s.verifyOrReuseLocalBlob(ctx, task, blob, sessionID, path); err != nil {
+	if err := s.observeSolidificationBlob(leaseCtx, task, blob, sessionID, "distribution_head_digest"); err != nil {
 		return false, err
 	}
 	if err := s.saveBlobGraphNodeState(ctx, task, blob, "verified_present"); err != nil {
@@ -123,31 +133,39 @@ func (s *solidifier) verifyOrReuseLocalBlob(ctx context.Context, task *tasks.Tas
 }
 
 func (s *solidifier) verifyOrReuseLocalBlobAtGenerationEpoch(ctx context.Context, task *tasks.Task, blob contentRef, sessionID, path string, generation, epoch uint64) error {
+	return s.coordinateBlobVerification(ctx, task, blob, sessionID, path, generation, epoch)
+}
+
+func (s *solidifier) recordVerifiedBlobObservation(ctx context.Context, task *tasks.Task, blob contentRef, sessionID string, generation, epoch uint64) error {
+	return s.recordBlobObservation(ctx, task, blob, sessionID, generation, epoch, "distribution_readback")
+}
+
+func (s *solidifier) recordBlobObservation(ctx context.Context, task *tasks.Task, blob contentRef, sessionID string, generation, epoch uint64, basis string) error {
 	if err := s.requireStableObservationEpoch(ctx, task, blob.digest, generation, epoch); err != nil {
 		return err
 	}
-	_, err := s.service.records.FindLocalObservation(ctx, task.Authority, task.Repository, tasks.GraphBlob, blob.digest, blob.size, generation, epoch)
-	if err == nil {
-		return nil
+	ownership, owned := ctx.Value(contentLeaseContextKey{}).(contentLeaseOwnership)
+	if !owned || ownership.holder.Key != "leases/objects/"+objectLeaseKey(task.Authority, task.Repository, blob.digest) {
+		return temporary("object_lease", errors.New("solidification observation requires the content lease"))
 	}
-	if !errors.Is(err, storage.ErrNotFound) {
-		return temporary("task_state", err)
-	}
-	if err := s.verifyLocalObject(ctx, path, blob.digest, blob.size); err != nil {
-		return err
-	}
-	if err := s.requireStableObservationEpoch(ctx, task, blob.digest, generation, epoch); err != nil {
-		return err
+	if err := ownership.manager.Validate(ctx, ownership.holder); err != nil {
+		return temporary("object_lease", err)
 	}
 	owner := sessionID
 	if owner == "" {
 		owner = task.ID
 	}
-	operationID := fmt.Sprintf("%s-%s-%d-%d", owner, objectLeaseKey(task.Authority, task.Repository, blob.digest), generation, epoch)
-	if err := s.service.records.RecordLocalObservation(ctx, tasks.LocalObservation{
+	operationID := fmt.Sprintf("%s-%s-%d-%d-%s", owner, objectLeaseKey(task.Authority, task.Repository, blob.digest), generation, epoch, basis)
+	guarded := inventory.WithWriteGuard(ctx, func(check context.Context) error {
+		if err := ownership.manager.Validate(check, ownership.holder); err != nil {
+			return err
+		}
+		return s.requireStableObservationEpoch(check, task, blob.digest, generation, epoch)
+	})
+	if err := s.service.records.RecordLocalObservation(guarded, tasks.LocalObservation{
 		Authority: task.Authority, Repository: task.Repository, Role: tasks.GraphBlob,
 		Digest: blob.digest, ActualSize: blob.size, Generation: generation,
-		GCEpoch: epoch, OperationID: operationID, VerificationBasis: "distribution_readback",
+		GCEpoch: epoch, OperationID: operationID, VerificationBasis: basis,
 	}); err != nil {
 		return temporary("task_state", err)
 	}

@@ -1,0 +1,10 @@
+ARG GO_IMAGE
+FROM ${GO_IMAGE} AS build
+WORKDIR /fixture
+COPY *.go ./
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GO111MODULE=off go build -trimpath -ldflags='-s -w' -o /upstream-fixture .
+
+FROM scratch
+COPY --from=build /upstream-fixture /upstream-fixture
+USER 65532:65532
+ENTRYPOINT ["/upstream-fixture"]

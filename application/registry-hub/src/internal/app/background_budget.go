@@ -8,6 +8,9 @@ import (
 )
 
 type workerStatus struct {
+	WaitReason               string                      `json:"waitReason,omitempty"`
+	DependencyGeneration     string                      `json:"dependencyGeneration,omitempty"`
+	DependencyCheckedAt      time.Time                   `json:"dependencyCheckedAt,omitempty"`
 	Recovery                 *protectionRecoveryProgress `json:"recovery,omitempty"`
 	Phase                    string                      `json:"phase,omitempty"`
 	Resumability             string                      `json:"resumability,omitempty"`
@@ -45,6 +48,12 @@ func (s *Service) updateWorker(kind string, update func(*workerStatus)) {
 }
 
 func (s *Service) beginBackgroundUnit(parent context.Context, kind string, budget time.Duration) (context.Context, func(), bool) {
+	return s.beginAdmittedUnit(parent, kind, budget, func(ctx context.Context) (func(), bool) {
+		return s.backgroundKindBudget(ctx, kind)
+	})
+}
+
+func (s *Service) beginAdmittedUnit(parent context.Context, kind string, budget time.Duration, admit func(context.Context) (func(), bool)) (context.Context, func(), bool) {
 	started := time.Now()
 	runID := requestID()
 	s.updateWorker(kind, func(state *workerStatus) {
@@ -52,7 +61,7 @@ func (s *Service) beginBackgroundUnit(parent context.Context, kind string, budge
 		state.ExecutionBudgetSeconds = budget.Seconds()
 	})
 	admission, cancelAdmission := context.WithTimeout(parent, 15*time.Second)
-	release, admitted := s.backgroundKindBudget(admission, kind)
+	release, admitted := admit(admission)
 	cancelAdmission()
 	wait := time.Since(started)
 	if !admitted || parent.Err() != nil {

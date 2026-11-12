@@ -70,6 +70,7 @@ type Task struct {
 	ScopeID                 string                `json:"scopeID,omitempty"`
 	RoundID                 string                `json:"roundID,omitempty"`
 	ProtectionSessionID     string                `json:"protectionSessionID,omitempty"`
+	ProtectionAssociatedAt  time.Time             `json:"protectionAssociatedAt,omitempty"`
 	ProtectionOwnerID       string                `json:"protectionOwnerID,omitempty"`
 	RootDigest              string                `json:"rootDigest,omitempty"`
 	BlobDigest              string                `json:"blobDigest,omitempty"`
@@ -90,7 +91,11 @@ type Task struct {
 	ManifestGeneration      uint64                `json:"manifestGeneration,omitempty"`
 	Status                  State                 `json:"status"`
 	WaitReason              string                `json:"waitReason,omitempty"`
+	VerificationWorkID      string                `json:"verificationWorkID,omitempty" hidden:"true"`
 	QuotaWaitAt             time.Time             `json:"quotaWaitAt,omitempty"`
+	QuotaWakeRevision       uint64                `json:"quotaWakeRevision,omitempty"`
+	QuotaWakeState          string                `json:"quotaWakeState,omitempty"`
+	ExecutableAt            time.Time             `json:"executableAt,omitempty"`
 	QuotaWaitReason         string                `json:"quotaWaitReason,omitempty"`
 	QuotaWaitBytes          int64                 `json:"quotaWaitBytes,omitempty"`
 	QuotaReplaceableBytes   int64                 `json:"quotaReplaceableBytes,omitempty"`
@@ -116,6 +121,7 @@ type Task struct {
 	ErrorClass              string                `json:"errorClass,omitempty"`
 	ErrorMessage            string                `json:"errorMessage,omitempty"`
 	FencingToken            uint64                `json:"fencingToken,omitempty"`
+	Dispatch                *DispatchState        `json:"dispatch,omitempty" hidden:"true"`
 	version                 string
 }
 
@@ -185,6 +191,10 @@ type TaskYieldedHandler interface {
 	TaskYielded(context.Context, *Task)
 }
 
+type TaskQuotaChangedHandler interface {
+	TaskQuotaChanged(context.Context, Task)
+}
+
 type Manager struct {
 	recoveryPaused  atomic.Bool
 	runtime         RuntimeStatus
@@ -196,6 +206,8 @@ type Manager struct {
 	pendingMax      int
 	maxWaitingRoots int
 	idleTimeout     time.Duration
+	dispatchMu      sync.Mutex
+	dispatchToken   string
 	mu              sync.Mutex
 	active          map[string]struct{}
 	cancels         map[string]context.CancelFunc

@@ -20,6 +20,8 @@ var ErrSourceMissing = errors.New("background source is missing")
 type Queue struct {
 	Store               storage.Store
 	ValidateRetrySource func(context.Context, Job) error
+	BuildFinalSummary   func(Job) (json.RawMessage, error)
+	OnRunnable          func(string)
 }
 
 func Key(kind, id string) string { return Prefix + "jobs/" + kind + "/" + id + ".json" }
@@ -50,14 +52,19 @@ func (q Queue) Enqueue(ctx context.Context, kind, source string, payload any, ob
 	if err != nil {
 		return Job{}, err
 	}
+	if err := inventory.ValidateWriteGuard(ctx); err != nil {
+		return Job{}, err
+	}
 	entry, err := q.Store.Put(ctx, Key(kind, job.ID), bytes.NewReader(encoded), int64(len(encoded)), storage.PutOptions{IfAbsent: true})
 	if err == nil {
 		job.Version = entry.Version
+		q.notifyRunnable(job)
 		return job, nil
 	}
 	if errors.Is(err, storage.ErrAlreadyExists) || errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrUnknownCommit) {
 		stored, readErr := q.Read(ctx, kind, job.ID)
 		if readErr == nil && bytes.Equal(stored.Payload, data) {
+			q.notifyRunnable(stored)
 			return stored, nil
 		}
 		if readErr == nil {
@@ -81,6 +88,10 @@ func (q Queue) Read(ctx context.Context, kind, id string) (Job, error) {
 }
 
 func (q Queue) Claim(ctx context.Context, job Job) (Job, error) {
+	return q.ClaimFor(ctx, job, time.Minute)
+}
+
+func (q Queue) ClaimFor(ctx context.Context, job Job, duration time.Duration) (Job, error) {
 	now := time.Now().UTC()
 	if job.State == "done" || job.State == "failed" || job.NextAttemptAt.After(now) || job.State == "running" && job.LeaseUntil.After(now) {
 		return Job{}, storage.ErrConditionFailed
@@ -95,13 +106,14 @@ func (q Queue) Claim(ctx context.Context, job Job) (Job, error) {
 		diagnostics.Record(&job.DiagnosticOutbox, diagnostics.Event{Component: "background", Operation: job.Kind, EntityID: job.ID, WorkID: job.ID, WorkKind: job.Kind, Stage: "lease_takeover", Result: "recovered", AttemptID: job.AttemptID, RunID: job.RunID})
 	}
 	job.ParentAttemptID = job.AttemptID
-	job.State, job.LeaseUntil, job.Fence = "running", now.Add(time.Minute), job.Fence+1
+	job.State, job.LeaseUntil, job.Fence = "running", now.Add(max(time.Minute, duration)), job.Fence+1
 	job.AttemptID = ID("attempt", job.ID, now.Format(time.RFC3339Nano), job.RunID)
 	job.LastAttemptAt, job.AttemptFinishedAt = now, time.Time{}
 	if job.FirstAttemptAt.IsZero() {
 		job.FirstAttemptAt = now
 	}
 	job.WaitReason, job.ResponsibleWorkID, job.ResponsibleWorkKind = "", "", ""
+	job.DependencyGeneration = ""
 	err := q.save(ctx, &job)
 	return job, err
 }
@@ -125,7 +137,8 @@ func (q Queue) Finish(ctx context.Context, job *Job, progress any, done bool, ca
 	if err != nil {
 		return err
 	}
-	if !bytes.Equal(job.Progress, data) || done {
+	_, dependencyWait := Dependency(cause)
+	if (!bytes.Equal(job.Progress, data) || done) && !dependencyWait {
 		job.ProgressAt = time.Now().UTC()
 	}
 	job.AttemptFinishedAt = time.Now().UTC()
@@ -145,7 +158,9 @@ func (q Queue) Finish(ctx context.Context, job *Job, progress any, done bool, ca
 			job.RecoveredAt = time.Now().UTC()
 		}
 	}
-	if cause != nil {
+	if wait, ok := Dependency(cause); ok {
+		applyDependency(job, wait)
+	} else if cause != nil {
 		job.RetryCount++
 		job.State, job.ErrorClass, job.ErrorAt = "retry_wait", "storage", time.Now().UTC()
 		if errors.Is(cause, context.DeadlineExceeded) || errors.Is(cause, storage.ErrTimeout) {
@@ -167,6 +182,17 @@ func (q Queue) Finish(ctx context.Context, job *Job, progress any, done bool, ca
 	} else if !done {
 		job.RunnableAt = job.AttemptFinishedAt
 	}
+	if job.State == "done" {
+		if summary, ok := progress.(CompletionSummarizer); ok {
+			job.FinalSummary, err = summary.CompletionSummary(*job)
+			if err != nil {
+				return err
+			}
+		}
+		if err := q.summarize(job); err != nil {
+			return err
+		}
+	}
 	if err := q.save(ctx, job); err != nil {
 		return err
 	}
@@ -177,30 +203,6 @@ func (q Queue) Finish(ctx context.Context, job *Job, progress any, done bool, ca
 }
 
 func ReceiptKey(kind, id string) string { return Prefix + "receipts/" + kind + "/" + id + ".json" }
-
-func (q Queue) Archive(ctx context.Context, job Job) error {
-	job.Progress = nil
-	data, err := json.Marshal(job)
-	if err != nil {
-		return err
-	}
-	_, err = q.Store.Put(ctx, ReceiptKey(job.Kind, job.ID), bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfAbsent: true})
-	if errors.Is(err, storage.ErrAlreadyExists) || errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrUnknownCommit) {
-		stored, _, readErr := inventory.Read[Job](ctx, q.Store, ReceiptKey(job.Kind, job.ID))
-		if readErr != nil || !bytes.Equal(stored.Payload, job.Payload) {
-			return errors.Join(err, readErr)
-		}
-		err = nil
-	}
-	if err != nil {
-		return err
-	}
-	err = q.Store.DeleteIfMatch(ctx, Key(job.Kind, job.ID), job.Version)
-	if errors.Is(err, storage.ErrNotFound) {
-		return nil
-	}
-	return err
-}
 
 func (q Queue) Retry(ctx context.Context, kind, id string) error {
 	job, err := q.Read(ctx, kind, id)
@@ -219,5 +221,15 @@ func (q Queue) Retry(ctx context.Context, kind, id string) error {
 		}
 	}
 	job.State, job.NextAttemptAt, job.RunnableAt = "pending", time.Time{}, time.Now().UTC()
-	return q.save(ctx, &job)
+	if err := q.save(ctx, &job); err != nil {
+		return err
+	}
+	q.notifyRunnable(job)
+	return nil
+}
+
+func (q Queue) notifyRunnable(job Job) {
+	if q.OnRunnable != nil && job.State != "done" && job.State != "failed" {
+		q.OnRunnable(job.Kind)
+	}
 }

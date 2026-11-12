@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"registry-hub/internal/lease"
 	"registry-hub/internal/registryapi"
 	"registry-hub/internal/route"
 	"registry-hub/internal/storage"
@@ -179,6 +180,11 @@ func (s *Service) proxyUpload(writer http.ResponseWriter, request *http.Request,
 		return
 	}
 	if err != nil {
+		if errors.Is(err, lease.ErrHeld) {
+			writer.Header().Set("Retry-After", "1")
+			registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "upload session is busy")
+			return
+		}
 		if errors.Is(err, ErrWritesClosed) {
 			writer.Header().Set("Retry-After", "5")
 			registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "Registry writes are blocked")

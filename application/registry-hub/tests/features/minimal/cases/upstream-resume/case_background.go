@@ -77,6 +77,7 @@ func waitForBackgroundTask(ctx context.Context, environment testkit.CaseContext,
 	query := url.Values{"authority": {"github.com"}, "repository": {upstreamRepository}, "digest": {"resume-background"}, "limit": {"100"}}
 	deadline := time.NewTimer(2 * time.Minute)
 	defer deadline.Stop()
+	var lastTask map[string]any
 	for {
 		response, err := support.AdminRequest(ctx, environment, http.MethodGet, "/api/v1/tasks?"+query.Encode(), nil, nil)
 		if err != nil {
@@ -87,6 +88,7 @@ func waitForBackgroundTask(ctx context.Context, environment testkit.CaseContext,
 			return nil, err
 		}
 		if task := backgroundTask(testkit.Slice(page["items"])); task != nil {
+			lastTask = task
 			status := testkit.String(task["status"])
 			if status == expectedStatus {
 				return task, nil
@@ -100,7 +102,8 @@ func waitForBackgroundTask(ctx context.Context, environment testkit.CaseContext,
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-deadline.C:
-			return nil, fmt.Errorf("background resumable task did not reach %s", expectedStatus)
+			encoded, _ := json.Marshal(lastTask)
+			return nil, fmt.Errorf("background resumable task did not reach %s: %s", expectedStatus, encoded)
 		case <-time.After(time.Second):
 		}
 	}

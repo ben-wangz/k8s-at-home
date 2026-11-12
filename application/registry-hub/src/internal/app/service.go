@@ -77,6 +77,8 @@ type Service struct {
 	closeOnce               sync.Once
 	background              sync.WaitGroup
 	backgroundSlots         chan struct{}
+	backgroundScheduler     *backgroundScheduler
+	backgroundReady         map[string]chan struct{}
 	collectorSlots          chan struct{}
 	collectorPace           <-chan time.Time
 	backgroundPace          <-chan time.Time
@@ -207,8 +209,8 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	service.uploads = newUploadSessions(store, registry, service.tasks.Leases(), cfg.Limits.UploadIdleTimeout, cfg.Limits.UploadMaxLifetime)
 	service.uploads.attemptObserver = service.emitDiagnosticEvent
 	service.cache.SetOrphanProtection(service.protectCacheObject)
-	service.tasks.Start(ctx)
 	service.startBackgroundWorkers(ctx)
+	service.tasks.Start(ctx)
 	service.metrics.setGateState(gate.State().State)
 	service.refreshReadiness()
 	return service, nil

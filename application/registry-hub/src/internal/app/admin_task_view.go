@@ -127,6 +127,7 @@ func (s *Service) taskAdminView(ctx context.Context, task tasks.Task) (adminTask
 func (s *Service) taskAdminViewWithRetry(ctx context.Context, task tasks.Task, retry *adminProtectionReadRetry) (adminTaskView, error) {
 	for {
 		view := taskAdminView(task)
+		view.QuotaWait = s.quotaWaitDiagnostic(ctx, task)
 		if s.gate == nil {
 			if len(task.SessionIDs) > 0 || task.ProtectionSessionID != "" {
 				return adminTaskView{}, errors.New("task protection state is unavailable")
@@ -162,6 +163,9 @@ func (s *Service) taskAdminViewWithRetry(ctx context.Context, task tasks.Task, r
 			}
 			view.Task = normalizedTask
 			view.DiagnosticOutbox = nil
+			view.QuotaWakeState = ""
+			view.Dispatch = nil
+			view.VerificationWorkID = ""
 			view.GCProtectionActive = normalizedTask.GCProtected || len(normalizedTask.SessionIDs) > 0 || normalizedTask.ProtectionSessionID != ""
 			for id := range releasedSessions {
 				view.ReleasedProtectionSessionIDs = append(view.ReleasedProtectionSessionIDs, id)

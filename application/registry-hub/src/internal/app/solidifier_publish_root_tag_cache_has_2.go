@@ -7,36 +7,33 @@ import (
 	"net/http"
 	"net/url"
 	"registry-hub/internal/lease"
-	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
 	"registry-hub/internal/upstream"
 	"time"
 )
 
 func (s *solidifier) cacheHas(ctx context.Context, task *tasks.Task, reference contentRef) (bool, error) {
-	object, err := s.cache.GetRetained(ctx, task.Authority, task.Repository, reference.digest, reference.mediaType)
-	if err == nil {
-		_ = object.Body.Close()
-		if reference.size >= 0 && object.Size != reference.size {
+	inspection, err := s.cache.Inspect(ctx, task.Authority, task.Repository, reference.digest, reference.mediaType)
+	if err != nil {
+		return false, err
+	}
+	if inspection.Present || inspection.Unknown {
+		if reference.size >= 0 && inspection.Size != reference.size {
 			return false, errors.New("cached object size differs from its descriptor")
 		}
 		return true, nil
 	}
-	if !errors.Is(err, storage.ErrNotFound) {
-		return false, err
-	}
 	if reference.mediaType != "" {
 		return false, nil
 	}
-	object, err = s.cache.GetAnyRetained(ctx, task.Authority, task.Repository, reference.digest)
-	if errors.Is(err, storage.ErrNotFound) {
-		return false, nil
-	}
+	inspection, err = s.cache.InspectAny(ctx, task.Authority, task.Repository, reference.digest, "application/octet-stream")
 	if err != nil {
 		return false, err
 	}
-	_ = object.Body.Close()
-	if reference.size >= 0 && object.Size != reference.size {
+	if !inspection.Present && !inspection.Unknown {
+		return false, nil
+	}
+	if reference.size >= 0 && inspection.Size != reference.size {
 		return false, errors.New("cached object size differs from its descriptor")
 	}
 	return true, nil

@@ -126,8 +126,12 @@ func TestCacheReadsAndMigratesPreviousSchema(t *testing.T) {
 		t.Fatalf("migrated cache body = %q, err=%v", actual, err)
 	}
 	for _, key := range keys {
-		if version := cacheTestSchemaVersion(t, store, key); version != cacheSchemaCurrent {
-			t.Fatalf("schemaVersion for %q = %d, want %d", key, version, cacheSchemaCurrent)
+		want := cacheSchemaCurrent
+		if key != cacheRepresentationIndexKey(identity) {
+			want = cachePayloadSchemaCurrent
+		}
+		if version := cacheTestSchemaVersion(t, store, key); version != want {
+			t.Fatalf("schemaVersion for %q = %d, want %d", key, version, want)
 		}
 	}
 }

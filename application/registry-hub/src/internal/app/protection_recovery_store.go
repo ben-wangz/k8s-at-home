@@ -61,6 +61,21 @@ func (s *recoveryStore) Put(ctx context.Context, key string, body io.Reader, siz
 	return s.Store.Put(ctx, key, body, size, options)
 }
 
+func (s *recoveryStore) PutVerified(ctx context.Context, key string, body io.Reader, size int64, options storage.VerifiedPutOptions) (storage.Entry, error) {
+	release, err := s.mutation(ctx, key)
+	if err != nil {
+		return storage.Entry{}, err
+	}
+	defer release()
+	if terminalScope(ctx, key) != nil {
+		return storage.Entry{}, errors.ErrUnsupported
+	}
+	if source, ok := s.Store.(storage.VerifiedPutter); ok {
+		return source.PutVerified(ctx, key, body, size, options)
+	}
+	return storage.Entry{}, errors.ErrUnsupported
+}
+
 func (s *recoveryStore) Delete(ctx context.Context, key string) error {
 	release, err := s.mutation(ctx, key)
 	if err != nil {

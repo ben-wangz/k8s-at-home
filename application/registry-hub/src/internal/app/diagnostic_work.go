@@ -23,20 +23,21 @@ type workAssociations struct {
 type backgroundJobView struct {
 	workqueue.Job
 	workAssociations
-	Revision           string               `json:"revision"`
-	SourceRevision     string               `json:"sourceRevision"`
-	WaitReason         string               `json:"waitReason,omitempty"`
-	SourceAgeSeconds   float64              `json:"sourceAgeSeconds"`
-	EnqueuedAgeSeconds *float64             `json:"enqueuedAgeSeconds"`
-	Checkpoint         workqueue.Checkpoint `json:"checkpoint"`
-	RunnableAgeSeconds *float64             `json:"runnableAgeSeconds"`
-	ResponsibleWorkURL string               `json:"responsibleWorkURL,omitempty"`
-	Impact             string               `json:"impact"`
-	ImpactObservedAt   time.Time            `json:"impactObservedAt"`
-	StatusURL          string               `json:"statusURL"`
-	EventsURL          string               `json:"eventsURL"`
-	ErrorBlocking      bool                 `json:"errorBlocking"`
-	TerminalCleanup    *terminalCleanupView `json:"terminalCleanup,omitempty"`
+	Revision           string                  `json:"revision"`
+	SourceRevision     string                  `json:"sourceRevision"`
+	WaitReason         string                  `json:"waitReason,omitempty"`
+	SourceAgeSeconds   float64                 `json:"sourceAgeSeconds"`
+	EnqueuedAgeSeconds *float64                `json:"enqueuedAgeSeconds"`
+	Checkpoint         workqueue.Checkpoint    `json:"checkpoint"`
+	RunnableAgeSeconds *float64                `json:"runnableAgeSeconds"`
+	ResponsibleWorkURL string                  `json:"responsibleWorkURL,omitempty"`
+	Impact             string                  `json:"impact"`
+	ImpactObservedAt   time.Time               `json:"impactObservedAt"`
+	StatusURL          string                  `json:"statusURL"`
+	EventsURL          string                  `json:"eventsURL"`
+	ErrorBlocking      bool                    `json:"errorBlocking"`
+	TerminalCleanup    *terminalCleanupView    `json:"terminalCleanup,omitempty"`
+	FinalSummary       *terminalCleanupSummary `json:"finalSummary,omitempty"`
 }
 
 func diagnosticJob(job workqueue.Job) backgroundJobView {
@@ -51,6 +52,9 @@ func diagnosticJob(job workqueue.Job) backgroundJobView {
 	}
 	if job.ResponsibleWorkID != "" {
 		view.ResponsibleWorkURL = "/api/v1/background/" + job.ResponsibleWorkKind + "/" + job.ResponsibleWorkID
+	}
+	if job.WaitReason == "protection_recovery" {
+		view.ResponsibleWorkURL = "/api/v1/workers/protection_recovery"
 	}
 	if job.State == "pending" && job.WaitReason == "" && !job.RunnableAt.IsZero() {
 		age := max(0, time.Since(job.RunnableAt).Seconds())
@@ -98,8 +102,14 @@ func diagnosticJob(job workqueue.Job) backgroundJobView {
 		view.WaitReason = "manual_intervention"
 	}
 	view.Payload, view.Progress = nil, nil
+	view.Job.FinalSummary = nil
 	if job.Kind == "terminal_cleanup" {
 		view.TerminalCleanup = terminalCleanupDiagnostic(job)
+		if summary, ok := readTerminalSummary(job); ok {
+			view.FinalSummary = &summary
+			view.Checkpoint.Processed = summary.ProcessedSteps
+			view.Checkpoint.Unit = summary.CounterUnit
+		}
 	}
 	view.DiagnosticOutbox = nil
 	return view
@@ -109,10 +119,12 @@ func workImpact(kind string) string {
 	switch kind {
 	case "inventory", "execution":
 		return "inventory_freshness"
-	case "notify", "wake_root":
+	case "notify", "wake_root", "quota_wake":
 		return "dependent_work_notification"
 	case "download_cleanup":
 		return "temporary_storage_and_download_capacity"
+	case "cache_verification":
+		return "cache_readiness"
 	case "terminal_cleanup":
 		return "solidification_protection_and_capacity"
 	default:

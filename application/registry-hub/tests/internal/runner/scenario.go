@@ -32,6 +32,18 @@ func scenarioRegistry() map[string]ScenarioDefinition {
 				"routing-paths", "security-defaults", "startup-wait", "tag-publication", "tags-pagination", "upstream-mirror", "upstream-resume",
 			},
 		},
+		"feature-quota-convergence": {
+			ID: "feature-quota-convergence", ConfigPath: "tests/features/quota-convergence/config.yaml",
+			CaseIDs: []string{"default-render", "installation", "quota-convergence"},
+		},
+		"feature-large-layer": {
+			ID: "feature-large-layer", ConfigPath: "tests/features/large-layer/config.yaml",
+			CaseIDs: []string{"default-render", "installation", "large-layer-performance"},
+		},
+		"feature-large-layer-s3": {
+			ID: "feature-large-layer-s3", ConfigPath: "tests/features/large-layer-s3/config.yaml", BackendS3: true,
+			CaseIDs: []string{"default-render", "installation", "large-layer-performance"},
+		},
 		"feature-client-auth-catalog": {
 			ID: "feature-client-auth-catalog", ConfigPath: "tests/features/client-auth-catalog/config.yaml",
 			CaseIDs: []string{"feature-client-auth-catalog"}, ClientAuthCatalog: true,
@@ -42,7 +54,19 @@ func scenarioRegistry() map[string]ScenarioDefinition {
 		},
 		"feature-backend-s3": {
 			ID: "feature-backend-s3", ConfigPath: "tests/features/backend-s3/config.yaml",
-			CaseIDs: []string{"default-render", "installation", "upstream-mirror", "feature-backend-s3", "image-inventory", "registry-roundtrip", "admin-auth", "initialization-secrets"}, BackendS3: true,
+			CaseIDs: []string{"default-render", "installation", "upstream-persistence-fixture", "feature-backend-s3", "image-inventory", "registry-roundtrip", "admin-auth", "initialization-secrets"}, BackendS3: true,
+		},
+		"feature-upstream-latency": {
+			ID: "feature-upstream-latency", ConfigPath: "tests/features/upstream-latency/config.yaml",
+			CaseIDs: []string{"default-render", "installation", "upstream-persistence-fixture", "upstream-discovery-latency", "image-inventory", "registry-roundtrip", "admin-auth", "initialization-secrets"},
+		},
+		"feature-upstream-latency-s3": {
+			ID: "feature-upstream-latency-s3", ConfigPath: "tests/features/upstream-latency-s3/config.yaml", BackendS3: true,
+			CaseIDs: []string{"default-render", "installation", "upstream-persistence-fixture", "upstream-discovery-latency", "image-inventory", "registry-roundtrip", "admin-auth", "initialization-secrets"},
+		},
+		"feature-upstream-matrix-s3": {
+			ID: "feature-upstream-matrix-s3", ConfigPath: "tests/features/upstream-matrix-s3/config.yaml", BackendS3: true,
+			CaseIDs: []string{"default-render", "installation", "upstream-mirror", "image-inventory", "registry-roundtrip", "admin-auth", "initialization-secrets"},
 		},
 		"feature-diagnostics": {
 			ID: "feature-diagnostics", ConfigPath: "tests/features/diagnostics/config.yaml",

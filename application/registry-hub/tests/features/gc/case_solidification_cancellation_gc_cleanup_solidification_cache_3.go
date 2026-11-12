@@ -67,10 +67,18 @@ func cancelSolidificationTasks(ctx context.Context, environment testkit.CaseCont
 	if len(taskIDs) == 0 {
 		return nil, fmt.Errorf("no active solidification tasks remained to cancel")
 	}
+	var summaries []map[string]any
 	for _, taskID := range taskIDs {
-		if _, err := waitForCancelledTask(ctx, environment, taskID); err != nil {
+		current, err := waitForCancelledTask(ctx, environment, taskID)
+		if err != nil {
 			return nil, err
 		}
+		cleanupID := testkit.String(current["terminalCleanupID"])
+		summary, err := waitForCleanupReceipt(ctx, environment, taskID, cleanupID)
+		if err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, map[string]any{"taskID": taskID, "cleanupID": cleanupID, "summary": summary})
 	}
 	for _, response := range responses {
 		if testkit.Int(response["status"]) == http.StatusAccepted {
@@ -82,7 +90,7 @@ func cancelSolidificationTasks(ctx context.Context, environment testkit.CaseCont
 	}
 	firstStatus := testkit.Int(responses[0]["status"])
 	return map[string]any{
-		"taskIDs": taskIDs, "responses": responses, "cancelResponseStatus": firstStatus, "quiesced": true, "status": "cancelled",
+		"taskIDs": taskIDs, "responses": responses, "cancelResponseStatus": firstStatus, "quiesced": true, "status": "cancelled", "cleanupSummaries": summaries,
 	}, nil
 }
 

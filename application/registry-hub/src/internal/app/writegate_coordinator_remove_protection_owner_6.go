@@ -130,10 +130,10 @@ func (g *writeGate) MarkProtectionWriteResolved(ctx context.Context, sessionID s
 	})
 }
 
-func (g *writeGate) CompleteProtectionStartupRecovery(ctx context.Context, sessionID string, verifiedWrite *protectionRemoteWrite) error {
+func (g *writeGate) CompleteProtectionStartupRecovery(ctx context.Context, sessionID string, reconciledWrite *protectionRemoteWrite) error {
 	return g.updateProtectionSession(ctx, sessionID, func(session *protectionSessionRecord) error {
-		if verifiedWrite != nil {
-			if !session.UncertainRemoteResult || session.RemoteWrite == nil || *session.RemoteWrite != *verifiedWrite {
+		if reconciledWrite != nil {
+			if !session.UncertainRemoteResult || session.RemoteWrite == nil || *session.RemoteWrite != *reconciledWrite {
 				return errors.New("protection remote write changed during startup recovery")
 			}
 			session.UncertainRemoteResult = false

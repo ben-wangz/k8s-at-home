@@ -124,7 +124,8 @@ func (s *Service) listBackground(writer http.ResponseWriter, request *http.Reque
 }
 
 func (s *Service) retryBackground(writer http.ResponseWriter, request *http.Request, ctx context.Context, kind, id string) {
-	q := workqueue.Queue{Store: s.store, ValidateRetrySource: s.validateRetrySource}
+	q := s.backgroundQueue()
+	q.ValidateRetrySource = s.validateRetrySource
 	var result any
 	var err error
 	if request.Body != nil && request.ContentLength != 0 {

@@ -135,12 +135,19 @@ func (s *solidifier) observationEpochOpen(epoch uint64) bool {
 }
 
 func (s *solidifier) verifyDistributionBlobAtEpoch(ctx context.Context, task *tasks.Task, blob contentRef, generation, epoch uint64) (bool, error) {
-	present, err := s.headDistributionBlob(ctx, task, blob)
+	leaseCtx, release, err := acquireContentLease(ctx, s.tasks.Leases(), task.Authority, task.Repository, blob.digest, task.ID)
+	if err != nil {
+		if errors.Is(err, lease.ErrHeld) {
+			return false, temporary("object_busy", err)
+		}
+		return false, temporary("object_lease", err)
+	}
+	defer release()
+	present, err := s.headDistributionBlob(leaseCtx, task, blob)
 	if err != nil || !present {
 		return present, err
 	}
-	path := "/v2/" + s.internalName(task.Authority, task.Repository) + "/blobs/" + blob.digest
-	if err := s.verifyOrReuseLocalBlobAtGenerationEpoch(ctx, task, blob, "", path, generation, epoch); err != nil {
+	if err := s.recordBlobObservation(leaseCtx, task, blob, "", generation, epoch, "distribution_head_digest"); err != nil {
 		return false, err
 	}
 	return true, nil

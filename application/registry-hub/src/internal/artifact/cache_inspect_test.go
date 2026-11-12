@@ -102,3 +102,52 @@ func TestCacheInspectionLegacyFingerprintIsUnknown(t *testing.T) {
 		t.Fatalf("legacy=%+v err=%v", inspection, err)
 	}
 }
+
+func TestCacheInspectionAcceptsUnavailableBackendChecksum(t *testing.T) {
+	ctx := context.Background()
+	store, err := filesystem.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cache := NewCache(store)
+	body := []byte("backend checksum is optional")
+	digest := CalculateSHA256(body)
+	media := "application/octet-stream"
+	if err := cache.Put(ctx, "ghcr.io", "repo", digest, media, bytes.NewReader(body), int64(len(body))); err != nil {
+		t.Fatal(err)
+	}
+	identity := cacheIdentity("ghcr.io", "repo", digest)
+	metadataKey := cacheMetadataKey(identity, media)
+	metadata, version, err := cache.readMetadataEntry(ctx, metadataKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata.IntegrityBackendAlgorithm = "sha256"
+	metadata.IntegrityBackendValue = "backend-value"
+	metadata.IntegrityBackendScope = "complete_object"
+	data, _ := json.Marshal(metadata)
+	if _, err := store.Put(ctx, metadataKey, bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfMatch: version}); err != nil {
+		t.Fatal(err)
+	}
+	markerKey := cacheCompleteKey(identity, media)
+	marker, err := cache.readComplete(ctx, identity, media)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker.IntegrityBackendAlgorithm = metadata.IntegrityBackendAlgorithm
+	marker.IntegrityBackendValue = metadata.IntegrityBackendValue
+	marker.IntegrityBackendScope = metadata.IntegrityBackendScope
+	markerData, _ := json.Marshal(marker)
+	markerEntry, err := store.Head(ctx, markerKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Put(ctx, markerKey, bytes.NewReader(markerData), int64(len(markerData)), storage.PutOptions{IfMatch: markerEntry.Version}); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := cache.Inspect(ctx, "ghcr.io", "repo", digest, media)
+	if err != nil || !inspection.Present {
+		t.Fatalf("inspection=%+v err=%v, want optional backend checksum to tolerate a backend without read evidence", inspection, err)
+	}
+}

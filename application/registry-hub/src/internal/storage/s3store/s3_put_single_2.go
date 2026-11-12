@@ -2,6 +2,7 @@ package s3store
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -29,6 +30,10 @@ func (s *Store) putSingle(ctx context.Context, key, name string, source *replayS
 		ContentLength: aws.Int64(source.size),
 		Metadata:      map[string]string{"registry-hub-operation": operationID},
 	}
+	checksum := base64.StdEncoding.EncodeToString(source.digest[:])
+	if s.checksumSHA256 {
+		input.ChecksumSHA256 = aws.String(checksum)
+	}
 	applyConditions(&input.IfNoneMatch, &input.IfMatch, options)
 	result, err := s.client.PutObject(ctx, input, func(options *s3.Options) {
 		options.APIOptions = append(options.APIOptions, v4.SwapComputePayloadSHA256ForUnsignedPayloadMiddleware)
@@ -55,7 +60,17 @@ func (s *Store) putSingle(ctx context.Context, key, name string, source *replayS
 		}
 		return storage.Entry{}, errors.Join(storage.ErrUnknownCommit, errors.New("S3 PutObject response did not provide an ETag"), readErr)
 	}
-	return storage.Entry{Key: key, Version: version, Size: source.size}, nil
+	entry := storage.Entry{Key: key, Version: version, Size: source.size}
+	if s.checksumSHA256 && aws.ToString(result.ChecksumSHA256) == checksum {
+		entry.ChecksumAlgorithm, entry.ChecksumValue, entry.ChecksumScope = "sha256", checksum, "complete_object"
+	} else if s.checksumSHA256 && result.ChecksumSHA256 != nil {
+		resolved, ok, readErr := s.resolvePut(ctx, key, source.size, source.digest[:], operationID)
+		if ok {
+			return resolved, nil
+		}
+		return storage.Entry{}, errors.Join(storage.ErrUnknownCommit, storage.ErrCorruptObject, readErr)
+	}
+	return entry, nil
 }
 
 func (s *Store) ensureReplayManager() (*replayManager, error) {

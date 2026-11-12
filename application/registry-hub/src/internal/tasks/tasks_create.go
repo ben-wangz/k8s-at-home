@@ -5,11 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"time"
 )
 
 func (m *Manager) create(ctx context.Context, task *Task) error {
+	prepareDispatchState(task)
+	if err := inventory.ValidateWriteGuard(ctx); err != nil {
+		return err
+	}
 	if err := m.ensureRootCacheProtectionReference(ctx, task); err != nil {
 		return errors.Join(err, m.cleanupUncommittedCacheProtectionReferences(ctx, task.ID))
 	}
@@ -17,6 +22,9 @@ func (m *Manager) create(ctx context.Context, task *Task) error {
 	data, err := json.Marshal(task)
 	if err != nil {
 		return errors.Join(err, m.cleanupUncommittedCacheProtectionReferences(ctx, task.ID))
+	}
+	if err := inventory.ValidateWriteGuard(ctx); err != nil {
+		return err
 	}
 	entry, err := m.store.Put(ctx, taskKey(task.ID), bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfAbsent: true})
 	if err != nil {
@@ -34,6 +42,7 @@ func (m *Manager) create(ctx context.Context, task *Task) error {
 		return errors.Join(err, readErr)
 	}
 	task.version = entry.Version
+	m.synchronizeDispatchState(ctx, task)
 	m.runtimeProgress(task.LastProgressAt)
 	return nil
 }
@@ -104,9 +113,14 @@ func (m *Manager) save(ctx context.Context, task *Task) error {
 	if err := m.ensureRootCacheProtectionReference(ctx, task); err != nil {
 		return err
 	}
+	quotaChanged := markQuotaTransition(task)
+	prepareDispatchState(task)
 	recordTaskEvent(task)
 	data, err := json.Marshal(task)
 	if err != nil {
+		return err
+	}
+	if err := inventory.ValidateWriteGuard(ctx); err != nil {
 		return err
 	}
 	entry, err := m.store.Put(ctx, taskKey(task.ID), bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfMatch: task.version})
@@ -114,7 +128,9 @@ func (m *Manager) save(ctx context.Context, task *Task) error {
 		return err
 	}
 	task.version = entry.Version
+	m.synchronizeDispatchState(ctx, task)
 	m.runtimeProgress(task.LastProgressAt)
+	m.notifyQuotaTransition(ctx, *task, quotaChanged)
 	return nil
 }
 

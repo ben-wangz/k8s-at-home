@@ -41,6 +41,12 @@ type metrics struct {
 	gcRuns                 *prometheus.CounterVec
 	gcDuration             prometheus.Histogram
 	storageOps             *prometheus.CounterVec
+	storageWorkOps         *prometheus.CounterVec
+	storageWorkLatency     *prometheus.HistogramVec
+	payloadBytes           *prometheus.CounterVec
+	payloadDuration        *prometheus.HistogramVec
+	verificationOutcomes   *prometheus.CounterVec
+	verificationDuration   *prometheus.HistogramVec
 	storageLatency         *prometheus.HistogramVec
 	storageWarnings        *prometheus.CounterVec
 	objectLeases           *prometheus.GaugeVec
@@ -70,7 +76,7 @@ type metrics struct {
 
 var taskWaitReasonLabels = []string{
 	"awaiting_manifest_anchor", "awaiting_manifest_demand", "cache_entry_unavailable", "dependencies_unavailable",
-	"distribution_quota", "gc_admission", "manifest_scope_admission", "protected_cache_capacity",
+	"distribution_quota", "distribution_verification", "gc_admission", "manifest_scope_admission", "protected_cache_capacity",
 	"protection_transfer", "remote_operations_pending", "other",
 }
 

@@ -16,10 +16,13 @@ import (
 type requestMetaKey struct{}
 
 type requestMeta struct {
-	operation   string
-	cacheSource string
-	requestID   string
-	errorClass  string
+	operation        string
+	cacheSource      string
+	requestID        string
+	errorClass       string
+	failureStage     string
+	failureCause     string
+	failureElapsedMS int64
 }
 
 type heldTagLease struct {
@@ -51,13 +54,7 @@ func (s *Service) handleClient(original http.ResponseWriter, request *http.Reque
 			status = http.StatusOK
 		}
 		s.metrics.recordRequest(meta.operation, request.Method, status, meta.cacheSource, meta.errorClass, time.Since(started))
-		logRequest := s.logger.Info
-		if meta.errorClass == "storage" {
-			logRequest = s.logger.Warn
-		}
-		logRequest("registry request", "request_id", meta.requestID, "operation", meta.operation,
-			"method", request.Method, "status", status, "latency_ms", time.Since(started).Milliseconds(),
-			"cache_source", meta.cacheSource, "error_class", meta.errorClass)
+		s.logRegistryRequest(meta, request.Method, status, time.Since(started))
 	}()
 	if request.URL.Path == "/healthz" {
 		writer.WriteHeader(http.StatusOK)
@@ -105,6 +102,7 @@ func (s *Service) handleClient(original http.ResponseWriter, request *http.Reque
 			timeout = s.cfg.Limits.BlobTransferTimeout
 		}
 	}
+
 	ctx, cancel := context.WithTimeout(request.Context(), timeout)
 	defer cancel()
 	request = request.WithContext(context.WithValue(ctx, requestMetaKey{}, meta))
@@ -157,6 +155,26 @@ func (s *Service) handleClient(original http.ResponseWriter, request *http.Reque
 		return
 	}
 	s.serveRoute(writer, request, routed, query, meta)
+}
+
+func (s *Service) logRegistryRequest(meta *requestMeta, method string, status int, latency time.Duration) {
+	logRequest := s.logger.Info
+	if meta.errorClass == "storage" || meta.failureStage != "" {
+		logRequest = s.logger.Warn
+	}
+	fields := []any{
+		"request_id", meta.requestID, "operation", meta.operation,
+		"method", method, "status", status, "latency_ms", latency.Milliseconds(),
+		"cache_source", meta.cacheSource, "error_class", meta.errorClass,
+	}
+	if meta.failureStage != "" {
+		fields = append(fields,
+			"failure_stage", meta.failureStage,
+			"failure_cause", meta.failureCause,
+			"failure_elapsed_ms", meta.failureElapsedMS,
+		)
+	}
+	logRequest("registry request", fields...)
 }
 
 func (s *Service) serveRoute(writer http.ResponseWriter, request *http.Request, routed route.Route, query url.Values, meta *requestMeta) {

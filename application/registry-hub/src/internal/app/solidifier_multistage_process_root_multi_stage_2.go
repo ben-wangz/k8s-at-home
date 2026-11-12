@@ -5,21 +5,24 @@ import (
 	"errors"
 	"reflect"
 	"registry-hub/internal/lease"
-	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
+	"time"
 )
 
 func (s *solidifier) processRootMultiStage(ctx context.Context, task *tasks.Task, taskLease lease.Lease) error {
 	if task.RootDigest == "" || task.MediaType == "" {
 		return permanent("task_state", errors.New("root task is missing its discovered manifest identity"))
 	}
-	graph := &stagedGraph{byManifest: make(map[string]*stagedManifest), blobs: make(map[string]contentRef), active: make(map[string]bool)}
-	root := contentRef{digest: task.RootDigest, mediaType: task.MediaType, size: -1}
-	rootManifest, err := s.discoverStagedManifest(ctx, task, taskLease, graph, root, 0, true)
+	ctx, performance := withSolidificationPerformance(ctx)
+	discoveryStarted := time.Now()
+	graph, err := s.loadOrDiscoverGraph(ctx, task, taskLease)
+	performance.discovery += time.Since(discoveryStarted)
 	if err != nil {
 		return err
 	}
-	graph.root = rootManifest.ref
+	performance.discoveryReused = graph.reused
+	performance.manifestCount, performance.blobCount, performance.closureBytes = len(graph.manifests), len(graph.blobs), graph.bytes
+	rootManifest := graph.byManifest[task.RootDigest]
 	scopeID, err := protectionScopeID(task.Authority, task.Repository, task.RootDigest, task.Generation)
 	if err != nil {
 		return permanent("task_state", err)
@@ -43,9 +46,19 @@ func (s *solidifier) processRootMultiStage(ctx context.Context, task *tasks.Task
 	if err := s.assignStagedBlobScopes(ctx, task, graph); err != nil {
 		return err
 	}
+	selection, err := s.selectGraphWork(ctx, task, graph)
+	if err != nil {
+		return err
+	}
+	if selection.affected != nil {
+		ctx = context.WithValue(ctx, graphEpochKey{}, selection.epoch)
+	}
 	manifestReady := make(map[string]bool, len(graph.manifests))
 	missing := false
 	for _, manifest := range graph.manifests {
+		if err := s.checkGraphEpoch(ctx); err != nil {
+			return err
+		}
 		childrenReady := true
 		for _, child := range manifest.children {
 			if !manifestReady[child.digest] {
@@ -53,116 +66,22 @@ func (s *solidifier) processRootMultiStage(ctx context.Context, task *tasks.Task
 				break
 			}
 		}
-		if !childrenReady {
-			missing = true
-			continue
-		}
-		maxSessions, maxBytes := protectionLimits(s.cfg)
-		if manifest.scopeBytes > maxBytes {
-			return permanent("capacity_limit", errors.New("manifest scope exceeds the unanchored Distribution byte limit"))
-		}
-		cacheReadyByDigest, intentByDigest, err := s.prepareManifestBlobs(ctx, task, manifest)
-		if err != nil {
-			return err
-		}
-		canProgress, err := s.manifestCanProgress(ctx, task, manifest, cacheReadyByDigest)
-		if err != nil {
-			return err
-		}
-		if !canProgress {
-			missing = true
-			continue
-		}
-		admitted, err := s.admitManifestScope(ctx, task, taskLease, manifest, graph.bytes, maxSessions, maxBytes, false)
-		if err != nil {
-			return withSolidificationFailureStage(err, "manifest_scope_admission")
-		}
-		if !admitted {
-			finalized, err := s.finalizeReusedAnchoredManifest(ctx, task, taskLease, manifest)
+		ready, skip := selection.skip(task, manifest)
+		if !skip {
+			ready, err = s.processStagedManifest(ctx, task, taskLease, graph.bytes, manifest, childrenReady)
 			if err != nil {
-				return withSolidificationFailureStage(err, "anchored_scope_reuse")
-			}
-			if finalized {
-				manifestReady[manifest.ref.digest] = true
-				continue
-			}
-			admitted, err = s.admitManifestScope(ctx, task, taskLease, manifest, graph.bytes, maxSessions, maxBytes, true)
-			if err != nil {
-				return withSolidificationFailureStage(err, "manifest_scope_recovery")
-			}
-			if !admitted {
-				finalized, err := s.finalizeReusedAnchoredManifest(ctx, task, taskLease, manifest)
-				if err != nil {
-					return withSolidificationFailureStage(err, "anchored_scope_reuse")
-				}
-				if !finalized {
-					return tasks.WaitFor(tasks.WaitingDeps, "dependencies_unavailable")
-				}
-				manifestReady[manifest.ref.digest] = true
-				continue
-			}
-		}
-		ready := true
-		for _, blob := range manifest.blobs {
-			cacheReady := cacheReadyByDigest[blob.digest]
-			intent := intentByDigest[blob.digest]
-			if err := s.service.inventoryStart(ctx, task, manifest.ref.digest); err != nil {
 				return err
 			}
-			present, err := s.distributionBlobPresent(ctx, task, blob, manifest.sessionID)
-			if err != nil {
-				return withSolidificationFailureStage(err, "blob_presence_check")
-			}
-			if present {
-				if cacheReady {
-					if err := s.cache.MarkBlobCleanupPending(ctx, task.Authority, task.Repository, blob.digest); err != nil {
-						return temporary("storage", err)
-					}
-				}
-				continue
-			}
-			if cacheReady {
-				blobTask, _, enqueueErr := s.service.enqueueBlobIntent(ctx, intent)
-				if enqueueErr != nil && !errors.Is(enqueueErr, storage.ErrConditionFailed) {
-					if s.service.logger != nil {
-						s.service.logger.Warn("cached blob task admission deferred", "task_id", task.ID, "error_class", "queue")
-					}
-				} else if blobTask.Status == tasks.WaitingDeps && blobTask.WaitReason == "manifest_scope_admission" || blobTask.Status == tasks.VerifiedLocal {
-					_, _ = s.tasks.Wake(ctx, intent.ID)
-				}
-			}
-			ready = false
 		}
-		if !ready {
-			missing = true
-			if err := s.releaseEmptyManifestScope(ctx, task, taskLease, manifest.sessionID); err != nil {
-				return err
-			}
-			continue
-		}
-		requestCtx, cancel := context.WithTimeout(ctx, s.cfg.Limits.RequestTimeout)
-		err = s.ensureManifest(requestCtx, task, taskLease, manifest.ref, manifest.ref.digest, manifest.sessionID)
-		cancel()
-		if err != nil {
-			return withSolidificationFailureStage(err, "manifest_publication", manifest.sessionID)
-		}
-		if err := s.recordStagedManifestObservation(ctx, task, manifest.ref); err != nil {
-			return err
-		}
-		if err := s.markStagedManifestPublished(ctx, task, manifest); err != nil {
-			return err
-		}
-		if manifest.ref.digest == task.RootDigest && !isDigestReference(task.Reference) {
-			manifestReady[manifest.ref.digest] = true
-			continue
-		}
-		if err := s.anchorManifestScope(ctx, task, taskLease, manifest); err != nil {
-			return withSolidificationFailureStage(err, "manifest_anchor")
-		}
-		if err := s.cache.MarkBlobCleanupPending(ctx, task.Authority, task.Repository, manifest.ref.digest); err != nil {
-			return temporary("storage", err)
-		}
-		manifestReady[manifest.ref.digest] = true
+		selection.ready[manifest.ref.digest] = ready
+		manifestReady[manifest.ref.digest] = ready
+		missing = missing || !ready
+	}
+	if err := s.checkGraphEpoch(ctx); err != nil {
+		return err
+	}
+	if err := s.saveGraphExecution(ctx, task, taskLease, graph, selection); err != nil {
+		return err
 	}
 	if missing || !manifestReady[task.RootDigest] {
 		return tasks.WaitFor(tasks.WaitingDeps, "dependencies_unavailable")

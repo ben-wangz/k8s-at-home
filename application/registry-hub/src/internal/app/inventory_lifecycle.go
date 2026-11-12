@@ -49,7 +49,7 @@ func (s *Service) inventoryStart(ctx context.Context, task *tasks.Task, digest s
 	}
 	fact := inventoryExecutionFact{TaskID: task.ID, Kind: task.Kind, Identity: inventoryIdentity(task.Authority, task.Repository, task.Reference), RootDigest: task.RootDigest, Digest: digest, Generation: task.Generation, ContentGeneration: generation.Generation, RootContentGeneration: rootGeneration}
 	key := executionSource(task.ID, digest, generation.Generation)
-	job, err := (workqueue.Queue{Store: s.store}).Enqueue(ctx, "execution", key, fact, time.Now().UTC())
+	job, err := s.backgroundQueue().Enqueue(ctx, "execution", key, fact, time.Now().UTC())
 	if err != nil {
 		return temporary("execution_state", err)
 	}
@@ -150,6 +150,10 @@ func (s *Service) projectBlobExecutionStep(ctx context.Context, job *workqueue.J
 				return p, p.Cursor.Done, nil
 			}
 			demand, _, err := inventory.Read[tasks.BlobDemand](ctx, s.store, entry.Key)
+			if errors.Is(err, storage.ErrNotFound) {
+				p.Cursor.Advance()
+				return p, false, nil
+			}
 			if err != nil {
 				return p, false, err
 			}

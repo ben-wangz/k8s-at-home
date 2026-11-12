@@ -13,11 +13,15 @@ import (
 )
 
 func (s *Service) serveUpstreamBlob(writer http.ResponseWriter, request *http.Request, routed route.Route, meta *requestMeta) {
+	request = request.WithContext(storage.WithIOPurpose(request.Context(), "client_delivery"))
+	lookupStarted := time.Now()
 	cached, err := s.cache.GetAny(request.Context(), routed.Upstream, routed.RemoteRepo, routed.Reference)
 	if err == nil {
+		intentStarted := time.Now()
 		intent, intentErr := s.ensureBlobIntent(request.Context(), routed)
 		if intentErr != nil {
 			_ = cached.Body.Close()
+			recordUpstreamBlobFailure(meta, "solidification_intent_record", intentErr, time.Since(intentStarted))
 			meta.errorClass = "storage"
 			writer.Header().Set("Retry-After", "5")
 			registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "blob solidification intent could not be recorded")
@@ -30,18 +34,22 @@ func (s *Service) serveUpstreamBlob(writer http.ResponseWriter, request *http.Re
 		return
 	}
 	if !errors.Is(err, storage.ErrNotFound) {
+		recordUpstreamBlobFailure(meta, "initial_cache_lookup", err, time.Since(lookupStarted))
 		meta.errorClass = "storage"
 		writer.Header().Set("Retry-After", "5")
 		registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "temporary storage is unavailable")
 		return
 	}
+	intentStarted := time.Now()
 	intent, err := s.ensureBlobIntent(request.Context(), routed)
 	if err != nil {
+		recordUpstreamBlobFailure(meta, "solidification_intent_record", err, time.Since(intentStarted))
 		meta.errorClass = "storage"
 		writer.Header().Set("Retry-After", "5")
 		registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "blob solidification intent could not be recorded")
 		return
 	}
+	fillStarted := time.Now()
 	if err := s.cacheUpstreamBlob(request.Context(), routed); err != nil {
 		var persistenceErr *download.PersistenceError
 		var guardErr *download.GuardError
@@ -54,32 +62,37 @@ func (s *Service) serveUpstreamBlob(writer http.ResponseWriter, request *http.Re
 			} else {
 				meta.errorClass = "storage"
 			}
-			if persistenceErr != nil && s.logger != nil {
-				s.logger.Warn("blob download failed", "request_id", meta.requestID, "failure_stage", persistenceErr.Stage, "error_class", meta.errorClass)
-			}
+			recordUpstreamBlobFailure(meta, "cache_fill", err, time.Since(fillStarted))
 			writer.Header().Set("Retry-After", "5")
 			registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "verified blob is temporarily unavailable")
 			return
 		}
 		var fetchErr *upstreamBlobFetchError
 		if errors.As(err, &fetchErr) {
+			if shouldLogUpstreamBlobFetchFailure(fetchErr) {
+				recordUpstreamBlobFailure(meta, "cache_fill", err, time.Since(fillStarted))
+			}
 			meta.errorClass = upstreamFailureClass(fetchErr)
 			writeUpstreamBlobFetchError(writer, routed.Endpoint, fetchErr)
 			return
 		}
 		if errors.Is(err, storage.ErrUnavailable) || errors.Is(err, storage.ErrNotFound) {
+			recordUpstreamBlobFailure(meta, "cache_fill", err, time.Since(fillStarted))
 			meta.errorClass = "storage"
 			writer.Header().Set("Retry-After", "5")
 			registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "verified blob cache is unavailable")
 			return
 		}
+		recordUpstreamBlobFailure(meta, "cache_fill", err, time.Since(fillStarted))
 		meta.errorClass = "storage"
 		writer.Header().Set("Retry-After", "5")
 		registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "upstream blob could not be cached")
 		return
 	}
+	lookupStarted = time.Now()
 	cached, err = s.cache.GetAny(request.Context(), routed.Upstream, routed.RemoteRepo, routed.Reference)
 	if err != nil {
+		recordUpstreamBlobFailure(meta, "post_fill_cache_lookup", err, time.Since(lookupStarted))
 		meta.errorClass = "storage"
 		writer.Header().Set("Retry-After", "5")
 		registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "verified blob cache is unavailable")

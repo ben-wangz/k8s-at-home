@@ -139,12 +139,16 @@ func WriteResult(environment testkit.CaseContext, details map[string]any) error 
 }
 
 var defaultChecks = map[string][]string{
+	"large-layer-performance":         {"large-layer-performance.phases"},
+	"upstream-discovery-latency":      {"upstream-discovery-latency.depth-limit"},
+	"upstream-persistence-fixture":    {"upstream-persistence-fixture.solidification"},
+	"quota-convergence":               {"quota-convergence.covered-capacity"},
 	"feature-diagnostics":             {"feature-diagnostics.accounting", "feature-diagnostics.restart"},
 	"image-inventory":                 {"image-inventory.auth", "image-inventory.reference", "image-inventory.snapshot", "image-inventory.validation"},
 	"default-render":                  {"default-render.closure-limits-defaulted", "default-render.service-readiness-routing"},
 	"registry-protocol":               {"registry-protocol.version", "registry-protocol.errors", "registry-protocol.head", "registry-protocol.listeners"},
 	"client-interop":                  {"client-interop.podman", "client-interop.manifest", "client-interop.helm", "client-interop.oras-push-pull", "client-interop.oras-referrer", "client-interop.oras-delete", "client-interop.isolation"},
-	"podman-upstream-pull":            {"podman-upstream-pull.tag", "podman-upstream-pull.index-digest", "podman-upstream-pull.platform-digest"},
+	"podman-upstream-pull":            {"podman-upstream-pull.tag", "podman-upstream-pull.index-digest", "podman-upstream-pull.platform-digest", "podman-upstream-pull.corrupt-layer"},
 	"upstream-resume":                 {"upstream-resume.healthy-download", "upstream-resume.frontend-resume", "upstream-resume.multiple-interruptions", "upstream-resume.attempt-timeout", "upstream-resume.idle-timeout", "upstream-resume.slow-full-response", "upstream-resume.range-fallback", "upstream-resume.validator-recovery", "upstream-resume.range-416", "upstream-resume.concurrent-waiters", "upstream-resume.backend-restart", "upstream-resume.background-retry", "upstream-resume.podman-pull"},
 	"feature-client-auth-catalog":     {"feature-client-auth-catalog.authentication", "feature-client-auth-catalog.permissions", "feature-client-auth-catalog.catalog", "feature-client-auth-catalog.catalog-pagination", "feature-client-auth-catalog.catalog-no-upstream", "feature-client-auth-catalog.isolation", "feature-client-auth-catalog.secrets"},
 	"feature-upstream-auth-transport": {"feature-upstream-auth-transport.secret", "feature-upstream-auth-transport.auth", "feature-upstream-auth-transport.bearer", "feature-upstream-auth-transport.transport-proxy", "feature-upstream-auth-transport.proxy-relay", "feature-upstream-auth-transport.isolation", "feature-upstream-auth-transport.private-anonymous", "feature-upstream-auth-transport.redirect-security", "feature-upstream-auth-transport.tls", "feature-upstream-auth-transport.manifest", "feature-upstream-auth-transport.token-deadline", "feature-upstream-auth-transport.token-retry"},

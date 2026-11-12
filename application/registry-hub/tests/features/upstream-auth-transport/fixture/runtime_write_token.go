@@ -14,7 +14,7 @@ func writeToken(writer http.ResponseWriter) {
 }
 
 func (runtime *fixtureRuntime) serveGitHubRoutes(writer http.ResponseWriter, request *http.Request, state fixtureRequestState) bool {
-	if runtime.serveGitHubSpecialManifest(writer, request, state) || runtime.serveGitHubMinimalManifest(writer, request, state) {
+	if runtime.serveLargeRoutes(writer, request, state) || runtime.serveQuotaRoutes(writer, request, state) || runtime.serveGitHubSpecialManifest(writer, request, state) || runtime.serveGitHubMinimalManifest(writer, request, state) {
 		return true
 	}
 	return false

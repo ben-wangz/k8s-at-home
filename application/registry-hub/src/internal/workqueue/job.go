@@ -13,6 +13,7 @@ type Job struct {
 	Kind                     string              `json:"kind"`
 	Payload                  json.RawMessage     `json:"payload"`
 	Progress                 json.RawMessage     `json:"progress,omitempty"`
+	FinalSummary             json.RawMessage     `json:"finalSummary,omitempty"`
 	State                    string              `json:"state"`
 	CreatedAt                time.Time           `json:"createdAt"`
 	EnqueuedAt               time.Time           `json:"enqueuedAt,omitempty"`
@@ -30,6 +31,8 @@ type Job struct {
 	CompletedAt              time.Time           `json:"completedAt,omitempty"`
 	RunnableAt               time.Time           `json:"runnableAt,omitempty"`
 	WaitReason               string              `json:"waitReason,omitempty"`
+	DependencyGeneration     string              `json:"dependencyGeneration,omitempty"`
+	DependencyCheckedAt      time.Time           `json:"dependencyCheckedAt,omitempty"`
 	ResponsibleWorkID        string              `json:"responsibleWorkID,omitempty"`
 	ResponsibleWorkKind      string              `json:"responsibleWorkKind,omitempty"`
 	Superseded               bool                `json:"superseded,omitempty"`

@@ -27,12 +27,20 @@ func (s *Store) Fingerprint(ctx context.Context, key string) (storage.Entry, str
 	if !info.Mode().IsRegular() {
 		return storage.Entry{}, "", storage.ErrCorruptObject
 	}
+	fingerprint, err := fileFingerprint(info)
+	return storage.Entry{Key: key, Size: info.Size(), ModTime: info.ModTime().UnixNano()}, fingerprint, err
+}
+
+func fileFingerprint(info os.FileInfo) (string, error) {
+	if !info.Mode().IsRegular() {
+		return "", storage.ErrCorruptObject
+	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
-		return storage.Entry{}, "", storage.ErrUnavailable
+		return "", storage.ErrUnavailable
 	}
 	fingerprint := fmt.Sprintf("%d:%d:%d:%d:%d:%d:%d", stat.Dev, stat.Ino, stat.Size, stat.Mtim.Sec, stat.Mtim.Nsec, stat.Ctim.Sec, stat.Ctim.Nsec)
-	return storage.Entry{Key: key, Size: info.Size(), ModTime: info.ModTime().UnixNano()}, fingerprint, nil
+	return fingerprint, nil
 }
 
 func (s *Store) ListMetadata(ctx context.Context, prefix, token string, limit int) ([]storage.Entry, string, error) {

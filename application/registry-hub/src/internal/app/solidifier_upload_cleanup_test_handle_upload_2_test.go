@@ -46,6 +46,9 @@ func (r *solidifierUploadTestRegistry) handleUpload(writer http.ResponseWriter, 
 		}
 		r.committedData = body
 		r.active = false
+		if r.options.cancelAfterCommit {
+			_, r.setupErr = r.manager.Cancel(context.Background(), r.taskID)
+		}
 		returnedDigest := r.digest
 		if r.options.commitDigest != "" {
 			returnedDigest = r.options.commitDigest
@@ -120,6 +123,7 @@ func (r *solidifierUploadTestRegistry) handleBlob(writer http.ResponseWriter, re
 		return
 	}
 	if request.Method == http.MethodGet {
+		r.getRequests++
 		if r.options.verifyStatus != 0 {
 			writer.WriteHeader(r.options.verifyStatus)
 			return
@@ -178,14 +182,13 @@ func TestSolidifierEnsureBlobCancelsAfterTaskCancellationBeforePut(t *testing.T)
 	}
 }
 
-func TestSolidifierEnsureBlobKeepsConfirmedCommitAfterVerificationFailure(t *testing.T) {
+func TestSolidifierEnsureBlobKeepsConfirmedCommitWithoutReadback(t *testing.T) {
 	fixture := newSolidifierUploadTestFixture(t, solidifierUploadTestOptions{verifyStatus: http.StatusServiceUnavailable})
 	err := fixture.runBlob(context.Background(), fixture.acquireTaskLease(t))
-	var failure *tasks.Failure
-	if !errors.As(err, &failure) || failure.Class != "distribution" {
-		t.Fatalf("ensureBlob() error = %#v, want verification failure", err)
+	if err != nil {
+		t.Fatalf("ensureBlob() error = %#v, want write-time confirmation success", err)
 	}
-	if fixture.registry.deleteRequests != 0 || !bytes.Equal(fixture.registry.committedData, fixture.data) {
-		t.Fatalf("confirmed blob was cancelled or lost: DELETEs=%d committed=%q", fixture.registry.deleteRequests, fixture.registry.committedData)
+	if fixture.registry.deleteRequests != 0 || fixture.registry.getRequests != 0 || !bytes.Equal(fixture.registry.committedData, fixture.data) {
+		t.Fatalf("confirmed blob was cancelled or read back: DELETEs=%d GETs=%d committed=%q", fixture.registry.deleteRequests, fixture.registry.getRequests, fixture.registry.committedData)
 	}
 }

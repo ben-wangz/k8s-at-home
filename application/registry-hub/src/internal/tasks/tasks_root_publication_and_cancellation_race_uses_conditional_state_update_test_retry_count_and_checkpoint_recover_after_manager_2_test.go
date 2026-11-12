@@ -145,5 +145,5 @@ func waitForTaskState(t *testing.T, manager *Manager, id string, expected State)
 	if err != nil {
 		t.Fatalf("read task state: %v", err)
 	}
-	t.Fatalf("task status = %s, want %s", task.Status, expected)
+	t.Fatalf("task status = %s, want %s; dispatch = %+v, runtime = %+v", task.Status, expected, task.Dispatch, manager.Runtime())
 }

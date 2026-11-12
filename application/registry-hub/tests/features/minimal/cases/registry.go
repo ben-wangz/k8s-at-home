@@ -26,6 +26,7 @@ import (
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/manifest-validation"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/observability"
 	podmanpull "github.com/ben-wangz/registry-hub-tests/features/minimal/cases/podman-upstream-pull"
+	quotaconvergence "github.com/ben-wangz/registry-hub-tests/features/minimal/cases/quota-convergence"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/rbac-boundary"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/referrers-lifecycle"
 	referrersmigration "github.com/ben-wangz/registry-hub-tests/features/minimal/cases/referrers-migration"
@@ -90,7 +91,11 @@ func Registry() ([]testkit.Case, error) {
 		referrersfallback.New,
 		featuregc.New,
 		upstreammirror.New,
+		upstreammirror.NewPersistenceFixture,
+		upstreammirror.NewDiscoveryLatency,
+		upstreammirror.NewLargeLayerPerformance,
 		upstreamresume.New,
+		quotaconvergence.New,
 	}
 	registered := make([]testkit.Case, 0, len(constructors))
 	for _, construct := range constructors {

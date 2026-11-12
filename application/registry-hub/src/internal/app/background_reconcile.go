@@ -5,7 +5,6 @@ import (
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
-	"registry-hub/internal/workqueue"
 	"strings"
 	"sync"
 	"time"
@@ -49,7 +48,7 @@ func (s *Service) reconcileBlobDemandWork(ctx context.Context, key string) error
 	if err != nil {
 		return err
 	}
-	q := workqueue.Queue{Store: s.store}
+	q := s.backgroundQueue()
 	if intent.State != tasks.IntentWaitingCache && intent.State != tasks.IntentWaitingQuota {
 		source := inventory.ID("demand-wake", intent.ID, demand.DemandID, string(intent.State), intent.CacheVersion, demand.CreatedAt.String())
 		if _, err := q.Enqueue(ctx, "wake_root", source, demand.RootTaskID, demand.CreatedAt); err != nil {
@@ -82,12 +81,14 @@ func (s *Service) reconcileCommittedDownload(ctx context.Context, key string) er
 	if value.Authority == "" || value.Repository == "" || value.TotalSize < 0 || value.TotalSize != value.Offset {
 		return nil
 	}
-	cached, err := s.cache.GetAnyRetained(ctx, value.Authority, value.Repository, value.Digest)
+	cached, err := s.inspectReadyBlob(ctx, s.cache, value.Authority, value.Repository, value.Digest)
 	if err != nil {
 		return err
 	}
-	_ = cached.Body.Close()
-	return s.deferDownloadCleanup(ctx, value.Authority, value.Repository, value.Identity, value.Digest, 0)
+	if !cached.Present {
+		return nil
+	}
+	return s.deferDownloadCleanup(ctx, value.Authority, value.Repository, value.Identity, value.Digest, 0, cached.DataVersion)
 }
 
 func (s *Service) reconcileManifestCache(ctx context.Context, key string) error {

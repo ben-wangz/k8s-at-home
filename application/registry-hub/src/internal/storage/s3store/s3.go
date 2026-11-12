@@ -28,6 +28,7 @@ type Store struct {
 	replayMu           sync.Mutex
 	replay             *replayManager
 	replayClosed       bool
+	checksumSHA256     bool
 	multipartMu        sync.Mutex
 	multipartActive    map[string]int
 	multipartCleaning  map[string]bool
@@ -88,6 +89,7 @@ func New(ctx context.Context, cfg config.S3) (*Store, error) {
 			options.BaseEndpoint = aws.String(strings.TrimSuffix(cfg.Endpoint, "/"))
 		}
 	})
+	checksumSHA256 := supportsAWSChecksumSHA256(cfg.Endpoint)
 	replay, err := newReplayManager(replayConfig{
 		perSourceMemory: cfg.ReplayMemoryBytes,
 		maxMemory:       cfg.ReplayMaxMemoryBytes,
@@ -106,6 +108,7 @@ func New(ctx context.Context, cfg config.S3) (*Store, error) {
 		multipartThreshold: cfg.MultipartThreshold,
 		httpClient:         httpClient,
 		attempts:           attempts,
+		checksumSHA256:     checksumSHA256,
 		replay:             replay,
 	}, nil
 }
@@ -124,37 +127,16 @@ func validateEndpoint(raw string, allowHTTP bool) error {
 	return nil
 }
 
-func (s *Store) Get(ctx context.Context, key string) (storage.Object, error) {
-	name, err := s.objectKey(key)
+func supportsAWSChecksumSHA256(endpoint string) bool {
+	if endpoint == "" {
+		return true
+	}
+	parsed, err := url.Parse(endpoint)
 	if err != nil {
-		return storage.Object{}, err
+		return false
 	}
-	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(name)})
-	if err != nil {
-		return storage.Object{}, mapError(err)
-	}
-	version := aws.ToString(result.ETag)
-	if version == "" {
-		_ = result.Body.Close()
-		return storage.Object{}, errors.New("S3 object did not provide an ETag for conditional operations")
-	}
-	return storage.Object{Body: result.Body, Size: aws.ToInt64(result.ContentLength), Version: version, ModTime: aws.ToTime(result.LastModified).UnixNano()}, nil
-}
-
-func (s *Store) Head(ctx context.Context, key string) (storage.Entry, error) {
-	name, err := s.objectKey(key)
-	if err != nil {
-		return storage.Entry{}, err
-	}
-	result, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(name)})
-	if err != nil {
-		return storage.Entry{}, mapError(err)
-	}
-	version := aws.ToString(result.ETag)
-	if version == "" {
-		return storage.Entry{}, errors.New("S3 object did not provide an ETag for conditional operations")
-	}
-	return storage.Entry{Key: key, Version: version, Size: aws.ToInt64(result.ContentLength), ModTime: aws.ToTime(result.LastModified).UnixNano()}, nil
+	host := strings.ToLower(parsed.Hostname())
+	return strings.HasSuffix(host, ".amazonaws.com") || strings.HasSuffix(host, ".amazonaws.com.cn") || host == "amazonaws.com" || host == "amazonaws.com.cn"
 }
 
 func (s *Store) ReplayUsage() (int64, int64, int) {
@@ -168,6 +150,14 @@ func (s *Store) ReplayUsage() (int64, int64, int) {
 }
 
 func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64, options storage.PutOptions) (storage.Entry, error) {
+	return s.put(ctx, key, body, size, options, "")
+}
+
+func (s *Store) PutVerified(ctx context.Context, key string, body io.Reader, size int64, options storage.VerifiedPutOptions) (storage.Entry, error) {
+	return s.put(ctx, key, body, size, options.PutOptions, options.Digest)
+}
+
+func (s *Store) put(ctx context.Context, key string, body io.Reader, size int64, options storage.PutOptions, expectedDigest string) (storage.Entry, error) {
 	if options.IfAbsent && options.IfMatch != "" {
 		return storage.Entry{}, errors.New("conditional create and conditional update are mutually exclusive")
 	}
@@ -182,7 +172,7 @@ func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64,
 	if err != nil {
 		return storage.Entry{}, err
 	}
-	source, err := replayManager.prepare(ctx, body, size)
+	source, err := replayManager.prepareVerified(ctx, body, size, expectedDigest)
 	if err != nil {
 		return storage.Entry{}, err
 	}

@@ -12,7 +12,7 @@ import (
 )
 
 func TestSolidifierEnsureBlobDoesNotCancelCommittedBlobAfterCheckpointCancellation(t *testing.T) {
-	fixture := newSolidifierUploadTestFixture(t, solidifierUploadTestOptions{cancelBeforeCheckpoint: true})
+	fixture := newSolidifierUploadTestFixture(t, solidifierUploadTestOptions{cancelAfterCommit: true})
 	err := fixture.runBlob(context.Background(), fixture.acquireTaskLease(t))
 	if !errors.Is(err, tasks.ErrCancelled) {
 		t.Fatalf("ensureBlob() error = %v, want cancellation during checkpoint", err)
@@ -44,6 +44,28 @@ func TestSolidifierEnsureBlobHandlesCommitDigestFailures(t *testing.T) {
 				t.Fatalf("DELETEs=%d active=%t committed=%q", fixture.registry.deleteRequests, fixture.registry.active, fixture.registry.committedData)
 			}
 		})
+	}
+}
+
+func TestSolidifierEnsureBlobRejectsCorruptPayloadDespiteSuccessfulDistributionResponse(t *testing.T) {
+	fixture := newSolidifierUploadTestFixture(t, solidifierUploadTestOptions{corruptCachePayload: true})
+	err := fixture.runBlob(context.Background(), fixture.acquireTaskLease(t))
+	var failure *tasks.Failure
+	if !errors.As(err, &failure) || failure.Permanent || failure.Class != "distribution_integrity" {
+		t.Fatalf("ensureBlob() error = %#v, want temporary upload integrity failure", err)
+	}
+	if bytes.Equal(fixture.registry.committedData, fixture.data) {
+		t.Fatal("test Distribution did not receive the corrupted payload")
+	}
+	if fixture.task.Checkpoints[fixture.digest] != "" {
+		t.Fatalf("corrupt upload was checkpointed: %#v", fixture.task.Checkpoints)
+	}
+	observations, _, err := fixture.solidifier.store.List(context.Background(), "solidification/observations/", "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observations) != 0 {
+		t.Fatalf("corrupt upload created local observations: %+v", observations)
 	}
 }
 

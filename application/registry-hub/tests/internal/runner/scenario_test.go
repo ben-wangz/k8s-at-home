@@ -53,3 +53,11 @@ func TestScenarioStateDirectoryAlwaysIncludesScenario(t *testing.T) {
 		t.Fatalf("state directory = %q, want %q", got, want)
 	}
 }
+
+func TestEveryScenarioConfigurationHasRequiredFixturePlaceholders(t *testing.T) {
+	for id, scenario := range scenarioRegistry() {
+		if err := validateScenarioConfig(filepath.Join("../../..", scenario.ConfigPath), scenario); err != nil {
+			t.Fatalf("scenario %s: %v", id, err)
+		}
+	}
+}

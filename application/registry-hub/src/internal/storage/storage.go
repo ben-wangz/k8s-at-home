@@ -25,10 +25,13 @@ var (
 )
 
 type Object struct {
-	Body    io.ReadCloser
-	Size    int64
-	Version string
-	ModTime int64
+	Body              io.ReadCloser
+	Size              int64
+	Version           string
+	ModTime           int64
+	ChecksumAlgorithm string
+	ChecksumValue     string
+	ChecksumScope     string
 }
 
 type PutOptions struct {
@@ -37,10 +40,13 @@ type PutOptions struct {
 }
 
 type Entry struct {
-	Key     string
-	Version string
-	Size    int64
-	ModTime int64
+	Key               string
+	Version           string
+	Size              int64
+	ModTime           int64
+	ChecksumAlgorithm string
+	ChecksumValue     string
+	ChecksumScope     string
 }
 
 type Store interface {

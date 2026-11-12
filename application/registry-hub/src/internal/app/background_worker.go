@@ -16,12 +16,14 @@ import (
 type backgroundStep func(context.Context, *workqueue.Job) (any, bool, error)
 
 func (s *Service) runBackgroundQueueLeader(ctx context.Context, holder lease.Lease, kind string, step backgroundStep) {
-	q := workqueue.Queue{Store: s.store}
+	q := s.backgroundQueue()
 	cursor := inventory.Cursor{}
 	status := workqueue.NewStatus(time.Now().UTC())
 	lastSave := time.Time{}
 	scanFailed := false
 	nextRound := time.Time{}
+	idleDelay := time.Duration(0)
+	idleQueue := false
 	initial, initialCancel := context.WithTimeout(ctx, 5*time.Second)
 	prior, _, readErr := inventory.Read[queueSweepCheckpoint](initial, s.store, queueCheckpointKey(kind))
 	initialCancel()
@@ -38,15 +40,21 @@ func (s *Service) runBackgroundQueueLeader(ctx context.Context, holder lease.Lea
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		case <-s.backgroundReady[kind]:
+			nextRound, idleDelay = time.Time{}, 0
+			idleQueue = false
 		}
 		if time.Now().Before(nextRound) {
 			continue
 		}
-		unitCtx, release, admitted := s.beginBackgroundUnit(ctx, kind, 15*time.Second)
+		admission := queueIdleContext(ctx, idleQueue)
+		unitCtx, release, admitted := s.beginQueueUnit(admission, kind)
 		if !admitted {
 			continue
 		}
-		entry, ok, err := cursor.Peek(unitCtx, s.store, workqueue.Prefix+"jobs/"+kind+"/", 32)
+		unitCtx = inventory.WithWriteGuard(unitCtx, func(ctx context.Context) error { return lease.NewManager(s.store).Validate(ctx, holder) })
+		pollCtx := context.WithValue(unitCtx, storagePurposeKey{}, "queue_poll")
+		entry, ok, err := cursor.Peek(pollCtx, s.store, workqueue.Prefix+"jobs/"+kind+"/", 32)
 		if err == nil && ok {
 			id := strings.TrimSuffix(entry.Key[strings.LastIndex(entry.Key, "/")+1:], ".json")
 			var job workqueue.Job
@@ -59,9 +67,12 @@ func (s *Service) runBackgroundQueueLeader(ctx context.Context, holder lease.Lea
 				if timing, ok := unitCtx.Value(diagnosticContextKey{}).(backgroundDiagnosticContext); ok {
 					job.RunID, job.AdmissionWaitSeconds, job.ExecutionBudgetSeconds = timing.RunID, timing.Admission, timing.Budget
 				}
-				if job.State == "done" {
+				waiting, waitErr := s.prepareQueueDependency(unitCtx, q, &job)
+				if waitErr != nil || waiting {
+					err = waitErr
+				} else if job.State == "done" {
 					err = q.Archive(unitCtx, job)
-				} else if claimed, claimErr := q.Claim(unitCtx, job); claimErr == nil {
+				} else if claimed, claimErr := q.ClaimFor(unitCtx, job, queueClaimDuration(unitCtx, kind)); claimErr == nil {
 					job = claimed
 					if timing, ok := unitCtx.Value(diagnosticContextKey{}).(backgroundDiagnosticContext); ok {
 						timing.WorkID, timing.AttemptID = job.ID, job.AttemptID
@@ -76,6 +87,7 @@ func (s *Service) runBackgroundQueueLeader(ctx context.Context, holder lease.Lea
 					}
 					guarded := inventory.WithWriteGuard(unitCtx, func(ctx context.Context) error { return q.Validate(ctx, claimed) })
 					progress, done, processErr := step(guarded, &job)
+					processErr = s.dependencyResult(processErr)
 					job.ExecutionDurationSeconds = time.Since(started).Seconds()
 					if timing, ok := unitCtx.Value(diagnosticContextKey{}).(backgroundDiagnosticContext); ok {
 						job.RunID, job.AdmissionWaitSeconds, job.ExecutionBudgetSeconds = timing.RunID, timing.Admission, timing.Budget
@@ -89,15 +101,20 @@ func (s *Service) runBackgroundQueueLeader(ctx context.Context, holder lease.Lea
 						if done {
 							result = "completed"
 						}
-						if processErr != nil {
+						if _, wait := workqueue.Dependency(processErr); wait {
+							result = "waiting_dependency"
+						} else if processErr != nil {
 							result = "error"
 						}
 						s.metrics.backgroundDuration.WithLabelValues(kind, result).Observe(time.Since(started).Seconds())
 					}
 					finishCtx, finishCancel := s.backgroundCheckpoint(ctx, kind)
+					finishCtx = inventory.WithWriteGuard(finishCtx, func(ctx context.Context) error { return lease.NewManager(s.store).Validate(ctx, holder) })
 					err = q.Finish(finishCtx, &job, progress, done, processErr)
 					finishCancel()
-					if processErr != nil {
+					if _, wait := workqueue.Dependency(processErr); wait {
+						s.backgroundEvent(kind, "waiting_dependency", nil)
+					} else if processErr != nil {
 						event := "retry"
 						if job.State == "failed" {
 							event = "permanent_failure"
@@ -130,7 +147,12 @@ func (s *Service) runBackgroundQueueLeader(ctx context.Context, holder lease.Lea
 			}
 			status.Complete = false
 		}
-		if cursor.Done || time.Since(lastSave) > 5*time.Second {
+		empty := cursor.Done && cursor.Entities == 0 && !scanFailed
+		checkpointInterval := 5 * time.Second
+		if empty {
+			checkpointInterval = 30 * time.Second
+		}
+		if err != nil || cursor.Done && !empty || time.Since(lastSave) >= checkpointInterval {
 			checkpointCtx, checkpointCancel := s.backgroundCheckpoint(ctx, kind)
 			status.Complete = cursor.Done && !scanFailed
 			status.Resumability, status.LeaseOwner, status.LeaseFence, status.CheckpointAt = "durable_checkpoint", holder.Owner, holder.FencingToken, time.Now().UTC()
@@ -149,51 +171,19 @@ func (s *Service) runBackgroundQueueLeader(ctx context.Context, holder lease.Lea
 				return
 			}
 			lastSave = time.Now()
-			if err == nil && cursor.Done {
-				if kind == "inventory" {
-					s.projectionBacklog.Store(status.Counts["pending"]+status.Counts["running"]+status.Counts["retry_wait"]+status.Counts["waiting_dependency"]+status.Counts["failed"] >= 10000)
-				}
-				cursor, status = inventory.Cursor{}, workqueue.NewStatus(time.Now().UTC())
-				scanFailed = false
-				nextRound = time.Now().Add(time.Second)
+		}
+		if cursor.Done {
+			if kind == "inventory" {
+				s.projectionBacklog.Store(status.Counts["pending"]+status.Counts["running"]+status.Counts["retry_wait"]+status.Counts["waiting_dependency"]+status.Counts["failed"] >= 10000)
 			}
+			idleDelay = nextQueuePoll(idleDelay, empty)
+			idleQueue = empty
+			cursor, status = inventory.Cursor{}, workqueue.NewStatus(time.Now().UTC())
+			scanFailed = false
+			nextRound = time.Now().Add(idleDelay)
 		}
 		release()
-	}
-}
-
-func (s *Service) backgroundBudget(ctx context.Context) (func(), bool) {
-	return s.backgroundKindBudget(ctx, "")
-}
-
-func (s *Service) backgroundKindBudget(ctx context.Context, kind string) (func(), bool) {
-	slots, pace := s.backgroundSlots, s.backgroundPace
-	if kind == "storage_inventory" {
-		slots, pace = s.collectorSlots, s.collectorPace
-	}
-	if ctx.Err() != nil {
-		return nil, false
-	}
-	if slots == nil {
-		return func() {}, true
-	}
-	select {
-	case slots <- struct{}{}:
-		if pace != nil {
-			select {
-			case <-ctx.Done():
-				<-slots
-				return nil, false
-			case <-pace:
-			}
-		}
-		if ctx.Err() != nil {
-			<-slots
-			return nil, false
-		}
-		return func() { <-slots }, true
-	case <-ctx.Done():
-		return nil, false
+		s.observeQueueDependency(kind)
 	}
 }
 
@@ -201,7 +191,7 @@ func (s *Service) backgroundEvent(kind, event string, cause error) {
 	if s.metrics != nil {
 		s.metrics.recordEvent("background_" + kind + "_" + event)
 	}
-	if cause != nil && s.logger != nil {
+	if cause != nil && !errors.Is(cause, lease.ErrHeld) && s.logger != nil {
 		s.logger.Warn("background work deferred", "work_kind", kind, "event", event, "error_class", storageResult(cause))
 	}
 	if cause != nil {
@@ -216,7 +206,7 @@ func (s *Service) enqueueProjection(ctx context.Context, kind, source string, pa
 	}
 	queueCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	job, err := (workqueue.Queue{Store: s.store}).Enqueue(queueCtx, kind, source, payload, at)
+	job, err := s.backgroundQueue().Enqueue(queueCtx, kind, source, payload, at)
 	if err == nil && kind == "inventory" {
 		if manifest, ok := payload.(inventoryManifestWork); ok {
 			if recordErr := s.recordProjectionRevision(queueCtx, &job, manifest, job.State == "done"); recordErr != nil {

@@ -61,7 +61,7 @@ func (c *Cache) recoverRepresentation(ctx context.Context, state *Representation
 	if err != nil {
 		return err
 	}
-	if metadata.SchemaVersion != cacheSchemaCurrent || metadata.Authority == "" || metadata.Repository == "" || metadata.Digest == "" || metadata.MediaType == "" || metadata.Size < 0 || metadata.DataVersion == "" || cacheIdentity(metadata.Authority, metadata.Repository, metadata.Digest) != state.Identity {
+	if metadata.SchemaVersion != cachePayloadSchemaCurrent || metadata.Authority == "" || metadata.Repository == "" || metadata.Digest == "" || metadata.MediaType == "" || metadata.Size < 0 || metadata.DataVersion == "" || cacheIdentity(metadata.Authority, metadata.Repository, metadata.Digest) != state.Identity {
 		return storage.ErrCorruptObject
 	}
 	if _, err := Hasher(metadata.Digest); err != nil {

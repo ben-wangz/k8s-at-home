@@ -16,7 +16,13 @@ type attemptTransport struct {
 
 func (t *attemptTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	started := time.Now().UTC()
+	if request.Body != nil {
+		request.Body = storage.MeasureBodyOperation(request.Context(), request.Body, "s3_write")
+	}
 	response, err := t.base.RoundTrip(request)
+	if response != nil && response.Body != nil {
+		response.Body = storage.MeasureBodyOperation(request.Context(), response.Body, "s3_read")
+	}
 	observer := t.observer.Load()
 	if observer != nil {
 		attempt := storage.HTTPAttempt{Method: request.Method, StartedAt: started, FinishedAt: time.Now().UTC(), Error: err}

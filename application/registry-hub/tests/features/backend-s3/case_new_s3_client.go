@@ -110,7 +110,7 @@ func compareObjectSnapshots(before, after map[string]string) error {
 		if !exists {
 			return fmt.Errorf("backend S3 object %s disappeared across restart", key)
 		}
-		if current != value && !mutableBackendObject(key) {
+		if current != value && !mutableBackendObject(key) && !mutableUnpublishedAssociation(key, before) {
 			return fmt.Errorf("backend S3 object %s changed across restart", key)
 		}
 	}

@@ -18,6 +18,7 @@ type protectionRemoteCheckpoint struct {
 	Offset      int64                  `json:"offset,omitempty"`
 	Hash        []byte                 `json:"hash,omitempty"`
 	Verified    bool                   `json:"verified,omitempty"`
+	Absent      bool                   `json:"absent,omitempty"`
 	Query       string                 `json:"query,omitempty"`
 	Pages       []string               `json:"pages,omitempty"`
 	Fallback    bool                   `json:"fallback,omitempty"`
@@ -40,7 +41,7 @@ func (r *protectionRecovery) remoteStep(ctx context.Context) error {
 	}
 	if session.PendingOperations == 0 && !session.UncertainRemoteResult && session.RemoteWrite == nil {
 		c.Index++
-		c.Remote = protectionRemoteCheckpoint{}
+		c.Step, c.Remote = "", protectionRemoteCheckpoint{}
 		return nil
 	}
 	if session.UncertainRemoteResult {
@@ -55,10 +56,11 @@ func (r *protectionRecovery) remoteStep(ctx context.Context) error {
 		if *c.Remote.Write != *session.RemoteWrite {
 			return storage.ErrConditionFailed
 		}
-		if !c.Remote.Verified {
+		if !c.Remote.Verified && !c.Remote.Absent {
 			return r.verifyRemoteStep(ctx)
 		}
 		if c.Step != "observed" {
+			// A confirmed repository miss can still leave unlinked upload data.
 			if err := r.service.gate.MarkRecoveredProtectionContentObserved(ctx, id); err != nil {
 				return err
 			}
@@ -87,10 +89,7 @@ func (r *protectionRecovery) verifyRemoteStep(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !verified {
-		return ErrRecoveryBarrier
-	}
-	remote.Verified = true
+	remote.Verified, remote.Absent = verified, !verified
 	return nil
 }
 
@@ -102,7 +101,12 @@ func (r *protectionRecovery) verifyRemoteBlobChunk(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		miss := confirmedMiss(response, http.MethodHead, route.EndpointBlob)
 		_ = response.Body.Close()
+		if miss {
+			remote.Absent = true
+			return nil
+		}
 		if response.StatusCode != http.StatusOK || response.ContentLength != write.Size || response.Header.Get("Docker-Content-Digest") != write.Digest {
 			return ErrRecoveryBarrier
 		}
@@ -186,8 +190,12 @@ func (r *protectionRecovery) verifyRemoteReferrerPage(ctx context.Context) error
 		}
 		miss := confirmedMiss(response, http.MethodGet, endpoint)
 		_ = response.Body.Close()
-		if !miss || remote.Fallback {
+		if !miss {
 			return ErrRecoveryBarrier
+		}
+		if remote.Fallback {
+			remote.Absent = true
+			return nil
 		}
 		remote.Fallback = true
 		return nil
@@ -206,7 +214,8 @@ func (r *protectionRecovery) verifyRemoteReferrerPage(ctx context.Context) error
 		return nil
 	}
 	if remote.Fallback {
-		return ErrRecoveryBarrier
+		remote.Absent = true
+		return nil
 	}
 	next, found, err := nextReferrerPage(links, write.Path)
 	if err != nil {

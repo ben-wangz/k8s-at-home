@@ -186,6 +186,13 @@ func (r *Repository) Start(ctx context.Context, version string) error {
 
 type writeGuardKey struct{}
 
+func ValidateWriteGuard(ctx context.Context) error {
+	if guard, ok := ctx.Value(writeGuardKey{}).(func(context.Context) error); ok {
+		return guard(ctx)
+	}
+	return nil
+}
+
 func WithWriteGuard(ctx context.Context, guard func(context.Context) error) context.Context {
 	if previous, ok := ctx.Value(writeGuardKey{}).(func(context.Context) error); ok {
 		next := guard

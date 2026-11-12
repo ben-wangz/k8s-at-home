@@ -59,7 +59,7 @@ func backendS3Pod(name, runID, fullname, secretName string) map[string]any {
 				},
 				"volumeMounts": []map[string]any{{"name": "data", "mountPath": "/data"}, {"name": "tmp", "mountPath": "/tmp"}},
 			}},
-			"volumes": []map[string]any{{"name": "data", "emptyDir": map[string]any{"sizeLimit": "1Gi"}}, {"name": "tmp", "emptyDir": map[string]any{}}},
+			"volumes": []map[string]any{{"name": "data", "emptyDir": map[string]any{"sizeLimit": "16Gi"}}, {"name": "tmp", "emptyDir": map[string]any{}}},
 		},
 	}
 }

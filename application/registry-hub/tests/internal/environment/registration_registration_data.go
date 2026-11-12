@@ -48,9 +48,15 @@ func ValidateRegistration(registration Registration, id, contextName string) err
 
 var scenarioReleaseKeys = map[string]string{
 	"feature-minimal":                 "min",
+	"feature-quota-convergence":       "quota",
+	"feature-large-layer":             "large",
+	"feature-large-layer-s3":          "larges3",
 	"feature-client-auth-catalog":     "authcat",
 	"feature-upstream-auth-transport": "upauth",
 	"feature-backend-s3":              "backs3",
+	"feature-upstream-latency":        "lat",
+	"feature-upstream-latency-s3":     "lats3",
+	"feature-upstream-matrix-s3":      "ups3",
 	"feature-diagnostics":             "diag",
 	"feature-diagnostics-s3":          "diags3",
 	"feature-registry-s3":             "regs3",

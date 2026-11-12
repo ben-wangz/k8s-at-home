@@ -39,6 +39,9 @@ func (s *Service) wakeBlobDemandRootsImmediately(ctx context.Context, intentID, 
 			return
 		}
 		targets[rootID] = struct{}{}
+		if err := s.markRootDependencyChanged(ctx, rootID, intent); err != nil {
+			wakeErr = errors.Join(wakeErr, err)
+		}
 		if err := s.wakeBlobDemandRoot(ctx, rootID); err != nil {
 			wakeErr = errors.Join(wakeErr, err)
 		}

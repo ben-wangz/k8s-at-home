@@ -1,0 +1,12 @@
+storage:
+  backend: s3
+  s3:
+    endpoint: __RUN_S3_ENDPOINT__
+    region: us-east-1
+    bucket: __RUN_BACKEND_S3_BUCKET__
+    prefix: registry-hub-backend
+    forcePathStyle: true
+    allowHTTP: true
+    credentialsSecret: __RUN_BACKEND_S3_SECRET__
+    multipartThreshold: 5242880
+    partSize: 5242880

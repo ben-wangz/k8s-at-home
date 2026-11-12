@@ -1,5 +1,11 @@
 # Management diagnostics and storage inventory
 
+`registry_hub_storage_work_operations_total` and `registry_hub_storage_work_duration_seconds` attribute storage calls to bounded `kind`, `purpose`, `operation`, and `result` labels. Purposes distinguish ordinary work, queue polling, checkpoints, and lease operations. Requests and service work without a worker context have separate categories; unknown worker identities collapse to `other`. These metrics measure calls at the storage interface, including concurrent work, rather than wall-clock task latency or individual SDK retry attempts.
+
+Durable queues use coalesced local wake hints and an idle scan backoff capped at five seconds; admission and storage time add to that interval. A local durable enqueue also promotes an idle queue already waiting for admission. Hints are optional: other replicas, restarts, and lost notifications recover from durable jobs. Empty queue checkpoints publish at most once per 30 seconds. Ordinary admission remains limited to two concurrent units, with active queues prioritized and maintenance admitted after at most three consecutive priority admissions (or alternating with aged maintenance). Running work is never preempted, so this policy bounds admission turns rather than promising a wall-clock deadline when storage is slow. The physical storage collector retains its separate capacity.
+
+Cache-ready activation events receive active-work priority. A consumed event is retained across admission timeouts and protection recovery pauses until it can execute or the service stops. Periodic durable reconciliation still recovers process restarts and missed notifications. Execution projections advance past demand or graph entries removed after listing; storage failures other than a confirmed missing object retain normal retry behavior.
+
 All routes below use the private admin listener. Grant `observe` for reads and metrics, and `work-retry` for conditional background retries. Existing `task-admin` credentials include both permissions. Authentication and GC/write authorization remain independent. GET requests read bounded metadata; they do not fetch missing payloads, create protection sessions, repair indexes, or clean storage.
 
 ## Investigation routes
@@ -39,7 +45,11 @@ Startup and runtime protection recovery use the same durable state machine. Each
 
 The gate's `recoveryTrigger` and recovery worker's `trigger` preserve the original kind, reason, task/work/attempt IDs, time and sanitized error across claims and restarts. `recoveryReason=startup_reconcile` describes the internal reconciliation mode; inspect the trigger for the initiating event. Trigger metadata is independent of the worker's current failure history. Older barriers without trigger evidence report `kind=unknown` rather than an inferred startup cause.
 
-Ordinary terminal cleanup is durable `terminal_cleanup` work. Query `/api/v1/background/terminal_cleanup?taskID=<taskID>` and inspect `terminalCleanup`: cleanup/round identity, generation, phase/substep, processed demand/session counts, yields, confirmation and associated recovery ID. Running jobs also show the remaining execution budget after their first checkpoint; the job's `executionBudgetSeconds` records the admitted budget. The task's `terminalCleanupID` is the durable handoff identity; reconciliation repairs a missed enqueue. Enqueueing does not release protection. Each 15-second execution quantum handles at most 16 small steps and checkpoints each completed step. Demand, shared-demand, session and quota scans retain their cursors. A journal precedes each protected metadata mutation; a started conditional write may finish across the quantum boundary within a separate five-second lifecycle-bound budget. Confirmation and checkpoint calls also have finite coordination budgets and validate the work claim, task lease, cleanup identity and gate epoch. Journal keys and content hashes are omitted from management responses.
+Ordinary terminal cleanup is durable `terminal_cleanup` work. Query `/api/v1/background/terminal_cleanup?taskID=<taskID>` and inspect `terminalCleanup`: cleanup/round identity, generation, phase/substep, processed steps, traversal positions, yields, confirmation and associated recovery ID. `processed` counts state-machine steps; demand/session cursor positions describe their current traversal rather than cumulative unique objects. Running jobs also show the remaining execution budget after their first checkpoint; the job's `executionBudgetSeconds` records the admitted budget. The task's `terminalCleanupID` is the durable handoff identity; reconciliation repairs a missed enqueue. Enqueueing does not release protection. Each 15-second execution quantum handles at most 16 small steps and checkpoints each completed step. Demand, shared-demand, session and quota scans retain their cursors. A journal precedes each protected metadata mutation; a started conditional write may finish across the quantum boundary within a separate five-second lifecycle-bound budget. Confirmation and checkpoint calls also have finite coordination budgets and validate the work claim, task lease, cleanup identity and gate epoch. Journal keys and content hashes are omitted from management responses.
+
+Completed cleanup receipts retain an optional `finalSummary` (schema version 1, at most 8 KiB) with identity, phase/outcome, processed steps, yields, confirmation/recovery association and execution/completion times. Outcomes distinguish ordinary completion, superseded work and recovery reconciliation. The summary excludes payload bodies, keys, journals and cursors. List and detail endpoints use the same summary. Missing or unsupported legacy evidence reports null counters with `coverage=unavailable`; a surviving matching active checkpoint can upgrade a legacy receipt. Completed traversal totals remain unknown. Archive retries preserve an existing valid summary.
+
+Quota wake work is visible under `/api/v1/background/quota_wake` and `/api/v1/workers/quota_wake`. Task `quotaWait` reports original and executable wait ages independently, with current coverage and a responsible session, predecessor or recovery worker when known. A recent heartbeat or an incomplete scan does not establish eligibility. Recovery dependency checks have their own timestamps and do not count as execution progress or storage failures.
 
 Budget exhaustion before issuing a mutation yields without a storage retry or global recovery. A confirmed write whose journal checkpoint fails retains its journal for retry. A genuinely unresolved write or remote result keeps protection and enters recovery; its trigger links back to the cleanup work. Work retries use the existing queue backoff. Storage probe failures retain both the primary stage error and auxiliary cleanup error; auxiliary cleanup has its own five-second bound and stops when the service lifecycle is cancelled.
 
@@ -71,7 +81,61 @@ Build status reports source-scan start, current build start and elapsed seconds,
 
 Protection recovery reports `durable_phase_and_substep` resumability. Its generation and nested checkpoints survive process restarts; diagnostic reads expose that evidence without advancing recovery or bypassing an unresolved barrier.
 
+## Client storage failure logs
+
+Each registry client request writes one existing `registry request` record. Storage failures add bounded `failure_stage`, `failure_cause`, and `failure_elapsed_ms` fields to that record; they do not emit per-chunk or per-retry entries. Stages identify the failed lookup, lease, upstream fill, representation commit, or cache verification step. Expected upstream client responses such as 401 and 404 do not add failure fields or WARN severity. The log omits raw errors, object keys, payload digests, and credentials. Use `request_id` for correlation. `failure_elapsed_ms` measures the enclosing lookup, intent write or fill call; an inner stage reported from that call does not have its own timer. `latency_ms` measures the full request.
+
+## Solidification performance logs
+
+The default JSON logger emits sparse INFO summaries and retains the existing WARN failure entry. Routine dependency waits, queue polling and progress heartbeats emit no additional performance logs. Observations use existing execution data and introduce no storage reads, writes or payload verification.
+
+| Message | Meaning and measurements |
+| --- | --- |
+| `solidification blob verified` | A blob is verified in Distribution. `source=cache` indicates an upload; `source=distribution` indicates existing content reused after verification or a current generation/GC-epoch-qualified observation. `size_bytes` is the declared object size. This event does not imply manifest anchoring or safe cache removal. |
+| `solidification manifest anchored` | A protection session newly transitioned to anchored. Includes `digest`, `media_type`, `scope_bytes`, `blob_count` and `anchor_age_seconds` since that session was created. A selected platform can anchor while an index waits for other platforms. Reconciliation of an already anchored session does not repeat this log. |
+| `solidification root completed` | Root processing returned successfully, including required manifest/tag publication. Includes closure manifest/blob counts and bytes, discovery duration and whether discovery was reused. This precedes the task manager's terminal state commit and subsequent cleanup. |
+| `solidification failed` | An execution attempt failed. Its existing error class/stage now accompanies elapsed time and observed upload/readback bytes, including costs incurred before failure. |
+
+All summaries identify the task, round, attempt, authority, repository, content generation and retry count. `task_age_seconds` starts at task creation and includes earlier dependency waits and retries; it is not active execution time or time since client download completion. `execution_seconds` covers only the current processor invocation through the logged milestone. Root completion reports the final invocation, not cumulative execution across earlier yields. `anchor_age_seconds` starts at protection admission, which can occur later than the initial client demand.
+
+Blob timings separate `cache_open_seconds` (strict cache open/verification), `upload_seconds` (Distribution PUT request through response headers), and `distribution_verify_seconds` (Distribution verification/observation checks). The total also includes leases, admission, metadata, upload-session creation and checkpoint work. Timings can overlap nested work and must not be summed across blob and root events as image latency. `uploaded_bytes` counts payload bytes consumed by the PUT transport, including failed attempts, rather than acknowledged bytes. `distribution_readback_bytes` and `distribution_readback_seconds` measure full digest readback body consumption/hashing; reused verification evidence contributes zero. Root and blob checks share an object lease and exact durable observation for ordinary blob verification. An independent root verification runs as queued payload work, so its readback appears in payload metrics rather than the root attempt's log. Failed or invalidated attempts and independent manifest or tag checks can still add readbacks.
+
+For a time window, compare verified blob count and declared bytes, upload bytes per wall-clock second, upload bytes per PUT second, reuse among executed blob attempts, p50/p95 blob execution time, selected-platform anchor age, and failure attempts. These distinguish transfer speed, reuse and waiting. Shared layers and manifest scopes overlap: summing `scope_bytes` or root closure sizes does not measure network traffic. A blob verification followed by a later metadata failure can emit both verification and failure for one attempt; count its byte observations once using `(task_id, round_id, attempt_id)`. Transport retries that failed before verification remain visible in WARN entries. Cancellation, crashes and dropped logs can leave gaps, so these logs are operational observations rather than an exact accounting ledger. Use durable task/transfer diagnostics for in-flight or incomplete work and the payload metrics below for continuously collected I/O totals.
+
+For example, aggregate JSON lines retained from all replicas for a UTC window with `jq`. The result counts successful blob observations, distinct root rounds, failure attempts, and uploaded MiB (including failed blob attempts), deduplicating repeated ingestion and multiple observations of one attempt:
+
+```sh
+jq -s --arg start '2026-11-06T00:00:00Z' --arg end '2026-11-06T01:00:00Z' '
+  [.[] | select((.time | sub("\\.[0-9]+Z$"; "Z")) >= $start
+    and (.time | sub("\\.[0-9]+Z$"; "Z")) < $end)] as $window |
+  [$window[] | select(.msg == "solidification blob verified")]
+    | unique_by([.task_id, .round_id, .attempt_id]) as $verified |
+  [$window[] | select(.task_kind == "blob" and
+    (.msg == "solidification blob verified" or .msg == "solidification failed"))]
+    | group_by([.task_id, .round_id, .attempt_id])
+    | map(max_by(.execution_seconds)) as $attempts |
+  {verified_blobs: ($verified | length),
+   reused_blobs: ([$verified[] | select(.source == "distribution")] | length),
+   completed_roots: ([$window[] | select(.msg == "solidification root completed")]
+     | unique_by([.task_id, .round_id]) | length),
+   failure_attempts: ([$window[] | select(.msg == "solidification failed")]
+     | unique_by([.task_id, .round_id, .attempt_id]) | length),
+   uploaded_mib: (([$attempts[].uploaded_bytes] | add // 0) / 1048576),
+   put_seconds: ([$attempts[].upload_seconds] | add // 0)}
+' solidification.jsonl
+```
+
+Byte totals are assigned to the observation's timestamp; an attempt spanning the window boundary contributes when its summary is logged. Production task execution populates attempt IDs; older logs without them cannot distinguish retries reliably.
+
 ## Refresh performance acceptance
+
+Payload work is exposed through `registry_hub_payload_bytes_total{kind,purpose,operation}` and `registry_hub_payload_duration_seconds` with bounded labels. Purposes distinguish cache verification, client delivery, Distribution upload/readback, download assembly, and cleanup verification. `read`, `write`, and `hash` count logical object/body work; filesystem version hashing is included. Metadata also contributes to these logical counters. `s3_read` and `s3_write` measure consumed SDK HTTP bodies, including retry attempts and error responses. They overlap logical storage work: do not add them to `read`/`write` as though they were independent copies. They exclude protocol headers and server-side physical disk activity.
+
+`registry_hub_distribution_verification_total{result}` and `registry_hub_distribution_verification_seconds{result}` distinguish successful observation reuse, full readback, deferred work, and errors. The `wait` duration covers the handoff only; queue and admission durations are reported separately. Dispatch runtime status exposes candidate pages and reads separately from canonical repair reads, so index rebuild work is not mistaken for warm dispatch cost.
+
+Counters aggregate at EOF, errors, and Close, including partial consumption; opening and closing an unread body contributes zero consumed bytes. Duration histograms measure active I/O or verification time. Nested and concurrent durations overlap and cannot be summed into request latency. For a complete filesystem layer of size B, strict cache verification reads B and verification plus consumption reads 2B; strict S3 verification plus consumption remains 2B before retries. Metadata-only internal readiness consumes zero payload bytes. The initial Distribution readback still hashes the full object.
+
+Compare cache commit, activation, task execution, upload, readback, and platform anchor timestamps separately. Discovery snapshots reduce repeated immutable edge writes and dependency notifications can target affected ancestors, while compensation scans still have a distinct cost. Generated 64/256/1024 MiB local fixtures can be measured with `REGISTRY_HUB_LARGE_LAYER_TEST=1 go -C application/registry-hub/src test ./internal/artifact -run '^TestLargeLayerPayloadAmplification$' -count=1 -timeout 30m -v`. The paired historical read path and optimized path share one filesystem and deterministic payload. These are warm local reads; they do not simulate a cold upstream transfer or establish cluster throughput. Run comparisons serially and retain the reported byte bounds alongside timings.
 
 `TestInventoryRefreshLatencyWithStableContentAndChangingReference` defines a local regression workload of four completed roots and four distinct manifests/configs, their tag and digest references, and a reference updated every 25 checkpoint steps. It uses durable filesystem storage and loopback Distribution, with one millisecond of additional latency per graph edge read. The targets are a complete first publication within 60 seconds and a complete subsequent refresh within 30 seconds, with no edge rereads for unchanged terminal graphs. Every step reloads the persisted checkpoint, including during continued reference writes.
 

@@ -5,12 +5,13 @@
   "runAfter": ["restart-reuse", "upstream-resume"],
   "timeoutSeconds": 300,
   "preconditions": ["The minimal feature configuration is deployed and the installation case has passed."],
-  "assertions": ["Podman pulls the image by tag, root index digest, and linux/amd64 platform manifest digest through the client Service."],
+  "assertions": ["Podman pulls the image by tag, root index digest, and linux/amd64 platform manifest digest through the client Service.", "Podman rejects a controlled blob whose bytes do not match its advertised digest."],
   "checks": [
     {"id": "podman-upstream-pull.tag", "description": "Pull the upstream image by tag."},
     {"id": "podman-upstream-pull.index-digest", "description": "Pull the upstream image by root index digest."},
-    {"id": "podman-upstream-pull.platform-digest", "description": "Pull the linux/amd64 platform manifest by digest."}
+    {"id": "podman-upstream-pull.platform-digest", "description": "Pull the linux/amd64 platform manifest by digest."},
+    {"id": "podman-upstream-pull.corrupt-layer", "description": "Reject a blob with a valid encoding but the wrong advertised digest."}
   ],
-  "outputs": ["Case result includes all three references and pull modes."],
+  "outputs": ["Case result includes all three references, pull modes, and the client-side corruption rejection result."],
   "requirements": ["docs/usage.md"]
 }

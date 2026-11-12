@@ -76,7 +76,7 @@ func (s *Store) list(ctx context.Context, prefix, token string, limit int, versi
 		}
 		var entry storage.Entry
 		if versions {
-			entry, err = s.head(path, key)
+			entry, err = s.head(ctx, path, key)
 		} else {
 			entry, _, err = s.Fingerprint(ctx, key)
 		}
@@ -155,7 +155,7 @@ func (s *Store) path(key string) (string, error) {
 	return path, nil
 }
 
-func (s *Store) head(path, key string) (storage.Entry, error) {
+func (s *Store) head(ctx context.Context, path, key string) (storage.Entry, error) {
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return storage.Entry{}, storage.ErrNotFound
@@ -168,7 +168,7 @@ func (s *Store) head(path, key string) (storage.Entry, error) {
 	if err != nil {
 		return storage.Entry{}, err
 	}
-	version, err := hashReader(file)
+	version, err := hashReader(ctx, file)
 	if err != nil {
 		return storage.Entry{}, err
 	}
@@ -188,8 +188,6 @@ func (s *Store) CleanupOrphans(ctx context.Context, olderThan time.Duration, lim
 		limit = 1000
 	}
 	cutoff := time.Now().Add(-olderThan)
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	paths := make([]string, 0, limit)
 	err := filepath.WalkDir(s.root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -198,10 +196,13 @@ func (s *Store) CleanupOrphans(ctx context.Context, olderThan time.Duration, lim
 			}
 			return walkErr
 		}
-		if entry.IsDir() || !strings.HasPrefix(entry.Name(), ".staging-") {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), ".staging-") || s.activeStaging(path) {
 			return nil
 		}
 		info, statErr := entry.Info()
+		if errors.Is(statErr, os.ErrNotExist) {
+			return nil
+		}
 		if statErr != nil {
 			return statErr
 		}
@@ -222,10 +223,12 @@ func (s *Store) CleanupOrphans(ctx context.Context, olderThan time.Duration, lim
 		if err := ctx.Err(); err != nil {
 			return removed, err
 		}
-		if err := os.Remove(path); errors.Is(err, os.ErrNotExist) {
-			continue
-		} else if err != nil {
+		deleted, err := s.removeOrphan(path)
+		if err != nil {
 			return removed, err
+		}
+		if !deleted {
+			continue
 		}
 		if err := s.ops.syncDir(filepath.Dir(path)); err != nil {
 			return removed, err

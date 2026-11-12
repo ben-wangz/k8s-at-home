@@ -19,6 +19,7 @@ func (s *Service) runCacheCleanup(ctx context.Context) {
 			return s.cache.CleanupEntry(ctx, entry, time.Now().UTC())
 		}},
 		{"reader_cleanup", "cache/readers/", s.cache.CleanupReaderPinEntry},
+		{"staging_reader_cleanup", "cache/staging-readers/", s.cache.CleanupReaderPinEntry},
 		{"upload_cleanup", "uploads/sessions/", func(ctx context.Context, entry storage.Entry) error {
 			return s.uploads.cleanupEntry(ctx, s.gate, entry)
 		}},

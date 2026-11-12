@@ -5,16 +5,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
 	"registry-hub/internal/storage"
 	"sync"
+	"time"
 )
 
 type Store struct {
 	root     string
 	mu       sync.Mutex
+	staging  map[string]struct{}
 	ops      fileOperations
 	readOnly bool
 }
@@ -64,7 +67,7 @@ func (s *Store) Get(ctx context.Context, key string) (result storage.Object, ret
 		_ = file.Close()
 		return storage.Object{}, err
 	}
-	version, err := hashReader(file)
+	version, err := hashReader(ctx, file)
 	if err != nil {
 		_ = file.Close()
 		return storage.Object{}, err
@@ -76,18 +79,18 @@ func (s *Store) Get(ctx context.Context, key string) (result storage.Object, ret
 	return storage.Object{Body: file, Size: info.Size(), Version: version, ModTime: info.ModTime().UnixNano()}, nil
 }
 
-func (s *Store) Head(ctx context.Context, key string) (storage.Entry, error) {
-	obj, err := s.Get(ctx, key)
-	if err != nil {
-		return storage.Entry{}, err
-	}
-	_ = obj.Body.Close()
-	return storage.Entry{Key: key, Version: obj.Version, Size: obj.Size, ModTime: obj.ModTime}, nil
-}
-
-func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64, options storage.PutOptions) (result storage.Entry, returnErr error) {
+func (s *Store) put(ctx context.Context, key string, body io.Reader, size int64, options storage.PutOptions, expectedDigest string) (result storage.Entry, returnErr error) {
 	if s.readOnly {
 		return storage.Entry{}, storage.ErrPermissionDenied
+	}
+	var expectedHash io.Writer
+	var expectedHasher hash.Hash
+	if expectedDigest != "" {
+		hasher, err := storage.NewDigestHasher(expectedDigest)
+		if err != nil {
+			return storage.Entry{}, err
+		}
+		expectedHash, expectedHasher = hasher, hasher
 	}
 	defer func() { returnErr = mapError(returnErr) }()
 	if err := ctx.Err(); err != nil {
@@ -100,14 +103,12 @@ func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64,
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return storage.Entry{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	unlock, err := s.lock(ctx, path)
 	if err != nil {
 		return storage.Entry{}, err
 	}
 	defer unlock()
-	current, currentErr := s.head(path, key)
+	current, currentErr := s.head(ctx, path, key)
 	if currentErr != nil && !errors.Is(currentErr, storage.ErrNotFound) {
 		return storage.Entry{}, currentErr
 	}
@@ -117,14 +118,20 @@ func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64,
 	if options.IfMatch != "" && (currentErr != nil || current.Version != options.IfMatch) {
 		return storage.Entry{}, storage.ErrConditionFailed
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".staging-")
+	tmp, err := s.createStaging(filepath.Dir(path))
 	if err != nil {
 		return storage.Entry{}, err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer s.removeStaging(tmpName)
 	hash := sha256.New()
-	written, err := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(body, size+1))
+	started := time.Now()
+	writers := []io.Writer{tmp, hash}
+	if expectedHash != nil {
+		writers = append(writers, expectedHash)
+	}
+	written, err := io.Copy(io.MultiWriter(writers...), io.LimitReader(body, size+1))
+	storage.ObserveIO(ctx, "hash", written, time.Since(started))
 	if err != nil {
 		_ = tmp.Close()
 		return storage.Entry{}, err
@@ -132,6 +139,10 @@ func (s *Store) Put(ctx context.Context, key string, body io.Reader, size int64,
 	if written != size {
 		_ = tmp.Close()
 		return storage.Entry{}, errors.New("storage stream length mismatch")
+	}
+	if expectedHasher != nil && storage.DigestFromHasher(expectedDigest, expectedHasher) != expectedDigest {
+		_ = tmp.Close()
+		return storage.Entry{}, storage.ErrDigestMismatch
 	}
 	if err := s.ops.syncFile(tmp); err != nil {
 		_ = tmp.Close()
@@ -168,8 +179,6 @@ func (s *Store) Delete(ctx context.Context, key string) (returnErr error) {
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if _, err := os.Stat(filepath.Dir(path)); errors.Is(err, os.ErrNotExist) {
 		return storage.ErrNotFound
 	} else if err != nil {
@@ -202,8 +211,6 @@ func (s *Store) DeleteIfMatch(ctx context.Context, key, version string) (returnE
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if _, err := os.Stat(filepath.Dir(path)); errors.Is(err, os.ErrNotExist) {
 		return storage.ErrNotFound
 	} else if err != nil {
@@ -214,7 +221,7 @@ func (s *Store) DeleteIfMatch(ctx context.Context, key, version string) (returnE
 		return err
 	}
 	defer unlock()
-	entry, err := s.head(path, key)
+	entry, err := s.head(ctx, path, key)
 	if err != nil {
 		return err
 	}

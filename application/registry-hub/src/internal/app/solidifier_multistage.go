@@ -10,6 +10,9 @@ type stagedManifest struct {
 }
 
 type stagedGraph struct {
+	revision   string
+	reused     bool
+	parents    map[string][]string
 	root       contentRef
 	manifests  []*stagedManifest
 	byManifest map[string]*stagedManifest

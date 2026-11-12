@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -20,6 +21,9 @@ func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskL
 		return err
 	}
 	defer s.finishProtectedOperation(finishOperation, &result)
+	if manifest.size < 0 || manifest.size > s.cfg.Limits.ManifestBytes {
+		return permanent("manifest_invalid", errors.New("manifest size exceeds the configured limit"))
+	}
 	requestTimeout := s.cfg.Limits.RequestTimeout
 	if requestTimeout <= 0 {
 		requestTimeout = 300 * time.Second
@@ -64,10 +68,15 @@ func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskL
 				return temporary("protection_state", err)
 			}
 		}
-		data, readErr := io.ReadAll(io.LimitReader(response.Body, s.cfg.Limits.ManifestBytes+1))
+		reader, hashErr := newUploadIntegrityReader(ctx, response.Body, manifest.digest, manifest.size)
+		if hashErr != nil {
+			_ = response.Body.Close()
+			return permanent("manifest_invalid", hashErr)
+		}
+		data, readErr := io.ReadAll(io.LimitReader(reader, s.cfg.Limits.ManifestBytes+1))
 		nativeSubjectHeader := response.Header.Get("OCI-Subject")
 		_ = response.Body.Close()
-		if readErr != nil || int64(len(data)) != manifest.size || artifact.VerifyDigest(manifest.digest, data) != nil || !sameMediaType(response.Header.Get("Content-Type"), manifest.mediaType) {
+		if readErr != nil || reader.Finalize() != nil || int64(len(data)) != manifest.size || !sameMediaType(response.Header.Get("Content-Type"), manifest.mediaType) {
 			return permanent("distribution_invalid", errors.New("existing Distribution manifest does not match its digest"))
 		}
 		if rootDigestReference {
@@ -94,6 +103,9 @@ func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskL
 		return temporary("storage", err)
 	}
 	defer object.Body.Close()
+	if object.Size != manifest.size {
+		return permanent("manifest_invalid", errors.New("cached manifest size differs from its descriptor"))
+	}
 	if err := s.tasks.CheckActive(ctx, task, taskLease); err != nil {
 		return err
 	}
@@ -103,7 +115,12 @@ func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskL
 	if err := s.markRemoteWrite(ctx, protectionSessionID, remoteWrite); err != nil {
 		return err
 	}
-	put, err := s.registry.Do(ctx, http.MethodPut, path, nil, http.Header{"Content-Type": []string{manifest.mediaType}}, object.Body, object.Size)
+	uploadReader, err := newUploadIntegrityReader(ctx, object.Body, manifest.digest, object.Size)
+	if err != nil {
+		return permanent("manifest_invalid", err)
+	}
+	var manifestBytes bytes.Buffer
+	put, err := s.registry.Do(ctx, http.MethodPut, path, nil, http.Header{"Content-Type": []string{manifest.mediaType}}, io.TeeReader(uploadReader, &manifestBytes), object.Size)
 	if err != nil {
 		return temporary("distribution", err)
 	}
@@ -111,12 +128,12 @@ func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskL
 	if put.StatusCode != http.StatusCreated || put.Header.Get("Docker-Content-Digest") != manifest.digest {
 		return temporary("distribution", fmt.Errorf("Distribution manifest PUT returned status %d", put.StatusCode))
 	}
+	if err := uploadReader.Finalize(); err != nil {
+		return temporary("distribution_integrity", err)
+	}
 	nativeSubjectHeader := put.Header.Get("OCI-Subject")
 	if err := s.markRemoteContentObserved(ctx, protectionSessionID); err != nil {
 		return temporary("protection_state", err)
-	}
-	if err := s.verifyLocalObject(ctx, path, manifest.digest, manifest.size); err != nil {
-		return err
 	}
 	if err := s.resolveRemoteWrite(ctx, protectionSessionID, remoteWrite); err != nil {
 		return err
@@ -126,11 +143,7 @@ func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskL
 			return err
 		}
 	}
-	data, mediaType, err := readCachedManifest(ctx, s.cache, task.Authority, task.Repository, manifest.digest, s.cfg.Limits.ManifestBytes)
-	if err != nil {
-		return temporary("storage", err)
-	}
-	if err := s.syncReferrerManifestWithProtectionSession(ctx, task, taskLease, data, mediaType, manifest.digest, nativeSubjectHeader, true, protectionSessionID); err != nil {
+	if err := s.syncReferrerManifestWithProtectionSession(ctx, task, taskLease, manifestBytes.Bytes(), manifest.mediaType, manifest.digest, nativeSubjectHeader, true, protectionSessionID); err != nil {
 		return err
 	}
 	return s.checkpoint(ctx, task, taskLease, manifest)

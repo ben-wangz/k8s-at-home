@@ -153,11 +153,11 @@ func tagLeaseKey(authority, repository, tag string) string {
 }
 
 func acquireContentLease(ctx context.Context, manager *lease.Manager, authority, repository, digest, owner string) (context.Context, func() error, error) {
-	leaseCtx, _, release, err := acquireRenewedLease(ctx, manager, "objects/"+objectLeaseKey(authority, repository, digest), owner+"-"+strings.ReplaceAll(digest, ":", "-"), objectLeaseTTL)
+	leaseCtx, holder, release, err := acquireRenewedLease(ctx, manager, "objects/"+objectLeaseKey(authority, repository, digest), owner+"-"+strings.ReplaceAll(digest, ":", "-"), objectLeaseTTL)
 	if err != nil {
 		return nil, nil, err
 	}
-	return leaseCtx, release, nil
+	return context.WithValue(leaseCtx, contentLeaseContextKey{}, contentLeaseOwnership{manager: manager, holder: holder}), release, nil
 }
 
 func acquireRenewedLease(ctx context.Context, manager *lease.Manager, key, owner string, ttl time.Duration) (context.Context, lease.Lease, func() error, error) {

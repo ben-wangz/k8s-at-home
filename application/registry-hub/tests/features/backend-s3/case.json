@@ -1,7 +1,7 @@
 {
   "id": "feature-backend-s3",
   "description": "Verify the feature backend s3 scenario.",
-  "dependsOn": ["upstream-mirror"],
+  "dependsOn": ["upstream-persistence-fixture"],
   "timeoutSeconds": 900,
   "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
   "assertions": ["All case-specific behavior is verified by the declared checks."],

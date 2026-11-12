@@ -115,6 +115,16 @@ func (u *uploadSessions) CleanupExpired(ctx context.Context, gate *writeGate, li
 		for _, entry := range entries {
 			examined++
 			id := strings.TrimSuffix(strings.TrimPrefix(entry.Key, "uploads/sessions/"), ".json")
+			state, err := u.readState(ctx, id)
+			if errors.Is(err, storage.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return removed, err
+			}
+			if !u.expired(state) {
+				continue
+			}
 			leaseCtx, _, release, err := acquireRenewedLease(ctx, u.leases, "uploads/"+id, requestID(), 60*time.Second)
 			if errors.Is(err, lease.ErrHeld) {
 				continue
@@ -122,12 +132,12 @@ func (u *uploadSessions) CleanupExpired(ctx context.Context, gate *writeGate, li
 			if err != nil {
 				return removed, err
 			}
-			state, err := u.readState(leaseCtx, id)
+			state, err = u.readState(leaseCtx, id)
 			if err != nil {
 				_ = release()
 				return removed, err
 			}
-			if time.Since(state.UpdatedAt) <= u.idleTimeout && time.Since(state.CreatedAt) <= u.maxLifetime {
+			if !u.expired(state) {
 				_ = release()
 				continue
 			}

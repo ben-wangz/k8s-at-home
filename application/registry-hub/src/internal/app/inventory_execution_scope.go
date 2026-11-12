@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
@@ -16,6 +17,10 @@ func (s *Service) projectBlobExecutionScope(ctx context.Context, job *workqueue.
 	}
 	if ok {
 		node, _, err := inventory.Read[tasks.GraphNode](ctx, s.store, entry.Key)
+		if errors.Is(err, storage.ErrNotFound) {
+			p.Nodes.Advance()
+			return p, false, nil
+		}
 		if err != nil {
 			return p, false, err
 		}

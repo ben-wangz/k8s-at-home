@@ -53,12 +53,20 @@ func newPinnedReader(cache *Cache, body io.ReadCloser, ctx context.Context, canc
 }
 
 func (c *Cache) createReaderPin(ctx context.Context, identity string) (cacheReaderPin, error) {
+	return c.createPinAt(ctx, identity, "cache/readers/")
+}
+
+func (c *Cache) createStagingPin(ctx context.Context, identity string) (cacheReaderPin, error) {
+	return c.createPinAt(ctx, identity, "cache/staging-readers/")
+}
+
+func (c *Cache) createPinAt(ctx context.Context, identity, prefix string) (cacheReaderPin, error) {
 	var rawID [16]byte
 	if _, err := rand.Read(rawID[:]); err != nil {
 		return cacheReaderPin{}, err
 	}
 	id := hex.EncodeToString(rawID[:])
-	pin := cacheReaderPin{identity: identity, id: id, key: "cache/readers/" + identity + "/" + id + ".json", expires: time.Now().UTC().Add(readerPinTTL)}
+	pin := cacheReaderPin{identity: identity, id: id, key: prefix + identity + "/" + id + ".json", expires: time.Now().UTC().Add(readerPinTTL)}
 	record := cacheReaderPinRecord{SchemaVersion: cacheSchemaCurrent, Identity: identity, ID: id, ExpiresAt: pin.expires}
 	data, err := json.Marshal(record)
 	if err != nil {
@@ -112,18 +120,22 @@ func (r *pinnedReader) renew() {
 		case <-r.ctx.Done():
 			return
 		case <-ticker.C:
-			r.mu.Lock()
-			err := r.cache.renewReaderPin(&r.pin)
-			if err != nil {
-				r.err = err
-			}
-			r.mu.Unlock()
-			if err != nil {
-				r.cancel()
+			if err := r.renewPin(); err != nil {
 				return
 			}
 		}
 	}
+}
+
+func (r *pinnedReader) renewPin() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.cache.renewReaderPin(&r.pin); err != nil {
+		r.err = err
+		r.cancel()
+		return err
+	}
+	return nil
 }
 
 func (r *pinnedReader) Read(buffer []byte) (int, error) {
@@ -133,6 +145,9 @@ func (r *pinnedReader) Read(buffer []byte) (int, error) {
 	if err != nil {
 		return 0, errors.Join(errors.New("cache reader pin renewal failed"), err)
 	}
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
 	return r.body.Read(buffer)
 }
 
@@ -141,7 +156,9 @@ func (r *pinnedReader) Close() error {
 	r.once.Do(func() {
 		r.cancel()
 		<-r.done
-		closeErr = r.body.Close()
+		if r.body != nil {
+			closeErr = r.body.Close()
+		}
 		r.mu.Lock()
 		pin := r.pin
 		r.mu.Unlock()
@@ -153,8 +170,15 @@ func (r *pinnedReader) Close() error {
 }
 
 func (c *Cache) hasActiveReaderPin(ctx context.Context, identity string, now time.Time) (bool, error) {
+	return c.hasActivePinAt(ctx, "cache/readers/"+identity+"/", identity, now)
+}
+
+func (c *Cache) hasActiveStagingPin(ctx context.Context, identity string, now time.Time) (bool, error) {
+	return c.hasActivePinAt(ctx, "cache/staging-readers/"+identity+"/", identity, now)
+}
+
+func (c *Cache) hasActivePinAt(ctx context.Context, prefix, identity string, now time.Time) (bool, error) {
 	token := ""
-	prefix := "cache/readers/" + identity + "/"
 	for {
 		entries, next, err := c.store.List(ctx, prefix, token, 100)
 		if err != nil {
@@ -194,54 +218,4 @@ func (c *Cache) hasActiveReaderPin(ctx context.Context, identity string, now tim
 		}
 		token = next
 	}
-}
-
-func (c *Cache) CleanupReaderPins(ctx context.Context, limit int) (int, error) {
-	if limit <= 0 || limit > 10000 {
-		limit = 1000
-	}
-	removed := 0
-	token := ""
-	for removed < limit {
-		entries, next, err := c.store.List(ctx, "cache/readers/", token, 500)
-		if err != nil {
-			return removed, err
-		}
-		for _, entry := range entries {
-			if removed >= limit {
-				break
-			}
-			object, getErr := c.store.Get(ctx, entry.Key)
-			if errors.Is(getErr, storage.ErrNotFound) {
-				continue
-			}
-			if getErr != nil {
-				return removed, getErr
-			}
-			data, readErr := io.ReadAll(io.LimitReader(object.Body, 1<<20+1))
-			closeErr := object.Body.Close()
-			if readErr != nil || closeErr != nil || len(data) > 1<<20 {
-				return removed, errors.Join(errors.New("cache reader pin could not be read safely"), readErr, closeErr)
-			}
-			var pin cacheReaderPinRecord
-			if err := json.Unmarshal(data, &pin); err != nil || pin.SchemaVersion != cacheSchemaCurrent || pin.Identity == "" || pin.ID == "" || pin.ExpiresAt.IsZero() {
-				return removed, errors.New("cache reader pin is invalid")
-			}
-			if pin.ExpiresAt.After(time.Now().UTC()) {
-				continue
-			}
-			if err := c.store.DeleteIfMatch(ctx, entry.Key, object.Version); err != nil {
-				if errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrNotFound) {
-					continue
-				}
-				return removed, err
-			}
-			removed++
-		}
-		if next == "" {
-			break
-		}
-		token = next
-	}
-	return removed, nil
 }

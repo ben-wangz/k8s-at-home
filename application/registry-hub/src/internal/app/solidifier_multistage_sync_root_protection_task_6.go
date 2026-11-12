@@ -115,14 +115,13 @@ func (s *solidifier) markStagedManifestPublished(ctx context.Context, task *task
 }
 
 func (s *solidifier) prepareStagedBlob(ctx context.Context, task *tasks.Task, manifest *stagedManifest, blob contentRef) (bool, tasks.BlobIntent, error) {
-	cached, err := s.cache.GetAnyRetained(ctx, task.Authority, task.Repository, blob.digest)
-	if errors.Is(err, storage.ErrNotFound) {
-		return false, tasks.BlobIntent{}, nil
-	}
+	cached, err := s.service.inspectReadyBlob(ctx, s.cache, task.Authority, task.Repository, blob.digest)
 	if err != nil {
 		return false, tasks.BlobIntent{}, temporary("storage", err)
 	}
-	defer cached.Body.Close()
+	if !cached.Present {
+		return false, tasks.BlobIntent{}, nil
+	}
 	if cached.Size != blob.size {
 		return false, tasks.BlobIntent{}, permanent("manifest_invalid", errors.New("cached blob size differs from its descriptor"))
 	}
@@ -170,6 +169,9 @@ func (s *solidifier) anchorManifestScope(ctx context.Context, task *tasks.Task, 
 	if active {
 		if err := s.gate.MarkProtectionAnchored(ctx, manifest.sessionID); err != nil {
 			return temporary("protection_anchor", err)
+		}
+		if session.State != "anchored" {
+			s.logSolidificationAnchor(task, manifest, session)
 		}
 	}
 	if err := s.removeRootProtectionSession(ctx, task, taskLease, manifest.sessionID); err != nil {

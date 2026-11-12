@@ -31,7 +31,7 @@ func (m *Manager) List(ctx context.Context, prefix, token string, limit int) ([]
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	entries, next, err := m.store.List(ctx, "tasks/state/"+prefix, token, limit)
+	entries, next, err := storage.Scan(ctx, m.store, "tasks/state/"+prefix, token, limit)
 	if err != nil {
 		return nil, "", err
 	}
@@ -138,6 +138,9 @@ func (m *Manager) ReconcileProtectionState(ctx context.Context, id, scopeID stri
 			return nil
 		}
 		task.ScopeID = scopeID
+		if len(sessionIDs) > 0 && (!slices.Equal(task.SessionIDs, sessionIDs) || task.ProtectionSessionID != protectionSessionID) {
+			task.ProtectionAssociatedAt = time.Now().UTC()
+		}
 		task.SessionIDs = append([]string(nil), sessionIDs...)
 		task.RequestedBytes = requestedBytes
 		task.ReservedBytes = reservedBytes

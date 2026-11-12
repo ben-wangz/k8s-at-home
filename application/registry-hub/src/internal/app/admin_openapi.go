@@ -21,6 +21,7 @@ type adminTaskListResponse struct {
 
 type adminTaskView struct {
 	tasks.Task
+	QuotaWait                    *quotaWaitView              `json:"quotaWait,omitempty"`
 	Graph                        map[string]tasks.GraphEntry `json:"graph,omitempty"`
 	Checkpoints                  map[string]string           `json:"checkpoints,omitempty"`
 	GraphNodes                   []tasks.GraphNode           `json:"graphNodes,omitempty"`

@@ -40,7 +40,7 @@ func (s *Service) deferBlobNotification(ctx context.Context, intentID, excluded 
 	}
 	source := blobNotification{IntentID: intent.ID, Identity: intent.Identity, State: intent.State, Generation: intent.Generation, CacheVersion: intent.CacheVersion, DemandRevision: intent.DemandRevision, ExcludedRootID: excluded}
 	key := notificationSource(intent, excluded)
-	job, err := (workqueue.Queue{Store: s.store}).Enqueue(bounded, "notify", key, source, intent.UpdatedAt)
+	job, err := s.backgroundQueue().Enqueue(bounded, "notify", key, source, intent.UpdatedAt)
 	if err == nil {
 		if indexErr := s.indexNotificationJob(bounded, job); indexErr != nil {
 			s.backgroundEvent("notify", "association_deferred", indexErr)
@@ -100,8 +100,11 @@ func (s *Service) notificationStep(ctx context.Context, job *workqueue.Job) (any
 			return p, false, err
 		}
 		if rootID != "" && rootID != source.ExcludedRootID {
+			if err := s.markRootDependencyChanged(ctx, rootID, current); err != nil {
+				return p, false, err
+			}
 			childID := workqueue.ID("wake_root", job.ID+"/"+rootID)
-			q := workqueue.Queue{Store: s.store}
+			q := s.backgroundQueue()
 			if p.Phase < 2 {
 				_, err = q.Enqueue(ctx, "wake_root", job.ID+"/"+rootID, rootID, job.CreatedAt)
 			} else {

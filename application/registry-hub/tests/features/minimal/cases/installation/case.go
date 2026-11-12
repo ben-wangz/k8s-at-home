@@ -3,6 +3,7 @@ package installation
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -94,12 +95,17 @@ func verifyPVCs(ctx context.Context, environment testkit.CaseContext) (string, e
 	if err != nil {
 		return "", err
 	}
-	expected := map[string]string{}
-	if environment.ScenarioID != "feature-registry-s3" && environment.ScenarioID != "feature-storage-redirect" {
-		expected[environment.Fullname+"-registry"] = "100Gi"
+	valuesOutput, err := testkit.Command(ctx, "helm", "get", "values", environment.Release, "--namespace", environment.Namespace, "--all", "--output", "json")
+	if err != nil {
+		return "", err
 	}
-	if environment.ScenarioID != "feature-backend-s3" && environment.ScenarioID != "feature-diagnostics-s3" {
-		expected[environment.Fullname+"-backend"] = "20Gi"
+	var values map[string]any
+	if err := json.Unmarshal(valuesOutput.Stdout, &values); err != nil {
+		return "", err
+	}
+	expected, err := expectedPersistentClaims(values, environment.Fullname)
+	if err != nil {
+		return "", err
 	}
 	var storageClass string
 	for _, object := range objects {

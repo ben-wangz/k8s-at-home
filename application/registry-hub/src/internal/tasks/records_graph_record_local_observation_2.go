@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"strings"
 	"time"
@@ -24,6 +25,9 @@ func (r *Records) RecordLocalObservation(ctx context.Context, observation LocalO
 	}
 	data, err := json.Marshal(observation)
 	if err != nil {
+		return err
+	}
+	if err := inventory.ValidateWriteGuard(ctx); err != nil {
 		return err
 	}
 	_, err = r.store.Put(ctx, key, bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfAbsent: true})
@@ -76,10 +80,19 @@ func (r *Records) FindLocalObservation(ctx context.Context, authority, repositor
 	if err := decodeRecord(observationObject, 1<<20, &observation); err != nil {
 		return LocalObservation{}, errors.Join(storage.ErrCorruptObject, err)
 	}
-	if observation.SchemaVersion != solidificationRecordSchema || observation.Authority != authority || observation.Repository != repository || observation.Role != role || observation.Digest != digest || observation.ActualSize != actualSize || observation.Generation != generation || observation.GCEpoch != gcEpoch || observation.VerificationBasis != "distribution_readback" || observation.OperationID == "" || observation.ObservedAt.IsZero() {
+	if observation.SchemaVersion != solidificationRecordSchema || observation.Authority != authority || observation.Repository != repository || observation.Role != role || observation.Digest != digest || observation.ActualSize != actualSize || observation.Generation != generation || observation.GCEpoch != gcEpoch || !validLocalObservationBasis(observation.VerificationBasis) || observation.OperationID == "" || observation.ObservedAt.IsZero() {
 		return LocalObservation{}, storage.ErrCorruptObject
 	}
 	return observation, nil
+}
+
+func validLocalObservationBasis(value string) bool {
+	switch value {
+	case "distribution_readback", "distribution_head_digest", "distribution_upload_digest":
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *Records) updateLocalObservationIndex(ctx context.Context, observation LocalObservation, observationKey string) error {
@@ -98,6 +111,9 @@ func (r *Records) updateLocalObservationIndex(ctx context.Context, observation L
 	}
 	for attempt := 0; attempt < 16; attempt++ {
 		current, headErr := r.store.Head(ctx, key)
+		if err := inventory.ValidateWriteGuard(ctx); err != nil {
+			return err
+		}
 		if errors.Is(headErr, storage.ErrNotFound) {
 			_, err = r.store.Put(ctx, key, bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfAbsent: true})
 		} else if headErr != nil {

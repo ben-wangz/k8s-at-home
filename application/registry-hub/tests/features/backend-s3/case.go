@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/support"
 	"github.com/ben-wangz/registry-hub-tests/internal/testkit"
+	"path/filepath"
 	"strings"
 )
 
@@ -60,7 +61,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		return fmt.Errorf("backend has not persisted any state objects to the configured S3 prefix")
 	}
 
-	upstream := environment.DependencyResults["upstream-mirror"]
+	upstream := environment.DependencyResults["upstream-persistence-fixture"]
 	fixtureLogs, err := testkit.Command(ctx, "kubectl", "-n", environment.Namespace, "logs", "pod/"+secretName, "-c", "versitygw")
 	if err != nil {
 		return err
@@ -116,6 +117,9 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err != nil {
 		return err
 	}
+	if err := testkit.WriteJSONAtomic(filepath.Join(environment.OutputDir, "before-restart-objects.json"), beforeObjects); err != nil {
+		return err
+	}
 	if _, err := testkit.Command(ctx, "kubectl", "-n", environment.Namespace, "rollout", "restart", "deployment/"+environment.Fullname); err != nil {
 		return err
 	}
@@ -138,6 +142,9 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	}
 	afterObjects, err := listBackendObjects(ctx, client, bucket)
 	if err != nil {
+		return err
+	}
+	if err := testkit.WriteJSONAtomic(filepath.Join(environment.OutputDir, "after-restart-objects.json"), afterObjects); err != nil {
 		return err
 	}
 	if _, exists := afterObjects[taskStateKey]; !exists {

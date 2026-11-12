@@ -232,7 +232,7 @@ func FixtureSources() (map[string]string, error) {
 	}
 	sources := make(map[string]string, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
 		}
 		path := "fixture/" + entry.Name()

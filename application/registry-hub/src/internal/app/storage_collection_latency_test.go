@@ -41,6 +41,19 @@ func TestStorageCollectionLatency(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer registry.Close()
+	verifyStorageCollectionLatency(t, f, registry, 5*time.Millisecond, 45*time.Millisecond)
+}
+
+func TestStorageCollectionLatencyAgainstS3(t *testing.T) {
+	stateStore := newDedicatedS3AcceptanceStore(t, "REGISTRY_HUB_TEST_STORAGE_COLLECTION_S3_CONFIG")
+	registryStore := newDedicatedS3AcceptanceStore(t, "REGISTRY_HUB_TEST_STORAGE_COLLECTION_S3_CONFIG")
+	f := newStagedAcceptanceFixtureWithStore(t, 1<<20, stateStore)
+	enableInventory(f)
+	verifyStorageCollectionLatency(t, f, registryStore, 0, 0)
+}
+
+func verifyStorageCollectionLatency(t *testing.T, f *stagedAcceptanceFixture, registry storage.Store, delay, listDelay time.Duration) {
+	t.Helper()
 	ctx := context.Background()
 	for n := range 1000 {
 		prefix := []string{"cache/fixture/", "tasks/state/", "background/v1/jobs/test/", "diagnostics/v1/events/"}[n%4]
@@ -52,8 +65,8 @@ func TestStorageCollectionLatency(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stateStore := &storageCollectionLatencyStore{inventoryLatencyStore: &inventoryLatencyStore{Store: f.service.store, delay: 5 * time.Millisecond}, listDelay: 45 * time.Millisecond}
-	registryStore := &storageCollectionLatencyStore{inventoryLatencyStore: &inventoryLatencyStore{Store: registry, delay: 5 * time.Millisecond}, listDelay: 45 * time.Millisecond}
+	stateStore := &storageCollectionLatencyStore{inventoryLatencyStore: &inventoryLatencyStore{Store: f.service.store, delay: delay}, listDelay: listDelay}
+	registryStore := &storageCollectionLatencyStore{inventoryLatencyStore: &inventoryLatencyStore{Store: registry, delay: delay}, listDelay: listDelay}
 	f.service.store, f.service.inventory.Store = stateStore, stateStore
 	rounds := 3
 	if os.Getenv("REGISTRY_HUB_TEST_STORAGE_BASELINE") == "1" {
@@ -71,10 +84,11 @@ func TestStorageCollectionLatency(t *testing.T) {
 			if err := inventory.Update(ctx, stateStore, storageInventoryPrefix+"checkpoint.json", func(value *storageCollection) error { *value = state; return nil }); err != nil {
 				t.Fatal(err)
 			}
-			state, _, err = inventory.Read[storageCollection](ctx, stateStore, storageInventoryPrefix+"checkpoint.json")
+			loaded, _, err := inventory.Read[storageCollection](ctx, stateStore, storageInventoryPrefix+"checkpoint.json")
 			if err != nil {
 				t.Fatal(err)
 			}
+			state = loaded
 			phases[phase] += time.Since(unit)
 			if time.Since(started) > 10*time.Minute {
 				t.Fatalf("collection stalled: phase=%s steps=%d", phase, steps)

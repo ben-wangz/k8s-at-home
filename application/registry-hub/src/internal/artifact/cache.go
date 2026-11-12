@@ -10,29 +10,45 @@ import (
 )
 
 type cacheMetadata struct {
-	SchemaVersion    int       `json:"schemaVersion"`
-	Authority        string    `json:"authority"`
-	Repository       string    `json:"repository"`
-	Digest           string    `json:"digest"`
-	MediaType        string    `json:"mediaType"`
-	Size             int64     `json:"size"`
-	DataVersion      string    `json:"dataVersion"`
-	DataFingerprint  string    `json:"dataFingerprint,omitempty"`
-	VerifiedAt       time.Time `json:"verifiedAt"`
-	InventoryTracked bool      `json:"inventoryTracked,omitempty"`
-	CleanupAfter     time.Time `json:"cleanupAfter,omitempty"`
-	State            string    `json:"state"`
+	SchemaVersion             int       `json:"schemaVersion"`
+	Authority                 string    `json:"authority"`
+	Repository                string    `json:"repository"`
+	Digest                    string    `json:"digest"`
+	MediaType                 string    `json:"mediaType"`
+	Size                      int64     `json:"size"`
+	DataVersion               string    `json:"dataVersion"`
+	DataFingerprint           string    `json:"dataFingerprint,omitempty"`
+	VerifiedAt                time.Time `json:"verifiedAt"`
+	IntegrityState            string    `json:"integrityState,omitempty"`
+	IntegrityDigest           string    `json:"integrityDigest,omitempty"`
+	IntegritySize             int64     `json:"integritySize,omitempty"`
+	IntegrityMethod           string    `json:"integrityMethod,omitempty"`
+	IntegrityVerifiedAt       time.Time `json:"integrityVerifiedAt,omitempty"`
+	IntegrityBackendAlgorithm string    `json:"integrityBackendAlgorithm,omitempty"`
+	IntegrityBackendValue     string    `json:"integrityBackendValue,omitempty"`
+	IntegrityBackendScope     string    `json:"integrityBackendScope,omitempty"`
+	InventoryTracked          bool      `json:"inventoryTracked,omitempty"`
+	CleanupAfter              time.Time `json:"cleanupAfter,omitempty"`
+	State                     string    `json:"state"`
 }
 
 type cacheComplete struct {
-	SchemaVersion int       `json:"schemaVersion"`
-	Authority     string    `json:"authority"`
-	Repository    string    `json:"repository"`
-	Digest        string    `json:"digest"`
-	MediaType     string    `json:"mediaType"`
-	Size          int64     `json:"size"`
-	DataVersion   string    `json:"dataVersion"`
-	CompletedAt   time.Time `json:"completedAt"`
+	SchemaVersion             int       `json:"schemaVersion"`
+	Authority                 string    `json:"authority"`
+	Repository                string    `json:"repository"`
+	Digest                    string    `json:"digest"`
+	MediaType                 string    `json:"mediaType"`
+	Size                      int64     `json:"size"`
+	DataVersion               string    `json:"dataVersion"`
+	CompletedAt               time.Time `json:"completedAt"`
+	IntegrityState            string    `json:"integrityState,omitempty"`
+	IntegrityDigest           string    `json:"integrityDigest,omitempty"`
+	IntegritySize             int64     `json:"integritySize,omitempty"`
+	IntegrityMethod           string    `json:"integrityMethod,omitempty"`
+	IntegrityVerifiedAt       time.Time `json:"integrityVerifiedAt,omitempty"`
+	IntegrityBackendAlgorithm string    `json:"integrityBackendAlgorithm,omitempty"`
+	IntegrityBackendValue     string    `json:"integrityBackendValue,omitempty"`
+	IntegrityBackendScope     string    `json:"integrityBackendScope,omitempty"`
 }
 
 type cacheRepresentationIndex struct {
@@ -44,23 +60,35 @@ type cacheRepresentationIndex struct {
 }
 
 type CachedObject struct {
-	Authority   string
-	Repository  string
-	Digest      string
-	MediaType   string
-	Size        int64
-	DataVersion string
-	Body        io.ReadCloser
+	Authority                 string
+	Repository                string
+	Digest                    string
+	MediaType                 string
+	Size                      int64
+	DataVersion               string
+	IntegrityState            string
+	IntegrityMethod           string
+	IntegrityVerifiedAt       time.Time
+	IntegrityBackendAlgorithm string
+	IntegrityBackendValue     string
+	IntegrityBackendScope     string
+	Body                      io.ReadCloser
 }
 
 type CachedRepresentation struct {
-	Authority   string
-	Repository  string
-	Digest      string
-	MediaType   string
-	Size        int64
-	DataVersion string
-	State       string
+	Authority                 string
+	Repository                string
+	Digest                    string
+	MediaType                 string
+	Size                      int64
+	DataVersion               string
+	State                     string
+	IntegrityState            string
+	IntegrityMethod           string
+	IntegrityVerifiedAt       time.Time
+	IntegrityBackendAlgorithm string
+	IntegrityBackendValue     string
+	IntegrityBackendScope     string
 }
 
 type CacheStats struct {
@@ -74,6 +102,8 @@ type CacheStats struct {
 const (
 	cacheSchemaPrevious                   = 1
 	cacheSchemaCurrent                    = 2
+	cachePayloadSchemaPrevious            = 2
+	cachePayloadSchemaCurrent             = 3
 	cacheRepresentationIndexMaxSize       = 1 << 20
 	cacheRepresentationIndexMaxMediaTypes = 1000
 )

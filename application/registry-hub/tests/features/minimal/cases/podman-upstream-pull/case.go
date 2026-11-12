@@ -81,6 +81,9 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		}
 		results = append(results, map[string]string{"mode": pull.name, "reference": pull.reference})
 	}
+	if err := verifyPodmanRejectsCorruptLayer(ctx, podmanRoot); err != nil {
+		return fmt.Errorf("Podman accepted a layer whose bytes do not match its descriptor: %w", err)
+	}
 
 	return support.WriteResult(environment, map[string]any{
 		"image":                  upstreamImage,
@@ -89,6 +92,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		"platform":               "linux/amd64",
 		"platformManifestDigest": upstreamAMD64ManifestDigest,
 		"pulls":                  results,
+		"corruptLayerRejected":   true,
 		"podmanStorageIsolated":  true,
 	})
 }

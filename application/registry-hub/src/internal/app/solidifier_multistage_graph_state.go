@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 
+	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
 )
@@ -18,7 +19,21 @@ func (s *solidifier) saveGraphNodeState(ctx context.Context, task *tasks.Task, r
 	if err != nil {
 		return withSolidificationFailureStage(temporary("generation", err), "task_progress_read")
 	}
+	return s.saveGraphNodeAtGeneration(ctx, task, reference, role, complete, state, contentGeneration)
+}
+
+func (s *solidifier) saveGraphNodeAtGeneration(ctx context.Context, task *tasks.Task, reference contentRef, role tasks.GraphRole, complete bool, state string, contentGeneration uint64) error {
 	epoch := s.gate.State().Epoch
+	guarded := inventory.WithWriteGuard(ctx, func(check context.Context) error {
+		current, err := s.contentGeneration(check, task.Authority, task.Repository, reference.digest)
+		if err != nil {
+			return err
+		}
+		if current != contentGeneration || s.gate.State().Epoch != epoch {
+			return storage.ErrConditionFailed
+		}
+		return nil
+	})
 	node := tasks.GraphNode{
 		RootTaskID: task.ID, Role: role, Digest: reference.digest, MediaType: reference.mediaType,
 		DeclaredSize: reference.size, ActualSize: reference.size, DiscoveryComplete: complete,
@@ -56,13 +71,16 @@ func (s *solidifier) saveGraphNodeState(ctx context.Context, task *tasks.Task, r
 	}
 	node.LocalState = state
 	node.DiscoveryComplete = complete
-	if err := s.service.records.EnsureCacheProtectionReference(ctx, task.ID, task.Authority, task.Repository, reference.digest); err != nil {
+	if err := s.service.records.EnsureCacheProtectionReference(guarded, task.ID, task.Authority, task.Repository, reference.digest); err != nil {
 		return withSolidificationFailureStage(temporary("task_state", err), "protection_reconcile")
 	}
 	if reflect.DeepEqual(existing, node) {
 		return nil
 	}
-	if err := s.service.records.SaveGraphNode(ctx, &node); err != nil {
+	if err := inventory.ValidateWriteGuard(guarded); err != nil {
+		return withSolidificationFailureStage(temporary("generation", err), "task_progress_commit")
+	}
+	if err := s.service.records.SaveGraphNode(guarded, &node); err != nil {
 		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 	}
 	return nil

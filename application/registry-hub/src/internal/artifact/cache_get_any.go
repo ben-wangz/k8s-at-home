@@ -3,9 +3,7 @@ package artifact
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"registry-hub/internal/storage"
 	"sort"
 	"strings"
@@ -13,10 +11,14 @@ import (
 )
 
 func (c *Cache) getAny(ctx context.Context, authority, repository, digest string, _ bool) (CachedObject, error) {
+	return c.getAnyMode(ctx, authority, repository, digest, true, false)
+}
+
+func (c *Cache) getAnyMode(ctx context.Context, authority, repository, digest string, consume, forceVerify bool) (CachedObject, error) {
 	identity := cacheIdentity(authority, repository, digest)
 	index, _, err := c.readRepresentationIndex(ctx, identity, authority, repository, digest)
 	if err != nil {
-		return CachedObject{}, err
+		return CachedObject{}, withCacheReadFailureStage("representation_index_read", err)
 	}
 	for _, mediaType := range index.MediaTypes {
 		metadataKey := cacheMetadataKey(identity, mediaType)
@@ -26,31 +28,41 @@ func (c *Cache) getAny(ctx context.Context, authority, repository, digest string
 		}
 		if errors.Is(readErr, storage.ErrCorruptObject) {
 			if invalidateErr := c.invalidateCorruptRepresentation(ctx, authority, repository, digest, mediaType, metadataVersion); invalidateErr != nil {
-				return CachedObject{}, errors.Join(readErr, invalidateErr)
+				return CachedObject{}, withCacheReadFailureStage("corrupt_representation_repair", errors.Join(readErr, invalidateErr))
 			}
 			continue
 		}
 		if readErr != nil {
-			return CachedObject{}, readErr
+			return CachedObject{}, withCacheReadFailureStage("representation_metadata_read", readErr)
 		}
-		if metadata.SchemaVersion != cacheSchemaCurrent || metadata.Authority != authority || metadata.Repository != repository || metadata.Digest != digest || metadata.MediaType != mediaType {
-			return CachedObject{}, storage.ErrCorruptObject
+		if metadata.SchemaVersion != cachePayloadSchemaCurrent || metadata.Authority != authority || metadata.Repository != repository || metadata.Digest != digest || metadata.MediaType != mediaType {
+			return CachedObject{}, withCacheReadFailureStage("representation_metadata_validate", storage.ErrCorruptObject)
 		}
 		cleanupPending := metadata.State == "cleanup_pending"
 		if metadata.State != "complete" && !cleanupPending {
-			return CachedObject{}, storage.ErrCorruptObject
+			return CachedObject{}, withCacheReadFailureStage("representation_metadata_validate", storage.ErrCorruptObject)
 		}
-		object, getErr := c.get(ctx, authority, repository, digest, mediaType, true)
+		var object CachedObject
+		var getErr error
+		if forceVerify {
+			object, getErr = c.openVerifiedMode(ctx, authority, repository, digest, mediaType, consume, true)
+		} else {
+			object, getErr = c.openVerified(ctx, authority, repository, digest, mediaType, consume)
+		}
 		if errors.Is(getErr, storage.ErrNotFound) {
-			return CachedObject{}, errors.Join(storage.ErrUnavailable, errors.New("cache representation index references an incomplete object"))
+			stage := CacheReadFailureStage(getErr)
+			if stage == "" {
+				stage = "indexed_object_read"
+			}
+			return CachedObject{}, withCacheReadFailureStage(stage+"_missing", errors.Join(storage.ErrUnavailable, errors.New("cache representation index references an incomplete object")))
 		}
 		if errors.Is(getErr, storage.ErrCorruptObject) {
-			if removeErr := c.Remove(ctx, authority, repository, digest, mediaType); removeErr != nil {
-				return CachedObject{}, errors.Join(getErr, removeErr)
+			if removeErr := c.invalidateCorruptRepresentation(ctx, authority, repository, digest, mediaType, metadataVersion); removeErr != nil {
+				return CachedObject{}, withCacheReadFailureStage("corrupt_representation_repair", errors.Join(getErr, removeErr))
 			}
 			continue
 		}
-		return object, getErr
+		return object, withCacheReadFailureStage("payload_open", getErr)
 	}
 	return CachedObject{}, storage.ErrNotFound
 }
@@ -134,7 +146,7 @@ func (c *Cache) RebuildRepresentationIndexes(ctx context.Context) error {
 			if readErr != nil {
 				return errors.Join(storage.ErrCorruptObject, readErr)
 			}
-			if metadata.SchemaVersion != cacheSchemaCurrent || metadata.Authority == "" || metadata.Repository == "" || metadata.Digest == "" || metadata.MediaType == "" || metadata.Size < 0 || metadata.DataVersion == "" || cacheIdentity(metadata.Authority, metadata.Repository, metadata.Digest) != identity {
+			if metadata.SchemaVersion != cachePayloadSchemaCurrent || metadata.Authority == "" || metadata.Repository == "" || metadata.Digest == "" || metadata.MediaType == "" || metadata.Size < 0 || metadata.DataVersion == "" || cacheIdentity(metadata.Authority, metadata.Repository, metadata.Digest) != identity {
 				return storage.ErrCorruptObject
 			}
 			if _, err := Hasher(metadata.Digest); err != nil {
@@ -177,63 +189,4 @@ func (c *Cache) RebuildRepresentationIndexes(ctx context.Context) error {
 		}
 	}
 	return nil
-}
-
-func (c *Cache) readRepresentationIndex(ctx context.Context, identity, authority, repository, digest string) (cacheRepresentationIndex, string, error) {
-	key := cacheRepresentationIndexKey(identity)
-	for attempt := 0; attempt < 16; attempt++ {
-		object, err := c.store.Get(ctx, key)
-		if err != nil {
-			return cacheRepresentationIndex{}, "", err
-		}
-		data, readErr := io.ReadAll(io.LimitReader(object.Body, cacheRepresentationIndexMaxSize+1))
-		closeErr := object.Body.Close()
-		if readErr != nil {
-			return cacheRepresentationIndex{}, "", readErr
-		}
-		if closeErr != nil {
-			return cacheRepresentationIndex{}, "", closeErr
-		}
-		if len(data) > cacheRepresentationIndexMaxSize {
-			return cacheRepresentationIndex{}, "", storage.ErrCorruptObject
-		}
-		var index cacheRepresentationIndex
-		if err := json.Unmarshal(data, &index); err != nil {
-			return cacheRepresentationIndex{}, "", errors.Join(storage.ErrCorruptObject, err)
-		}
-		if index.Authority != authority || index.Repository != repository || index.Digest != digest || len(index.MediaTypes) == 0 || len(index.MediaTypes) > cacheRepresentationIndexMaxMediaTypes {
-			return cacheRepresentationIndex{}, "", storage.ErrCorruptObject
-		}
-		seen := make(map[string]struct{}, len(index.MediaTypes))
-		for _, mediaType := range index.MediaTypes {
-			if mediaType == "" || len(mediaType) > 1024 {
-				return cacheRepresentationIndex{}, "", storage.ErrCorruptObject
-			}
-			if _, exists := seen[mediaType]; exists {
-				return cacheRepresentationIndex{}, "", storage.ErrCorruptObject
-			}
-			seen[mediaType] = struct{}{}
-		}
-		switch index.SchemaVersion {
-		case cacheSchemaCurrent:
-			return index, object.Version, nil
-		case cacheSchemaPrevious:
-			index.SchemaVersion = cacheSchemaCurrent
-			updated, marshalErr := json.Marshal(index)
-			if marshalErr != nil {
-				return cacheRepresentationIndex{}, "", marshalErr
-			}
-			entry, putErr := c.store.Put(ctx, key, bytes.NewReader(updated), int64(len(updated)), storage.PutOptions{IfMatch: object.Version})
-			if errors.Is(putErr, storage.ErrConditionFailed) || errors.Is(putErr, storage.ErrUnknownCommit) {
-				continue
-			}
-			if putErr != nil {
-				return cacheRepresentationIndex{}, "", putErr
-			}
-			return index, entry.Version, nil
-		default:
-			return cacheRepresentationIndex{}, "", storage.ErrCorruptObject
-		}
-	}
-	return cacheRepresentationIndex{}, "", storage.ErrUnavailable
 }

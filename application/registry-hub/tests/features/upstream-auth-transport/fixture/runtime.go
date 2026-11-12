@@ -81,6 +81,15 @@ type fixtureRequestState struct {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		if len(os.Args) != 4 || os.Args[1] != "seed-tasks" {
+			log.Fatal("usage: upstream-fixture [seed-tasks SOURCE DESTINATION]")
+		}
+		if err := seedTaskRecords(os.Args[2], os.Args[3]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	runtime, err := newFixtureRuntime()
 	if err != nil {
 		log.Fatal(err)

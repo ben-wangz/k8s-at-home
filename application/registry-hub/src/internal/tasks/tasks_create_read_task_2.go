@@ -119,7 +119,7 @@ func (m *Manager) listActive(ctx context.Context) ([]Task, error) {
 	var result []Task
 	token := ""
 	for {
-		entries, next, err := m.store.List(ctx, "tasks/state/", token, 1000)
+		entries, next, err := storage.Scan(ctx, m.store, "tasks/state/", token, 1000)
 		if err != nil {
 			return nil, err
 		}

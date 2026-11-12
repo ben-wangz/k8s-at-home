@@ -100,6 +100,12 @@ func (m *Manager) run(ctx context.Context, worker int) {
 			_ = m.reconcileWakeRequests(ctx)
 		}
 		m.dispatch(ctx, worker)
+		if worker == 0 && !m.recoveryPaused.Load() && m.dispatchMu.TryLock() {
+			repairCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			m.runtimeDispatch(m.repairDispatchIndex(repairCtx, worker))
+			cancel()
+			m.dispatchMu.Unlock()
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -109,45 +115,11 @@ func (m *Manager) run(ctx context.Context, worker int) {
 }
 
 func (m *Manager) dispatch(ctx context.Context, worker int) {
-	if m.recoveryPaused.Load() {
+	if m.recoveryPaused.Load() || !m.dispatchMu.TryLock() {
 		return
 	}
-	tasks, err := m.listActive(ctx)
-	m.runtimeDispatch(err)
-	if err != nil {
-		return
-	}
-	for _, task := range tasks {
-		if ctx.Err() != nil {
-			return
-		}
-		if !dispatchEligible(task, time.Now()) {
-			continue
-		}
-		m.mu.Lock()
-		if m.recoveryPaused.Load() {
-			m.mu.Unlock()
-			return
-		}
-		if _, running := m.active[task.ID]; running || len(m.active) >= m.workers {
-			m.mu.Unlock()
-			continue
-		}
-		m.active[task.ID] = struct{}{}
-		m.mu.Unlock()
-		m.runtimeTask(task.ID, true)
-		m.wg.Add(1)
-		go func(item Task) {
-			defer m.wg.Done()
-			defer func() {
-				m.mu.Lock()
-				delete(m.active, item.ID)
-				m.mu.Unlock()
-				m.runtimeTask(item.ID, false)
-			}()
-			m.process(ctx, worker, item)
-		}(task)
-	}
+	defer m.dispatchMu.Unlock()
+	m.runtimeDispatch(m.dispatchPages(ctx, worker))
 }
 
 func dispatchEligible(task Task, now time.Time) bool {

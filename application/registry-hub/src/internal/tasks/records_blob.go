@@ -9,6 +9,15 @@ import (
 )
 
 func (r *Records) EnsureBlobIntent(ctx context.Context, identity BlobIdentity, generation uint64, demandID string) (BlobIntent, bool, error) {
+	return r.ensureBlobIntent(ctx, identity, generation, demandID, true)
+}
+
+// Reconciliation may recover a missing first round, but cannot manufacture new demand after a round ends.
+func (r *Records) EnsureBlobIntentForReconciliation(ctx context.Context, identity BlobIdentity, generation uint64) (BlobIntent, bool, error) {
+	return r.ensureBlobIntent(ctx, identity, generation, "", false)
+}
+
+func (r *Records) ensureBlobIntent(ctx context.Context, identity BlobIdentity, generation uint64, demandID string, allowNewRound bool) (BlobIntent, bool, error) {
 	if r == nil || r.store == nil {
 		return BlobIntent{}, false, errors.New("solidification record store is unavailable")
 	}
@@ -38,6 +47,9 @@ func (r *Records) EnsureBlobIntent(ctx context.Context, identity BlobIdentity, g
 			}
 			if current.Identity != identity {
 				return BlobIntent{}, false, errors.New("blob intent index identity mismatch")
+			}
+			if !allowNewRound && (current.CancelRequested || current.Generation != generation || !blobIntentActive(current.State)) {
+				return current, false, nil
 			}
 			if blobIntentActive(current.State) && current.Generation == generation {
 				if demandID != "" {
@@ -123,7 +135,8 @@ func (r *Records) SetBlobIntentReady(ctx context.Context, id, mediaType, dataVer
 			return intent, nil
 		}
 		if intent.State == IntentVerified {
-			if intent.MediaType == mediaType && intent.CacheVersion == dataVersion && intent.ActualSize == actualSize {
+			// Distribution stores blob bytes independently of their media type.
+			if intent.CacheVersion == dataVersion && intent.ActualSize == actualSize {
 				return intent, nil
 			}
 			next, err := r.StartBlobIntentRound(ctx, intent.ID)
