@@ -40,6 +40,35 @@ func TestCachePayloadSharesVersionHashOnlyForSHA256(t *testing.T) {
 	}
 }
 
+func TestCachePayloadSurvivesOwnershipMetadataChange(t *testing.T) {
+	cache, store, digest, data, root := payloadCacheFixture(t)
+	path := filepath.Join(root, "cache/objects/"+cacheIdentity("example.test", "team/image", digest)+"/data")
+	before, beforeFingerprint, err := store.Fingerprint(context.Background(), "cache/objects/"+cacheIdentity("example.test", "team/image", digest)+"/data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0640); err != nil {
+		t.Fatal(err)
+	}
+	after, afterFingerprint, err := store.Fingerprint(context.Background(), "cache/objects/"+cacheIdentity("example.test", "team/image", digest)+"/data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.ModTime != after.ModTime || before.Size != after.Size || beforeFingerprint != afterFingerprint {
+		t.Fatalf("metadata-only change altered payload identity: before=%+v/%q after=%+v/%q", before, beforeFingerprint, after, afterFingerprint)
+	}
+
+	object, err := cache.Get(context.Background(), "example.test", "team/image", digest, "application/octet-stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, readErr := io.ReadAll(object.Body)
+	closeErr := object.Body.Close()
+	if readErr != nil || closeErr != nil || !bytes.Equal(actual, data) {
+		t.Fatalf("read after metadata-only change: read=%v close=%v bytesMatch=%t", readErr, closeErr, bytes.Equal(actual, data))
+	}
+}
+
 type mutateVerifiedPayload struct {
 	storage.PayloadReader
 	mutate func()

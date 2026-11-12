@@ -39,7 +39,8 @@ func fileFingerprint(info os.FileInfo) (string, error) {
 	if !ok {
 		return "", storage.ErrUnavailable
 	}
-	fingerprint := fmt.Sprintf("%d:%d:%d:%d:%d:%d:%d", stat.Dev, stat.Ino, stat.Size, stat.Mtim.Sec, stat.Mtim.Nsec, stat.Ctim.Sec, stat.Ctim.Nsec)
+	// Ownership changes can update ctime without changing the committed payload.
+	fingerprint := fmt.Sprintf("%d:%d:%d:%d:%d", stat.Dev, stat.Ino, stat.Size, stat.Mtim.Sec, stat.Mtim.Nsec)
 	return fingerprint, nil
 }
 
