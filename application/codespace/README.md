@@ -13,6 +13,7 @@ Preinstalled components include:
 - Skopeo and ORAS CLI 1.3.5 for remote image and OCI artifact operations
 - Claude Code (`claude`), Codex (`codex`), Grok (`grok` and `grok-agent`), and
   Cursor Agent (`cursor-agent`) development CLIs (under `/usr/local`, not home)
+- Magpie CLI (`magpie`) for managing agents and providers from the terminal
 - Playwright 1.64.1 with Chromium; amd64 images also include Google Chrome
 - poppler-utils, pdftk, and img2pdf
 - Common development, terminal, archive, and network diagnostic tools,
@@ -22,6 +23,16 @@ Preinstalled components include:
 Cursor does not currently publish an npm package for its CLI. The image uses
 `@nothumanwork/cursor-agent-cli` to install the official Cursor Agent binary via
 npm and exposes it only as `cursor-agent`.
+
+Run `magpie --help` for CLI commands or `magpie tui` for interactive terminal
+management. Magpie stores user settings under `~/.config/magpie`, persisted on
+the home PVC.
+
+The image resolves Magpie's latest stable release and verifies its published
+asset digest during the build. New container releases use a clean GitHub
+Actions runner and pick up the current Magpie release. A local Podman build may
+reuse its cached Magpie layer; use `podman build --no-cache` when a local build
+must fetch a newer Magpie release. This rebuilds all image layers.
 
 The image ships a `coder` user (UID 1000) with passwordless sudo for
 unattended coding agents. The configured SSH public key authenticates only
@@ -33,6 +44,9 @@ holds user state and does not hide image binaries. The chart init container
 `.profile` from `/etc/skel`, and hands ownership to `coder` with a one-time
 recursive `chown` when the volume owner differs (for example a PVC migrated
 from the previous `/root` mount).
+
+Each coding CLI and browser install is kept in its own image layer so a failed
+registry transfer only needs to retry that component's layer.
 
 ## Build
 
