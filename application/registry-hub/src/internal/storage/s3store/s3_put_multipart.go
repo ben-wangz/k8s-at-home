@@ -219,6 +219,9 @@ func (s *Store) resolvePut(ctx context.Context, key string, size int64, expected
 }
 
 func (s *Store) Delete(ctx context.Context, key string) error {
+	if s.readOnly {
+		return storage.ErrPermissionDenied
+	}
 	name, err := s.objectKey(key)
 	if err != nil {
 		return err

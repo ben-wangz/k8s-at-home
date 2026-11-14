@@ -11,6 +11,8 @@ func diagnosticReason(err error) string {
 	switch {
 	case err == nil:
 		return ""
+	case errors.Is(err, storage.ErrReplayDirectoryInUse):
+		return "replay_directory_in_use"
 	case errors.Is(err, inventory.ErrCurrentExpired), errors.Is(err, inventory.ErrExpired):
 		return "expired"
 	case errors.Is(err, storage.ErrNotFound), errors.Is(err, inventory.ErrNotObserved):

@@ -17,7 +17,7 @@ func (s *Service) registryInspectionStore(ctx context.Context) (storage.Store, e
 	case "filesystem":
 		return filesystem.OpenReadOnly(s.cfg.RegistryInspection.FilesystemRoot)
 	case "s3":
-		store, err := s3store.New(ctx, s.cfg.RegistryInspection.S3)
+		store, err := s3store.NewReadOnly(ctx, s.cfg.RegistryInspection.S3)
 		if err != nil {
 			return nil, err
 		}

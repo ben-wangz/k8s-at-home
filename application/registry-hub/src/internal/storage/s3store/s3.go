@@ -21,6 +21,7 @@ type Store struct {
 	client             *s3.Client
 	bucket             string
 	prefix             string
+	readOnly           bool
 	partSize           int64
 	multipartThreshold int64
 	httpClient         *http.Client
@@ -36,6 +37,14 @@ type Store struct {
 }
 
 func New(ctx context.Context, cfg config.S3) (*Store, error) {
+	return newStore(ctx, cfg, false)
+}
+
+func NewReadOnly(ctx context.Context, cfg config.S3) (*Store, error) {
+	return newStore(ctx, cfg, true)
+}
+
+func newStore(ctx context.Context, cfg config.S3, readOnly bool) (*Store, error) {
 	if cfg.Prefix != "" && !validKey(cfg.Prefix) {
 		return nil, errors.New("S3 prefix must be a relative object-key prefix")
 	}
@@ -90,20 +99,24 @@ func New(ctx context.Context, cfg config.S3) (*Store, error) {
 		}
 	})
 	checksumSHA256 := supportsAWSChecksumSHA256(cfg.Endpoint)
-	replay, err := newReplayManager(replayConfig{
-		perSourceMemory: cfg.ReplayMemoryBytes,
-		maxMemory:       cfg.ReplayMaxMemoryBytes,
-		maxDisk:         cfg.ReplayMaxDiskBytes,
-		directory:       cfg.ReplayDirectory,
-	})
-	if err != nil {
-		transport.CloseIdleConnections()
-		return nil, err
+	var replay *replayManager
+	if !readOnly {
+		replay, err = newReplayManager(replayConfig{
+			perSourceMemory: cfg.ReplayMemoryBytes,
+			maxMemory:       cfg.ReplayMaxMemoryBytes,
+			maxDisk:         cfg.ReplayMaxDiskBytes,
+			directory:       cfg.ReplayDirectory,
+		})
+		if err != nil {
+			transport.CloseIdleConnections()
+			return nil, err
+		}
 	}
 	return &Store{
 		client:             client,
 		bucket:             cfg.Bucket,
 		prefix:             strings.Trim(cfg.Prefix, "/"),
+		readOnly:           readOnly,
 		partSize:           cfg.PartSize,
 		multipartThreshold: cfg.MultipartThreshold,
 		httpClient:         httpClient,
@@ -158,6 +171,9 @@ func (s *Store) PutVerified(ctx context.Context, key string, body io.Reader, siz
 }
 
 func (s *Store) put(ctx context.Context, key string, body io.Reader, size int64, options storage.PutOptions, expectedDigest string) (storage.Entry, error) {
+	if s.readOnly {
+		return storage.Entry{}, storage.ErrPermissionDenied
+	}
 	if options.IfAbsent && options.IfMatch != "" {
 		return storage.Entry{}, errors.New("conditional create and conditional update are mutually exclusive")
 	}

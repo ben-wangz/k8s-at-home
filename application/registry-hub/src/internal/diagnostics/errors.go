@@ -12,6 +12,9 @@ func SafeErrorText(cause error) string {
 	if cause == nil {
 		return ""
 	}
+	if errors.Is(cause, storage.ErrReplayDirectoryInUse) {
+		return "local S3 replay directory is already in use"
+	}
 	for _, item := range []struct {
 		err  error
 		text string

@@ -12,16 +12,17 @@ import (
 )
 
 var (
-	ErrNotFound         = errors.New("storage object not found")
-	ErrAlreadyExists    = errors.New("storage object already exists")
-	ErrConditionFailed  = errors.New("storage condition failed")
-	ErrUnavailable      = errors.New("storage unavailable")
-	ErrTimeout          = errors.New("storage operation timed out")
-	ErrPermissionDenied = errors.New("storage permission denied")
-	ErrCorruptObject    = errors.New("storage object is corrupt")
-	ErrUnknownCommit    = errors.New("storage commit state is unknown")
-	ErrLeaseLost        = errors.New("storage lease was lost")
-	ErrInvalidKey       = errors.New("invalid storage key")
+	ErrNotFound             = errors.New("storage object not found")
+	ErrAlreadyExists        = errors.New("storage object already exists")
+	ErrConditionFailed      = errors.New("storage condition failed")
+	ErrUnavailable          = errors.New("storage unavailable")
+	ErrTimeout              = errors.New("storage operation timed out")
+	ErrPermissionDenied     = errors.New("storage permission denied")
+	ErrCorruptObject        = errors.New("storage object is corrupt")
+	ErrUnknownCommit        = errors.New("storage commit state is unknown")
+	ErrLeaseLost            = errors.New("storage lease was lost")
+	ErrInvalidKey           = errors.New("invalid storage key")
+	ErrReplayDirectoryInUse = errors.New("S3 replay directory is already in use")
 )
 
 type Object struct {

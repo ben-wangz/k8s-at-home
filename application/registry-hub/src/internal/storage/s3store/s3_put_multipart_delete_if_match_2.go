@@ -10,6 +10,9 @@ import (
 )
 
 func (s *Store) DeleteIfMatch(ctx context.Context, key, version string) error {
+	if s.readOnly {
+		return storage.ErrPermissionDenied
+	}
 	name, err := s.objectKey(key)
 	if err != nil {
 		return err

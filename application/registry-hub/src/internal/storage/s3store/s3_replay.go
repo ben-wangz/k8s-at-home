@@ -83,7 +83,10 @@ func newReplayManager(config replayConfig) (*replayManager, error) {
 	}
 	if err := unix.Flock(int(lockFile.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		_ = lockFile.Close()
-		return nil, fmt.Errorf("S3 replay directory is already in use: %w", err)
+		if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
+			return nil, fmt.Errorf("%w: %w", storage.ErrReplayDirectoryInUse, err)
+		}
+		return nil, fmt.Errorf("lock S3 replay directory: %w", err)
 	}
 	manager := &replayManager{config: config, lockFile: lockFile, changed: make(chan struct{})}
 	if err := manager.removeStaleFiles(); err != nil {
