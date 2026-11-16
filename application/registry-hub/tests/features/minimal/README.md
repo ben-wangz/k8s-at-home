@@ -18,6 +18,8 @@ Download-cleanup regressions require one full cache verification per protected a
 
 ## Run
 
+The diagnostics scenarios verify summary-only accounting for internal storage inventory output, reported collection cost, detailed category reconciliation and immutable pagination across restart. Run `run --scenario feature-diagnostics` for filesystem state or `run --scenario feature-diagnostics-s3` for S3 state. The shared image inventory case also compares inventory API and background snapshot freshness after a successful unchanged refresh. Product regressions additionally cover ten fixed-input storage collections across expiry, 1,000 historical output objects, manifest-last cleanup across restart, continuous source/statistics notifications and constant fragment control calls at 1/100/1000 dependencies. Store method counts establish algorithmic request bounds; only the S3 scenario's transport metrics measure S3 HTTP attempts.
+
 The scripts work from any current directory. Examples below assume the repository root:
 
     application/registry-hub/tests/features/minimal/run.sh list

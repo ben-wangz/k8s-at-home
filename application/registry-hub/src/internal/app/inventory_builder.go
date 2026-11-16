@@ -11,6 +11,7 @@ import (
 )
 
 func (s *Service) buildInventoryPage(ctx context.Context, state *inventoryCheckpoint) error {
+	ctx = context.WithValue(ctx, inventoryFragmentValidationKey{}, state.FullReconcilePending || state.NextReconcileAt.IsZero())
 	if state.BuildPhase < 0 || state.BuildPhase > 5 {
 		return storage.ErrCorruptObject
 	}

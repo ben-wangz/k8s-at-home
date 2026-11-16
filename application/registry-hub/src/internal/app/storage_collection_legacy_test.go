@@ -63,3 +63,67 @@ func TestStorageCollectorAdoptsOversizedLegacyPendingPage(t *testing.T) {
 		t.Fatalf("adopted checkpoint exceeds new bound: %d bytes, %v", len(encoded), err)
 	}
 }
+
+func TestStorageCollectorKeepsLegacyCoverageAcrossResume(t *testing.T) {
+	f := newStagedAcceptanceFixture(t, 1<<20)
+	enableInventory(f)
+	ctx := context.Background()
+	key := storageInventoryPrefix + "snapshots/" + inventory.ID("legacy-history") + "/objects/00000000.json"
+	if err := inventory.Update(ctx, f.service.store, key, func(value *string) error { *value = "historical output"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	state := newStorageCollection()
+	domain := state.Snapshot.Domains["state"]
+	domain.SummaryOnlyCategories = nil
+	domain.Coverage = domain.Coverage[:len(domain.Coverage)-1]
+	state.Snapshot.Domains["state"] = domain
+	for steps := 0; state.NextScanAt.IsZero(); steps++ {
+		if steps > 1000 {
+			t.Fatal("legacy collection did not finish")
+		}
+		if err := f.service.advanceStorageCollection(ctx, &state, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state = storageCollection{}
+		if err := json.Unmarshal(encoded, &state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report, err := f.service.storageSnapshot(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Domains["state"].SummaryOnlyCategories) != 0 || report.Cost != (storageCollectionCost{}) {
+		t.Fatal("legacy collection changed its coverage or advertised partial cost")
+	}
+	var found bool
+	for page := range report.Pages {
+		rows, _, err := inventory.Read[[]storageObject](ctx, f.service.store, storagePageKey(report.SnapshotID, page))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			found = found || row.Category == "storage_inventory_output"
+		}
+	}
+	if !found {
+		t.Fatal("legacy internal output detail disappeared during resume")
+	}
+	manifest := storageInventoryPrefix + "snapshots/" + report.SnapshotID + "/manifest.json"
+	data, version, err := inventory.Read[json.RawMessage](ctx, f.service.store, manifest)
+	if err != nil || bytes.Contains(data, []byte(`"cost"`)) {
+		t.Fatalf("legacy manifest gained unsupported cost fields: %s %v", data, err)
+	}
+	state = storageCollection{Snapshot: report, Domain: 2, AttributionPhase: 3, UsageMerge: storageUsageMerge{Phase: "done"}}
+	if err := f.service.publishStorageCollection(ctx, &state); err != nil {
+		t.Fatalf("unknown legacy publication could not replay: %v", err)
+	}
+	entry, err := f.service.store.Head(ctx, manifest)
+	if err != nil || entry.Version != version {
+		t.Fatalf("replay rewrote legacy manifest: %+v %v", entry, err)
+	}
+}

@@ -27,6 +27,8 @@ func (s *Service) claimInventory(ctx context.Context, leader lease.Lease, state 
 			return inventory.ErrSuperseded
 		}
 		current.SchemaVersion, current.Fence = 2, leader.FencingToken
+		// A new leader reconciles missed markers before resuming cheap routine refreshes.
+		current.NextReconcileAt, current.NextScanAt = time.Time{}, time.Time{}
 		if current.Build != nil {
 			current.Build.BuilderFence = leader.FencingToken
 		}

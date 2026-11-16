@@ -146,6 +146,10 @@ func (s *Service) projectInventoryChange(ctx context.Context, p *inventoryDeltaP
 func inventoryFragmentInvalidationParts(fragment inventoryFragment, changes []inventoryChange) []string {
 	parts := []string{fragment.Image.ID}
 	for _, change := range changes {
+		if internal, err := inventoryInternalName(fragment.Image.Identity); err == nil && (change.Key == "distribution/catalog" || change.Key == "distribution/repositories/"+internal) {
+			parts = append(parts, change.Key, change.Revision)
+			continue
+		}
 		version, observed := fragment.Dependencies.Objects[change.Key]
 		if observed && version == change.SourceVersion && version != "" {
 			continue

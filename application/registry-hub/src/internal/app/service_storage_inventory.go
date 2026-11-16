@@ -74,6 +74,10 @@ func newStorageCollection() storageCollection {
 	for _, domain := range []string{"state", "registry"} {
 		state.Snapshot.Domains[domain] = storageDomainSummary{Domain: domain, State: "collecting", Categories: map[string]storageUsage{}, Coverage: []string{"visible current objects only", "S3 noncurrent versions, delete markers and multipart uploads are unknown", "filesystem staging and lock files are excluded"}}
 	}
+	domain := state.Snapshot.Domains["state"]
+	domain.SummaryOnlyCategories = []string{"storage_inventory_output"}
+	domain.Coverage = append(domain.Coverage, "storage_inventory_output contributes category totals without object details or associations")
+	state.Snapshot.Domains["state"] = domain
 	return state
 }
 
@@ -105,6 +109,7 @@ func (s *Service) advanceStorageCollection(ctx context.Context, state *storageCo
 			state.Snapshot.Pages++
 		}
 		state.SourceOffset = state.PendingOffset
+		applyStorageOutputSummary(state)
 		state.Pending = false
 		state.PendingRows = nil
 		if state.SourceListed && state.SourceOffset < len(state.SourceEntries) {
@@ -147,10 +152,21 @@ func (s *Service) advanceStorageCollection(ctx context.Context, state *storageCo
 }
 
 func (s *Service) publishStorageCollection(ctx context.Context, state *storageCollection) error {
+	if state.UsageMerge.Phase == "" && state.OutputUsage.Objects > 0 {
+		state.Usage[storageUsageKey(state.OutputUsage)] = state.OutputUsage
+		if err := s.flushStorageUsage(ctx, state); err != nil {
+			return err
+		}
+		state.OutputUsage = storageUsage{}
+		return nil
+	}
 	if state.Snapshot.UsageVersion > 0 && state.UsageMerge.Phase != "done" {
 		return s.advanceStorageUsageMergeUnit(ctx, state)
 	}
 	if state.Snapshot.CompletedAt.IsZero() {
+		if storageSummaryOnly(state) && !state.OutputCostComplete {
+			return s.collectStorageOutputCost(ctx, state)
+		}
 		state.Snapshot.CompletedAt = time.Now().UTC()
 		state.Snapshot.ExpiresAt = state.Snapshot.CompletedAt.Add(time.Hour)
 		bytes, sessions, err := s.downloadManager().Usage(ctx)

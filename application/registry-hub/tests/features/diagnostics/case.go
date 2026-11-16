@@ -29,10 +29,11 @@ type usage struct {
 }
 
 type domain struct {
-	State       string           `json:"state"`
-	ObjectBytes *int64           `json:"objectBytes"`
-	Objects     *int64           `json:"objects"`
-	Categories  map[string]usage `json:"categories"`
+	State                 string           `json:"state"`
+	ObjectBytes           *int64           `json:"objectBytes"`
+	Objects               *int64           `json:"objects"`
+	Categories            map[string]usage `json:"categories"`
+	SummaryOnlyCategories []string         `json:"summaryOnlyCategories"`
 }
 
 type report struct {
@@ -40,6 +41,12 @@ type report struct {
 	StartedAt   time.Time         `json:"startedAt"`
 	CompletedAt time.Time         `json:"completedAt"`
 	Domains     map[string]domain `json:"domains"`
+	Cost        struct {
+		InputObjects       int64 `json:"inputObjects"`
+		SummaryOnlyObjects int64 `json:"summaryOnlyObjects"`
+		OutputObjects      int64 `json:"outputObjects"`
+		OutputBytes        int64 `json:"outputBytes"`
+	} `json:"cost"`
 }
 
 func Run(ctx context.Context, environment testkit.CaseContext) error {
@@ -72,7 +79,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err != nil || status != http.StatusOK || !reflect.DeepEqual(snapshot, retained) {
 		return fmt.Errorf("retained accounting changed across restart: status=%d error=%v", status, err)
 	}
-	return support.WriteResult(environment, map[string]any{"snapshotID": snapshot.SnapshotID, "domains": snapshot.Domains, "objects": objects, "usageGroups": groups, "elapsedSeconds": time.Since(started).Seconds(), "restart": "immutable_report_preserved"})
+	return support.WriteResult(environment, map[string]any{"snapshotID": snapshot.SnapshotID, "domains": snapshot.Domains, "cost": snapshot.Cost, "objects": objects, "usageGroups": groups, "elapsedSeconds": time.Since(started).Seconds(), "restart": "immutable_report_preserved"})
 }
 
 func read(ctx context.Context, environment testkit.CaseContext, path string, result any) (int, error) {
@@ -94,6 +101,9 @@ func awaitReport(ctx context.Context, environment testkit.CaseContext) (report, 
 			return report{}, err
 		}
 		if status == http.StatusOK {
+			if err := verifySummaryCoverage(snapshot); err != nil {
+				return report{}, err
+			}
 			if snapshot.SnapshotID == "" || snapshot.StartedAt.IsZero() || snapshot.CompletedAt.IsZero() || len(snapshot.Domains) != 2 {
 				return report{}, fmt.Errorf("storage report lacks publication evidence")
 			}

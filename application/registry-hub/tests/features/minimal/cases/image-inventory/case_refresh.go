@@ -49,7 +49,12 @@ func awaitUnchangedRefresh(ctx context.Context, environment testkit.CaseContext,
 			if s3Delta < 0 || s3Delta > 512 {
 				return nil, fmt.Errorf("unchanged source refresh used %.0f inventory S3 HTTP attempts; budget is 0..512", s3Delta)
 			}
+			freshness, err := verifyFreshnessAgreement(ctx, environment, query)
+			if err != nil {
+				return nil, err
+			}
 			return map[string]any{
+				"freshness":                     freshness,
 				"sourceCheckAt":                 status.LastSourceCheck,
 				"storageWorkOperations":         storageDelta,
 				"s3HTTPAttempts":                s3Delta,

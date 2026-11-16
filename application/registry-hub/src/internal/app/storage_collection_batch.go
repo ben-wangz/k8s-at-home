@@ -21,6 +21,11 @@ func (s *Service) storageCollectionQuantum(ctx context.Context, owner lease.Leas
 	ctx = context.WithValue(ctx, storageReadCacheKey{}, newStorageReadCache())
 	for step := 0; step < 8; step++ {
 		if step > 0 && (time.Since(started)+reserve > storageCollectionQuantumTarget || !storageQuantumTime(ctx, reserve)) {
+			state.BudgetYields++
+			state.LastYieldReason = "execution_budget"
+			if err := s.checkpointStorageCollection(ctx, owner, state); err != nil {
+				return progress, err
+			}
 			break
 		}
 		unit := time.Now()
@@ -104,6 +109,7 @@ func (s *Service) prepareStoragePage(ctx context.Context, state *storageCollecti
 		namespace = diagnostics.ID(domain, s.cfg.RegistryInspection.Backend, s.cfg.RegistryInspection.FilesystemRoot, s.cfg.RegistryInspection.S3.Endpoint, s.cfg.RegistryInspection.S3.Bucket, s.cfg.RegistryInspection.S3.Prefix)
 	}
 	rows, size, offset := []storageObject{}, 2, state.SourceOffset
+	summary := storageUsage{Domain: domain, Category: "storage_inventory_output", Dimension: "category", Name: "storage_inventory_output", Mask: 1, LogicalUnknown: true, Attribution: "category summary only; internal collection output has no object detail"}
 	started := time.Now()
 	for offset < len(state.SourceEntries) && len(rows) < 32 {
 		if offset > state.SourceOffset && (time.Since(started) > 2*time.Second || !storageQuantumTime(ctx, time.Second)) {
@@ -114,8 +120,15 @@ func (s *Service) prepareStoragePage(ctx context.Context, state *storageCollecti
 			offset++
 			continue
 		}
+		internalOutput := domain == "state" && strings.HasPrefix(entry.Key, storageInventoryPrefix)
+		if internalOutput && storageSummaryOnly(state) {
+			summary.ObjectBytes += entry.Size
+			summary.Objects++
+			offset++
+			continue
+		}
 		var object storageObject
-		if domain == "state" && strings.HasPrefix(entry.Key, storageInventoryPrefix) {
+		if internalOutput {
 			object = s.inspectStorageObjectMetadata(ctx, domain, namespace, entry)
 		} else {
 			object = s.inspectStorageObject(ctx, domain, namespace, entry)
@@ -151,6 +164,7 @@ func (s *Service) prepareStoragePage(ctx context.Context, state *storageCollecti
 		state.ListPageSize, state.ListSuccesses = max(1, state.ListPageSize/2), 0
 	}
 	state.PendingRows, state.PendingNext, state.Pending, state.PendingOffset = rows, state.SourceNext, true, offset
+	state.PendingSummary = summary
 	return nil
 }
 
@@ -181,6 +195,12 @@ func (s *Service) listStoragePage(ctx context.Context, state *storageCollection,
 	}
 	if state.EntriesExamined != nil {
 		*state.EntriesExamined += int64(len(entries))
+	}
+	if storageSummaryOnly(state) {
+		state.Snapshot.Cost.InputObjects += int64(len(entries))
+		for _, entry := range entries {
+			state.Snapshot.Cost.InputBytes += entry.Size
+		}
 	}
 	state.SourceEntries, state.SourceNext, state.SourceListed, state.SourceOffset = entries, next, true, 0
 	return nil

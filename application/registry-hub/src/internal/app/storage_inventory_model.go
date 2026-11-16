@@ -56,16 +56,18 @@ type storageUsage struct {
 }
 
 type storageDomainSummary struct {
-	Domain      string                  `json:"domain"`
-	State       string                  `json:"state"`
-	ObjectBytes *int64                  `json:"objectBytes"`
-	Objects     *int64                  `json:"objects"`
-	Categories  map[string]storageUsage `json:"categories,omitempty"`
-	Reason      string                  `json:"reason,omitempty"`
-	Coverage    []string                `json:"coverage"`
+	Domain                string                  `json:"domain"`
+	State                 string                  `json:"state"`
+	ObjectBytes           *int64                  `json:"objectBytes"`
+	Objects               *int64                  `json:"objects"`
+	Categories            map[string]storageUsage `json:"categories,omitempty"`
+	Reason                string                  `json:"reason,omitempty"`
+	Coverage              []string                `json:"coverage"`
+	SummaryOnlyCategories []string                `json:"summaryOnlyCategories,omitempty"`
 }
 
 type storageSnapshot struct {
+	Cost                   storageCollectionCost           `json:"cost,omitzero"`
 	SnapshotID             string                          `json:"snapshotID"`
 	StartedAt              time.Time                       `json:"startedAt"`
 	CompletedAt            time.Time                       `json:"completedAt"`
@@ -89,6 +91,10 @@ type storageSnapshot struct {
 }
 
 type storageCollection struct {
+	OutputCostToken        string                  `json:"outputCostToken"`
+	OutputCostComplete     bool                    `json:"outputCostComplete"`
+	BudgetYields           uint64                  `json:"budgetYields"`
+	LastYieldReason        string                  `json:"lastYieldReason,omitempty"`
 	CheckpointAt           time.Time               `json:"checkpointAt"`
 	ProgressAt             time.Time               `json:"progressAt"`
 	LastCompletedAt        time.Time               `json:"lastCompletedAt"`
@@ -109,6 +115,8 @@ type storageCollection struct {
 	UsageMerge             storageUsageMerge       `json:"usageMerge"`
 	NextScanAt             time.Time               `json:"nextScanAt"`
 	PendingRows            []storageObject         `json:"pendingRows,omitempty"`
+	PendingSummary         storageUsage            `json:"pendingSummary"`
+	OutputUsage            storageUsage            `json:"outputUsage"`
 	PendingNext            string                  `json:"pendingNext,omitempty"`
 	Pending                bool                    `json:"pending"`
 	AttributionPhase       int                     `json:"attributionPhase"`

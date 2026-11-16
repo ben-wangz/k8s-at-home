@@ -65,9 +65,7 @@ func (s *Service) runMetricSweepLeader(ctx context.Context, holder lease.Lease, 
 			return
 		case <-s.backgroundWake["statistics_"+kind]:
 			state.IdleRounds = 0
-			if state.NextRound.After(time.Now()) {
-				state.NextRound = time.Now().Add(backgroundScanWakeDelay)
-			}
+			state.NextRound = advanceScanWake(state.NextRound, status.NextAttemptAt, time.Now())
 		case <-ticker.C:
 		}
 		if time.Now().Before(state.NextRound) {

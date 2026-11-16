@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/support"
 	"github.com/ben-wangz/registry-hub-tests/internal/testkit"
@@ -61,6 +62,12 @@ func verifyObjects(ctx context.Context, environment testkit.CaseContext, snapsho
 	for name, value := range snapshot.Domains {
 		for category, expected := range value.Categories {
 			actual := totals[name+"/"+category]
+			if slices.Contains(value.SummaryOnlyCategories, category) {
+				if actual.Objects != 0 || actual.ObjectBytes != 0 {
+					return 0, fmt.Errorf("summary-only category %s/%s generated object rows", name, category)
+				}
+				continue
+			}
 			if actual.ObjectBytes != expected.ObjectBytes || actual.Objects != expected.Objects {
 				return 0, fmt.Errorf("object accounting differs for %s/%s", name, category)
 			}

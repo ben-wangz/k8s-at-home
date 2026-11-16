@@ -9,7 +9,7 @@
   "checks": [
     {"id":"image-inventory.auth","description":"Inventory rejects unauthenticated requests."},
     {"id":"image-inventory.reference","description":"Inventory discovers the pushed reference with complete verified local content."},
-    {"id":"image-inventory.no-change-refresh","description":"An unchanged source refresh preserves the snapshot and avoids registry and immutable snapshot writes."},
+    {"id":"image-inventory.no-change-refresh","description":"An unchanged source refresh preserves the snapshot, avoids registry and immutable snapshot writes, and reports consistent freshness across inventory and background status."},
     {"id":"image-inventory.snapshot","description":"Detail, objects, platforms, and summary use the same immutable snapshot."},
     {"id":"image-inventory.validation","description":"Invalid filters and page sizes are rejected."}
   ],

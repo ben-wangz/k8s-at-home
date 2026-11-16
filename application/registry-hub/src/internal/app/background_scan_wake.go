@@ -7,6 +7,20 @@ import (
 
 const backgroundScanWakeDelay = 5 * time.Second
 
+func advanceScanWake(deadline, retry, now time.Time) time.Time {
+	if !deadline.After(now) {
+		return deadline
+	}
+	wake := now.Add(backgroundScanWakeDelay)
+	if retry.After(wake) {
+		wake = retry
+	}
+	if wake.Before(deadline) {
+		return wake
+	}
+	return deadline
+}
+
 func newBackgroundScanWakeChannels() map[string]chan struct{} {
 	channels := make(map[string]chan struct{})
 	for _, kind := range []string{

@@ -26,6 +26,9 @@ type backgroundScanStatus struct {
 	LastError            *diagnostics.Failure `json:"lastError,omitempty"`
 	RecoveredAt          time.Time            `json:"recoveredAt"`
 	Stale                bool                 `json:"stale"`
+	AgeSeconds           *int64               `json:"ageSeconds"`
+	ScheduleOverdue      bool                 `json:"scheduleOverdue"`
+	Failed               bool                 `json:"failed"`
 	Complete             bool                 `json:"complete"`
 	Counts               map[string]int64     `json:"counts,omitempty"`
 	RunID                string               `json:"runID,omitempty"`

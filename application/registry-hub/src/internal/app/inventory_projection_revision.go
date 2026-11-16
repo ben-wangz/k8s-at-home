@@ -121,7 +121,7 @@ func (s *Service) serveImageProjection(writer http.ResponseWriter, request *http
 			view.ReadErrors[kind] = diagnosticReason(err)
 		}
 		sanitizeScanStatus(&value)
-		value.Stale = value.LastSuccessAt.IsZero() || time.Since(value.LastSuccessAt) > 90*time.Second
+		applyScanFreshness(&value, kind, time.Now())
 		view.SourceScans[kind] = value
 	}
 	view.Execution = s.imageExecutionProjection(ctx, image)

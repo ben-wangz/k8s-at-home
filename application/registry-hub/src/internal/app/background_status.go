@@ -73,7 +73,7 @@ func (s *Service) backgroundStatus(ctx context.Context) backgroundStatus {
 	for _, kind := range []string{"tasks", "cache", "intents", "protection"} {
 		read("statistics/"+kind, func() error {
 			value, err := readMetricScanStatus(ctx, s.store, kind)
-			value.Stale = value.LastSuccessAt.IsZero() || time.Since(value.LastSuccessAt) > 90*time.Second
+			applyScanFreshness(&value, "statistics_"+kind, time.Now())
 			sanitizeScanStatus(&value)
 			mu.Lock()
 			status.Statistics[kind] = value
@@ -84,15 +84,7 @@ func (s *Service) backgroundStatus(ctx context.Context) backgroundStatus {
 	for _, kind := range backgroundScanKinds {
 		read("maintenance/"+kind, func() error {
 			value, err := readBackgroundScanStatus(ctx, s.store, kind)
-			lastSuccess := value.LastSuccessAt
-			if lastSuccess.IsZero() && value.Complete {
-				lastSuccess = value.ObservedAt
-			}
-			validity := 90 * time.Second
-			if kind == "storage_inventory" {
-				validity = 10 * time.Minute
-			}
-			value.Stale = lastSuccess.IsZero() || time.Since(lastSuccess) > validity
+			applyScanFreshness(&value, kind, time.Now())
 			sanitizeScanStatus(&value)
 			mu.Lock()
 			status.Maintenance[kind] = value
@@ -112,13 +104,6 @@ func (s *Service) backgroundStatus(ctx context.Context) backgroundStatus {
 				mu.Lock()
 				status.ReadErrors["snapshot_build"] = diagnosticReason(buildErr)
 				mu.Unlock()
-			}
-			snapshot.Freshness = inventory.Freshness{State: "stale", AgeSeconds: max(0, int64(time.Since(snapshot.ObservedAt).Seconds()))}
-			if err == nil && time.Since(snapshot.ObservedAt) <= s.inventoryConfig().StaleAfter {
-				snapshot.Freshness.State = "fresh"
-			}
-			if errors.Is(err, inventory.ErrCurrentExpired) {
-				snapshot.Freshness.State = "expired"
 			}
 			status.Snapshot = &snapshot
 		}

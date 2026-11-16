@@ -18,6 +18,9 @@ type storageReportStatus struct {
 }
 
 type storageCollectionStatus struct {
+	Cost                storageCollectionCost           `json:"cost"`
+	BudgetYields        uint64                          `json:"budgetYields"`
+	LastYieldReason     string                          `json:"lastYieldReason,omitempty"`
 	ObservedAt          time.Time                       `json:"observedAt"`
 	CheckpointAt        time.Time                       `json:"checkpointAt"`
 	EvidenceSource      string                          `json:"evidenceSource"`
@@ -117,6 +120,7 @@ func (s *Service) storageCollectionStatus(ctx context.Context) (storageCollectio
 }
 
 func (status *storageCollectionStatus) applyCollection(state storageCollection, now time.Time) {
+	status.Cost, status.BudgetYields, status.LastYieldReason = state.Snapshot.Cost, state.BudgetYields, state.LastYieldReason
 	status.BuildID, status.Phase = state.Snapshot.SnapshotID, storageCollectionPhase(state)
 	status.CheckpointAt, status.ProgressAt, status.StartedAt = state.CheckpointAt, state.ProgressAt, state.Snapshot.StartedAt
 	status.LastCompletedAt, status.NextScanAt = state.LastCompletedAt, state.NextScanAt

@@ -40,9 +40,7 @@ func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Le
 			return
 		case <-s.backgroundWake[kind]:
 			p.IdleRounds = 0
-			if p.NextRound.After(time.Now()) {
-				p.NextRound = time.Now().Add(backgroundScanWakeDelay)
-			}
+			p.NextRound = advanceScanWake(p.NextRound, p.Status.NextAttemptAt, time.Now())
 		case <-ticker.C:
 		}
 		if kind == "quota_waiters" && time.Since(signalCheck) >= 5*time.Second {

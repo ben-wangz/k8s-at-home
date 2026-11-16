@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
@@ -26,6 +25,12 @@ func (s *Service) runDiagnosticRetention(ctx context.Context) {
 			age = 30 * 24 * time.Hour
 		case strings.HasPrefix(entry.Key, storageInventoryPrefix+"snapshots/"):
 			return s.cleanupStorageObservation(ctx, entry)
+		case strings.HasPrefix(entry.Key, storageRetentionPrefix):
+			id := strings.TrimSuffix(strings.TrimPrefix(entry.Key, storageRetentionPrefix), ".json")
+			if inventory.ValidID(id) {
+				return s.advanceStorageRetention(ctx, id)
+			}
+			return nil
 		case strings.HasPrefix(entry.Key, diagnostics.Prefix+"transfers/"):
 			view, _, err := inventory.Read[transferView](ctx, s.store, entry.Key)
 			if err != nil {
@@ -41,31 +46,6 @@ func (s *Service) runDiagnosticRetention(ctx context.Context) {
 		}
 		return s.deleteDiagnosticObservation(ctx, entry)
 	})
-}
-
-func (s *Service) cleanupStorageObservation(ctx context.Context, entry storage.Entry) error {
-	parts := strings.Split(strings.TrimPrefix(entry.Key, storageInventoryPrefix+"snapshots/"), "/")
-	if len(parts) < 2 || !inventory.ValidID(parts[0]) {
-		return nil
-	}
-	checkpoint, _, err := inventory.Read[storageCollection](ctx, s.store, storageInventoryPrefix+"checkpoint.json")
-	if err != nil && !errors.Is(err, storage.ErrNotFound) {
-		return err
-	}
-	if checkpoint.Snapshot.SnapshotID == parts[0] {
-		return nil
-	}
-	snapshot, _, err := inventory.Read[storageSnapshot](ctx, s.store, storageInventoryPrefix+"snapshots/"+parts[0]+"/manifest.json")
-	if errors.Is(err, storage.ErrNotFound) {
-		if entry.ModTime == 0 || time.Since(time.Unix(0, entry.ModTime)) < 24*time.Hour {
-			return nil
-		}
-	} else if err != nil {
-		return err
-	} else if snapshot.ExpiresAt.After(time.Now()) {
-		return nil
-	}
-	return s.deleteDiagnosticObservation(ctx, entry)
 }
 
 func (s *Service) deleteDiagnosticObservation(ctx context.Context, entry storage.Entry) error {

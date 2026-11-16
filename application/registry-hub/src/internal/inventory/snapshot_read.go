@@ -38,12 +38,6 @@ func (r *Repository) validateSnapshot(value Snapshot, stale time.Duration, expli
 	if value.SchemaVersion != 1 || !ValidID(value.SnapshotID) || value.ObservedAt.IsZero() {
 		return value, storage.ErrCorruptObject
 	}
-	if !value.ExpiresAt.After(time.Now()) {
-		if explicit {
-			return value, ErrExpired
-		}
-		return value, ErrCurrentExpired
-	}
 	freshnessAt := value.LastSourceCheckAt
 	if freshnessAt.IsZero() {
 		freshnessAt = value.ObservedAt
@@ -51,6 +45,13 @@ func (r *Repository) validateSnapshot(value Snapshot, stale time.Duration, expli
 	value.Freshness = Freshness{State: "fresh", AgeSeconds: max(0, int64(time.Since(freshnessAt).Seconds()))}
 	if time.Since(freshnessAt) > stale {
 		value.Freshness.State = "stale"
+	}
+	if !value.ExpiresAt.After(time.Now()) {
+		value.Freshness.State = "expired"
+		if explicit {
+			return value, ErrExpired
+		}
+		return value, ErrCurrentExpired
 	}
 	return value, nil
 }

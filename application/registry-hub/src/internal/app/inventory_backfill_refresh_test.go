@@ -14,6 +14,7 @@ func verifyInventoryHistoricalRefresh(t *testing.T, s *Service, leader lease.Lea
 	ctx := context.Background()
 	state.NextScanAt = time.Time{}
 	started := time.Now()
+	deadline := started.Add(3 * time.Minute)
 	takenOver := false
 	for step := 0; step < 20000; step++ {
 		if step%100 == 0 {
@@ -43,6 +44,11 @@ func verifyInventoryHistoricalRefresh(t *testing.T, s *Service, leader lease.Lea
 			if state.Delta == nil || state.Delta.Cursor.Offset != offset {
 				t.Fatal("takeover discarded incremental source progress")
 			}
+			if !state.NextReconcileAt.IsZero() || !state.NextScanAt.IsZero() {
+				t.Fatal("takeover did not require full reconciliation")
+			}
+			// Takeover now includes the same full inspection as initial backfill.
+			deadline = time.Now().Add(5 * time.Minute)
 			stale := state
 			if err := s.advanceInventory(ctx, previous, &stale); !errors.Is(err, lease.ErrLost) {
 				t.Fatalf("released owner advanced incremental work: %v", err)
@@ -57,8 +63,8 @@ func verifyInventoryHistoricalRefresh(t *testing.T, s *Service, leader lease.Lea
 		if state.Build == nil && state.LastCompleteAt.After(started) {
 			break
 		}
-		if time.Since(started) > 3*time.Minute || step == 19999 {
-			t.Fatalf("historical refresh exceeded three minutes: build=%d incremental=%v", state.BuildPhase, state.Delta != nil)
+		if time.Now().After(deadline) || step == 19999 {
+			t.Fatalf("historical refresh exceeded its routine/reconciliation deadline: takeover=%t build=%d incremental=%v", takenOver, state.BuildPhase, state.Delta != nil)
 		}
 	}
 	if !takenOver {

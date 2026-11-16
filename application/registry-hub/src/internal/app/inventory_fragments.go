@@ -22,6 +22,7 @@ type inventoryFragment struct {
 	CapturedAt    time.Time                `json:"capturedAt"`
 	DirtyRevision string                   `json:"dirtyRevision,omitempty"`
 	Fence         uint64                   `json:"fence,omitempty"`
+	ReuseVersion  int                      `json:"reuseVersion,omitempty"`
 }
 
 type inventoryFragmentReuse struct {
@@ -30,6 +31,8 @@ type inventoryFragmentReuse struct {
 	Objects  []string          `json:"objects"`
 	Listings []string          `json:"listings"`
 	Offset   int               `json:"offset"`
+	Fast     bool              `json:"fast,omitempty"`
+	Version  string            `json:"version,omitempty"`
 }
 
 func inventoryFragmentKey(image inventory.Image, kind string) string {
@@ -42,7 +45,7 @@ func inventoryFragmentKey(image inventory.Image, kind string) string {
 
 func (s *Service) loadInventoryFragment(ctx context.Context, p *inventoryImageProgress) error {
 	for _, kind := range []string{"image", "content"} {
-		value, _, err := inventory.Read[inventoryFragment](ctx, s.store, inventoryFragmentKey(p.Image, kind))
+		value, version, err := inventory.Read[inventoryFragment](ctx, s.store, inventoryFragmentKey(p.Image, kind))
 		if errors.Is(err, storage.ErrNotFound) {
 			continue
 		}
@@ -59,7 +62,7 @@ func (s *Service) loadInventoryFragment(ctx context.Context, p *inventoryImagePr
 		if kind == "image" && (value.Image.ID != p.Image.ID || value.Image.BindingRevision != p.Image.BindingRevision || value.Image.Generation != p.Image.Generation || value.DirtyRevision != p.DirtyRevision) {
 			continue
 		}
-		candidate := &inventoryFragmentReuse{Fragment: value, Kind: kind}
+		candidate := &inventoryFragmentReuse{Fragment: value, Kind: kind, Version: version, Fast: value.ReuseVersion == 1 && !fullFragmentValidation(ctx)}
 		for key := range value.Dependencies.Objects {
 			candidate.Objects = append(candidate.Objects, key)
 		}
@@ -76,6 +79,16 @@ func (s *Service) loadInventoryFragment(ctx context.Context, p *inventoryImagePr
 
 func (s *Service) advanceInventoryFragment(ctx context.Context, p *inventoryImageProgress) error {
 	candidate := p.Reuse
+	if candidate.Fast {
+		allowed, err := s.allowFastInventoryFragment(ctx, p)
+		if err != nil {
+			return err
+		}
+		candidate.Fast = false
+		if allowed {
+			candidate.Offset = len(candidate.Objects) + len(candidate.Listings)
+		}
+	}
 	d := &candidate.Fragment.Dependencies
 	valid := true
 	if candidate.Offset < len(candidate.Objects) {
@@ -170,7 +183,7 @@ func (s *Service) saveInventoryFragment(ctx context.Context, p *inventoryImagePr
 	if p.Dependencies.Invalid || len(p.Dependencies.Objects) == 0 || !p.Closure.Complete || p.Invalid || p.Image.Evidence.Freshness != "fresh" {
 		return nil
 	}
-	fragment := inventoryFragment{Image: p.Image, Objects: p.Objects, Closure: p.Closure, Dependencies: p.Dependencies, Epoch: p.Epoch, CapturedAt: p.Image.Evidence.CheckedAt, DirtyRevision: p.DirtyRevision, Fence: p.Fence}
+	fragment := inventoryFragment{Image: p.Image, Objects: p.Objects, Closure: p.Closure, Dependencies: p.Dependencies, Epoch: p.Epoch, CapturedAt: p.Image.Evidence.CheckedAt, DirtyRevision: p.DirtyRevision, Fence: p.Fence, ReuseVersion: 1}
 	data, err := json.Marshal(fragment)
 	if err != nil {
 		return err
