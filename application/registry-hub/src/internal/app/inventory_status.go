@@ -16,6 +16,7 @@ type inventoryBuildStatus struct {
 	RefreshElapsedSeconds     float64                `json:"refreshElapsedSeconds"`
 	BuildElapsedSeconds       float64                `json:"buildElapsedSeconds"`
 	LastPublishedAt           time.Time              `json:"lastPublishedAt,omitempty"`
+	LastSourceCheckAt         time.Time              `json:"lastSourceCheckAt,omitempty"`
 	LastCompletePublishedAt   time.Time              `json:"lastCompletePublishedAt,omitempty"`
 	LastBuildSeconds          float64                `json:"lastBuildSeconds"`
 	LastRefreshSeconds        float64                `json:"lastRefreshSeconds"`
@@ -53,6 +54,7 @@ type inventoryBuildStatus struct {
 	NextAttemptAt             time.Time              `json:"nextAttemptAt,omitempty"`
 	Incremental               *inventoryDeltaStatus  `json:"incremental,omitempty"`
 	NextReconcileAt           time.Time              `json:"nextReconcileAt,omitempty"`
+	NextEventScanAt           time.Time              `json:"nextEventScanAt,omitempty"`
 	FragmentValidationOffset  int                    `json:"fragmentValidationOffset"`
 	ImageConcurrency          int                    `json:"imageConcurrency"`
 	ImagesInProgress          int                    `json:"imagesInProgress"`
@@ -70,6 +72,7 @@ func (s *Service) inventoryStatus(ctx context.Context) (inventoryBuildStatus, er
 	status := inventoryBuildStatus{Fence: state.Fence, ProgressAt: state.ProgressAt, Steps: state.Steps, SourcePhase: state.Scan.Phase, SourceToken: state.Scan.Token, BuildPhase: state.BuildPhase}
 	status.ReadErrors = map[string]string{}
 	status.ScanStartedAt, status.LastPublishedAt, status.LastCompletePublishedAt = state.ScanStartedAt, state.LastPublishedAt, state.LastCompleteAt
+	status.LastSourceCheckAt, status.NextEventScanAt = state.LastSourceCheckAt, state.NextEventScanAt
 	status.LastBuildSeconds, status.LastRefreshSeconds = state.LastBuildSeconds, state.LastRefreshSeconds
 	status.LocalDirtyHint = s.inventoryDirty.Load()
 	status.SourceCoverage = "durable change markers with bounded fanout; non-atomic periodic reconciliation recovers missed markers and legacy sources; localDirtyHint is process-local"

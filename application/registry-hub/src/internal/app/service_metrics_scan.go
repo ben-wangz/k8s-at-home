@@ -63,6 +63,11 @@ func (s *Service) runMetricSweepLeader(ctx context.Context, holder lease.Lease, 
 		select {
 		case <-ctx.Done():
 			return
+		case <-s.backgroundWake["statistics_"+kind]:
+			state.IdleRounds = 0
+			if state.NextRound.After(time.Now()) {
+				state.NextRound = time.Now().Add(backgroundScanWakeDelay)
+			}
 		case <-ticker.C:
 		}
 		if time.Now().Before(state.NextRound) {
@@ -106,6 +111,8 @@ func (s *Service) runMetricSweepLeader(ctx context.Context, holder lease.Lease, 
 			status.LastEntityProgressAt = status.ProgressAt
 		}
 		if done {
+			roundInvalid := state.Invalid
+			s.metrics.recordBackgroundScanRound("statistics_"+kind, !roundInvalid)
 			status.Processed = cursor.Entities
 			status.LastScanCompletedAt = time.Now().UTC()
 			if !state.Invalid {
@@ -128,7 +135,13 @@ func (s *Service) runMetricSweepLeader(ctx context.Context, holder lease.Lease, 
 			status.StartedAt = time.Now().UTC()
 			status.RunID = requestID()
 			status.NextAttemptAt = time.Time{}
-			state.NextRound = time.Now().Add(15 * time.Second)
+			if roundInvalid {
+				state.IdleRounds = 0
+				state.NextRound = time.Now().Add(15 * time.Second)
+			} else {
+				state.IdleRounds++
+				state.NextRound = time.Now().Add(metricSweepNextDelay(state.IdleRounds))
+			}
 		}
 		status.NextScanAt = state.NextRound
 		if done || time.Since(lastSave) > 5*time.Second {

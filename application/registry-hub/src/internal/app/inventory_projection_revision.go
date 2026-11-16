@@ -116,7 +116,7 @@ func (s *Service) serveImageProjection(writer http.ResponseWriter, request *http
 		view.State = "captured_as_observed"
 	}
 	for _, kind := range []string{"source_tasks", "source_cache"} {
-		value, _, err := inventory.Read[backgroundScanStatus](ctx, s.store, "background/v1/scans/"+kind+".json")
+		value, err := readSourceScanStatus(ctx, s.store, kind)
 		if err != nil {
 			view.ReadErrors[kind] = diagnosticReason(err)
 		}

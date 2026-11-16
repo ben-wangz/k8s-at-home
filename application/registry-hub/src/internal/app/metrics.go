@@ -10,68 +10,75 @@ import (
 )
 
 type metrics struct {
-	storageCollection      *prometheus.HistogramVec
-	storageListSize        *prometheus.HistogramVec
-	backgroundAdmission    *prometheus.HistogramVec
-	backgroundRemaining    *prometheus.HistogramVec
-	inventory              *inventoryMetrics
-	backgroundDuration     *prometheus.HistogramVec
-	backgroundWait         *prometheus.HistogramVec
-	registry               *prometheus.Registry
-	requests               *prometheus.CounterVec
-	requestLatency         *prometheus.HistogramVec
-	upstream               *prometheus.CounterVec
-	tasks                  *prometheus.GaugeVec
-	taskKinds              *prometheus.GaugeVec
-	taskAuthorities        *prometheus.GaugeVec
-	taskErrors             *prometheus.GaugeVec
-	taskWaitReasons        *prometheus.GaugeVec
-	taskRetries            *prometheus.GaugeVec
-	taskCancelPhases       *prometheus.GaugeVec
-	blobIntents            *prometheus.GaugeVec
-	blobIntentLimit        prometheus.Gauge
-	taskRunnable           prometheus.Gauge
-	taskWaiting            prometheus.Gauge
-	recoveryUnknown        prometheus.Gauge
-	gcBlockers             *prometheus.GaugeVec
-	gate                   *prometheus.GaugeVec
-	concurrency            *prometheus.GaugeVec
-	rejections             *prometheus.CounterVec
-	events                 *prometheus.CounterVec
-	gcRuns                 *prometheus.CounterVec
-	gcDuration             prometheus.Histogram
-	storageOps             *prometheus.CounterVec
-	storageWorkOps         *prometheus.CounterVec
-	storageWorkLatency     *prometheus.HistogramVec
-	payloadBytes           *prometheus.CounterVec
-	payloadDuration        *prometheus.HistogramVec
-	verificationOutcomes   *prometheus.CounterVec
-	verificationDuration   *prometheus.HistogramVec
-	storageLatency         *prometheus.HistogramVec
-	storageWarnings        *prometheus.CounterVec
-	objectLeases           *prometheus.GaugeVec
-	cacheObjects           prometheus.Gauge
-	cacheBytes             prometheus.Gauge
-	cacheStaging           prometheus.Gauge
-	cacheOrphans           prometheus.Gauge
-	cacheCleanup           prometheus.Gauge
-	distributionErr        *prometheus.CounterVec
-	distributionVal        *prometheus.CounterVec
-	referrerSources        *prometheus.CounterVec
-	referrerRepair         prometheus.Gauge
-	referrerReconcile      *prometheus.CounterVec
-	protectionSessions     *prometheus.GaugeVec
-	protectionReserved     *prometheus.GaugeVec
-	protectionLimit        prometheus.Gauge
-	protectedCacheReserved prometheus.Gauge
-	protectedCacheLimit    prometheus.Gauge
-	recoveryBarrier        prometheus.Gauge
-	partialReserved        prometheus.Gauge
-	partialSessions        prometheus.Gauge
-	partialLimit           prometheus.Gauge
-	s3ReplayMemory         prometheus.Gauge
-	s3ReplayDisk           prometheus.Gauge
-	s3ReplayActive         prometheus.Gauge
+	storageCollection           *prometheus.HistogramVec
+	storageListSize             *prometheus.HistogramVec
+	backgroundAdmission         *prometheus.HistogramVec
+	backgroundRemaining         *prometheus.HistogramVec
+	backgroundScanRounds        *prometheus.CounterVec
+	inventorySnapshotWrites     *prometheus.CounterVec
+	inventorySnapshotWriteBytes *prometheus.CounterVec
+	inventory                   *inventoryMetrics
+	backgroundDuration          *prometheus.HistogramVec
+	backgroundWait              *prometheus.HistogramVec
+	registry                    *prometheus.Registry
+	requests                    *prometheus.CounterVec
+	requestLatency              *prometheus.HistogramVec
+	upstream                    *prometheus.CounterVec
+	tasks                       *prometheus.GaugeVec
+	taskKinds                   *prometheus.GaugeVec
+	taskAuthorities             *prometheus.GaugeVec
+	taskErrors                  *prometheus.GaugeVec
+	taskWaitReasons             *prometheus.GaugeVec
+	taskRetries                 *prometheus.GaugeVec
+	taskCancelPhases            *prometheus.GaugeVec
+	blobIntents                 *prometheus.GaugeVec
+	blobIntentLimit             prometheus.Gauge
+	taskRunnable                prometheus.Gauge
+	taskWaiting                 prometheus.Gauge
+	recoveryUnknown             prometheus.Gauge
+	gcBlockers                  *prometheus.GaugeVec
+	gate                        *prometheus.GaugeVec
+	concurrency                 *prometheus.GaugeVec
+	rejections                  *prometheus.CounterVec
+	events                      *prometheus.CounterVec
+	gcRuns                      *prometheus.CounterVec
+	gcDuration                  prometheus.Histogram
+	storageOps                  *prometheus.CounterVec
+	storageWorkOps              *prometheus.CounterVec
+	storageWorkLatency          *prometheus.HistogramVec
+	s3HTTPAttempts              *prometheus.CounterVec
+	s3HTTPLatency               *prometheus.HistogramVec
+	registryHTTPAttempts        *prometheus.CounterVec
+	registryHTTPLatency         *prometheus.HistogramVec
+	payloadBytes                *prometheus.CounterVec
+	payloadDuration             *prometheus.HistogramVec
+	verificationOutcomes        *prometheus.CounterVec
+	verificationDuration        *prometheus.HistogramVec
+	storageLatency              *prometheus.HistogramVec
+	storageWarnings             *prometheus.CounterVec
+	objectLeases                *prometheus.GaugeVec
+	cacheObjects                prometheus.Gauge
+	cacheBytes                  prometheus.Gauge
+	cacheStaging                prometheus.Gauge
+	cacheOrphans                prometheus.Gauge
+	cacheCleanup                prometheus.Gauge
+	distributionErr             *prometheus.CounterVec
+	distributionVal             *prometheus.CounterVec
+	referrerSources             *prometheus.CounterVec
+	referrerRepair              prometheus.Gauge
+	referrerReconcile           *prometheus.CounterVec
+	protectionSessions          *prometheus.GaugeVec
+	protectionReserved          *prometheus.GaugeVec
+	protectionLimit             prometheus.Gauge
+	protectedCacheReserved      prometheus.Gauge
+	protectedCacheLimit         prometheus.Gauge
+	recoveryBarrier             prometheus.Gauge
+	partialReserved             prometheus.Gauge
+	partialSessions             prometheus.Gauge
+	partialLimit                prometheus.Gauge
+	s3ReplayMemory              prometheus.Gauge
+	s3ReplayDisk                prometheus.Gauge
+	s3ReplayActive              prometheus.Gauge
 }
 
 var taskWaitReasonLabels = []string{
@@ -135,6 +142,7 @@ type observedStore struct {
 	diagnosticFailure func(context.Context, string, error, time.Time)
 	inventoryNotify   func()
 	inventoryChange   func(context.Context, string, string) error
+	backgroundNotify  func(string)
 	storage.Store
 	metrics *metrics
 	logger  *slog.Logger

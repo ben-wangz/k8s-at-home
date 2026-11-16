@@ -21,6 +21,61 @@ func (s inventoryMarkerFailureStore) Put(ctx context.Context, key string, body i
 	return s.Store.Put(ctx, key, body, size, opts)
 }
 
+func TestInventoryBuilderWritesDoNotCreateChangeMarkers(t *testing.T) {
+	for _, reason := range []string{"inventory_snapshot_build", "inventory_full_reconcile", "inventory_refresh", "inventory_maintenance"} {
+		t.Run(reason, func(t *testing.T) {
+			ctx := withStorageReason(context.Background(), reason)
+			var notified bool
+			var changes []string
+			observed := &observedStore{
+				inventoryNotify: func() { notified = true },
+				inventoryChange: func(_ context.Context, key, _ string) error {
+					changes = append(changes, key)
+					return nil
+				},
+			}
+			for _, key := range []string{
+				inventory.Prefix + "contents/content.json",
+				inventory.Prefix + "bindings/image.json",
+				inventory.Prefix + "proofs/content.json",
+				inventory.Prefix + "projection-revisions/image.json",
+			} {
+				observed.inventoryChanged(ctx, key, "version", nil)
+			}
+			if notified || len(changes) != 0 {
+				t.Fatalf("inventory builder outputs created a source change: notified=%t changes=%v", notified, changes)
+			}
+
+			const sourceKey = "tasks/state/task.json"
+			observed.inventoryChanged(ctx, sourceKey, "source-version", nil)
+			if !notified || len(changes) != 1 || changes[0] != sourceKey {
+				t.Fatalf("builder context suppressed a real source change: notified=%t changes=%v", notified, changes)
+			}
+			observed.inventoryChanged(ctx, "tasks/dispatch/v1/repair.json", "maintenance-version", nil)
+			if len(changes) != 1 {
+				t.Fatalf("unrelated task dispatch state created an inventory change: %v", changes)
+			}
+		})
+	}
+}
+
+func TestInventoryProjectionRevisionChangesRemainJournaled(t *testing.T) {
+	var notified bool
+	var changes []string
+	observed := &observedStore{
+		inventoryNotify: func() { notified = true },
+		inventoryChange: func(_ context.Context, key, _ string) error {
+			changes = append(changes, key)
+			return nil
+		},
+	}
+	const key = inventory.Prefix + "projection-revisions/image.json"
+	observed.inventoryChanged(context.Background(), key, "version", nil)
+	if !notified || len(changes) != 1 || changes[0] != key {
+		t.Fatalf("asynchronous projection revision was not journaled: notified=%t changes=%v", notified, changes)
+	}
+}
+
 func TestInventoryMarkerFailureRetainsSourceOutcomeAndRejectsStaleFragment(t *testing.T) {
 	f, fragment := inventoryFragmentFixture(t)
 	observed := f.service.store.(*observedStore)
@@ -54,7 +109,7 @@ func TestInventoryDeltaReplaysFanoutAndPreservesNewerChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := inventoryDeltaProgress{Changes: []inventoryChange{change}, Phase: 2, Cursor: inventory.Cursor{Done: true}}
+	p := inventoryDeltaProgress{Fence: fragment.Fence, Changes: []inventoryChange{change}, Phase: 2, Cursor: inventory.Cursor{Done: true}}
 	newer := ""
 	for step := 0; step < 100; step++ {
 		if p.Phase == 3 && newer == "" {

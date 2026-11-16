@@ -32,6 +32,12 @@ func (s *Service) holdBackgroundLease(parent context.Context, kind string, manag
 
 func holdBackgroundLease(parent context.Context, kind string, manager *lease.Manager, current lease.Lease, ttl time.Duration, report func(string, error)) (context.Context, lease.Lease, func() error, error) {
 	ctx, cancel := context.WithCancel(parent)
+	identity, _ := parent.Value(diagnosticContextKey{}).(backgroundDiagnosticContext)
+	identity.Kind, identity.Scope = kind, "execution"
+	if identity.RunID == "" {
+		identity.RunID = requestID()
+	}
+	ctx = context.WithValue(ctx, diagnosticContextKey{}, identity)
 	done := make(chan error, 1)
 	go func() {
 		err := renewBackgroundLease(ctx, cancel, kind, manager, current, ttl)

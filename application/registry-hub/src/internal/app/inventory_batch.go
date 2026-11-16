@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const inventoryMinimumIdle = 5 * time.Second
+
 func (s *Service) claimInventory(ctx context.Context, leader lease.Lease, state *inventoryCheckpoint) error {
 	if err := s.tasks.Leases().Validate(ctx, leader); err != nil {
 		return err
@@ -78,7 +80,13 @@ func (s *Service) runInventoryBatch(ctx context.Context, leader lease.Lease, sta
 }
 
 func (s *Service) inventoryIdle(state *inventoryCheckpoint) bool {
-	return state.Build == nil && state.Delta == nil && state.Scan.Phase == 0 && state.Scan.Token == "" && state.Scan.Page == nil && state.Scan.Root == nil && len(state.Scan.Links) == 0 && state.NextScanAt.After(time.Now()) && !s.inventoryDirty.Load()
+	if state.Build != nil || state.Delta != nil || state.FullReconcilePending || state.Scan.Phase != 0 || state.Scan.Token != "" || state.Scan.Page != nil || state.Scan.Root != nil || len(state.Scan.Links) > 0 {
+		return false
+	}
+	if s.inventoryDirty.Load() {
+		return state.NextEventScanAt.After(time.Now())
+	}
+	return state.NextScanAt.After(time.Now())
 }
 
 func (s *Service) maintainInventory(ctx context.Context, state *inventoryCheckpoint) {
@@ -89,6 +97,7 @@ func (s *Service) maintainInventory(ctx context.Context, state *inventoryCheckpo
 	budget := min(5*time.Second, s.inventoryConfig().BatchTimeout/4)
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
+	ctx = withStorageReason(ctx, "inventory_maintenance")
 	var err error
 	reserve := budget / 4
 	complete := [3]bool{}

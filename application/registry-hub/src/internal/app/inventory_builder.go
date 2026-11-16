@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/workqueue"
@@ -157,7 +158,7 @@ func (s *Service) publishInventory(ctx context.Context, state *inventoryCheckpoi
 		for _, kind := range []string{"inventory", "execution"} {
 			entries, _, err := storage.Scan(ctx, s.store, workqueue.Prefix+"jobs/"+kind+"/", "", 1)
 			if err != nil {
-				return err
+				return fmt.Errorf("scan %s projection jobs before inventory publication: %w", kind, err)
 			}
 			state.Build.ProjectionPending = state.Build.ProjectionPending || len(entries) > 0
 		}
@@ -166,7 +167,7 @@ func (s *Service) publishInventory(ctx context.Context, state *inventoryCheckpoi
 	}
 	gate, err := s.inventoryEpoch(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("read GC epoch before inventory publication: %w", err)
 	}
 	if writer.Snapshot.GCEpoch != gate.Epoch {
 		return storage.ErrConditionFailed
@@ -176,9 +177,15 @@ func (s *Service) publishInventory(ctx context.Context, state *inventoryCheckpoi
 		reasons = appendReason(reasons, "background_projection_pending")
 	}
 	if err := writer.Publish(ctx, state.Scan.Complete && !writer.Snapshot.ProjectionPending, reasons); err != nil {
-		return err
+		return fmt.Errorf("publish inventory snapshot %s: %w", writer.Snapshot.SnapshotID, err)
 	}
 	state.LastPublishedAt = time.Now().UTC()
+	state.NextScanAt = state.LastPublishedAt.Add(s.inventoryConfig().RefreshInterval)
+	state.NextEventScanAt = state.LastPublishedAt.Add(inventoryMinimumIdle)
+	if state.FullReconcilePending {
+		state.NextReconcileAt = state.LastPublishedAt.Add(max(5*time.Minute, s.inventoryConfig().RefreshInterval))
+		state.FullReconcilePending = false
+	}
 	state.LastBuildSeconds = state.LastPublishedAt.Sub(writer.Snapshot.BuildStartedAt).Seconds()
 	if !state.ScanStartedAt.IsZero() {
 		state.LastRefreshSeconds = state.LastPublishedAt.Sub(state.ScanStartedAt).Seconds()
@@ -190,6 +197,7 @@ func (s *Service) publishInventory(ctx context.Context, state *inventoryCheckpoi
 	state.Build = nil
 	state.Scan.Reasons = nil
 	if s.metrics != nil {
+		s.metrics.recordBackgroundScanRound("inventory", writer.Snapshot.Coverage == "complete")
 		s.metrics.recordEvent("inventory_snapshot_published")
 		s.metrics.inventoryPublished(writer.Snapshot)
 	}

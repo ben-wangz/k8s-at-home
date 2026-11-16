@@ -38,6 +38,11 @@ func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Le
 		select {
 		case <-ctx.Done():
 			return
+		case <-s.backgroundWake[kind]:
+			p.IdleRounds = 0
+			if p.NextRound.After(time.Now()) {
+				p.NextRound = time.Now().Add(backgroundScanWakeDelay)
+			}
 		case <-ticker.C:
 		}
 		if kind == "quota_waiters" && time.Since(signalCheck) >= 5*time.Second {
@@ -126,10 +131,18 @@ func (s *Service) completeSourceRound(kind string, p *sourceSweepCheckpoint) {
 	status := &p.Status
 	status.Complete, status.ObservedAt = len(p.Backoff) == 0 && !p.RoundFailed, time.Now().UTC()
 	status.LastScanCompletedAt = status.ObservedAt
+	s.metrics.recordBackgroundScanRound(kind, status.Complete)
 	if status.Complete {
 		recordScanRecovery(kind, "source_scan", status, &p.DiagnosticOutbox, "")
 		status.LastSuccessAt, status.ErrorRecovered, status.NextAttemptAt = status.ObservedAt, !status.ErrorAt.IsZero(), time.Time{}
 	}
 	p.Round++
-	p.RoundFailed, p.Cursor, p.NextRound = false, inventory.Cursor{}, time.Now().Add(15*time.Second)
+	retry := p.RoundFailed || len(p.Backoff) > 0
+	p.RoundFailed, p.Cursor = false, inventory.Cursor{}
+	if retry {
+		p.IdleRounds = 0
+	} else {
+		p.IdleRounds++
+	}
+	p.NextRound = time.Now().Add(sourceSweepNextDelay(kind, p.IdleRounds, retry))
 }

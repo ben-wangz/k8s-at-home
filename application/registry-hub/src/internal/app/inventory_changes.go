@@ -34,7 +34,10 @@ func inventoryChangeKey(key string) string {
 }
 
 func (s *observedStore) inventoryChanged(ctx context.Context, key, version string, err error) {
-	if err != nil && !errors.Is(err, storage.ErrUnknownCommit) || !inventoryDependencyKey(key) && !inventorySourceKey(key) {
+	if s.backgroundNotify != nil && (err == nil || errors.Is(err, storage.ErrUnknownCommit)) {
+		s.backgroundNotify(key)
+	}
+	if err != nil && !errors.Is(err, storage.ErrUnknownCommit) || !inventoryChangeEligible(ctx, key) {
 		return
 	}
 	if s.inventoryNotify != nil {
@@ -49,6 +52,21 @@ func (s *observedStore) inventoryChanged(ctx context.Context, key, version strin
 				s.logger.Warn("inventory change requires reconciliation", "error", err)
 			}
 		}
+	}
+}
+
+func inventoryChangeEligible(ctx context.Context, key string) bool {
+	if !inventoryDependencyKey(key) && !inventorySourceKey(key) {
+		return false
+	}
+	if !strings.HasPrefix(key, inventory.Prefix) {
+		return true
+	}
+	switch storageReasonLabel(ctx) {
+	case "inventory_snapshot_build", "inventory_full_reconcile", "inventory_refresh", "inventory_maintenance":
+		return false
+	default:
+		return true
 	}
 }
 

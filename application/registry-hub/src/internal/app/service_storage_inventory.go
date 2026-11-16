@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const storageInventoryRescanInterval = 15 * time.Minute
+
 func (s *Service) registryInspectionStore(ctx context.Context) (storage.Store, error) {
 	switch s.cfg.RegistryInspection.Backend {
 	case "filesystem":
@@ -21,7 +23,8 @@ func (s *Service) registryInspectionStore(ctx context.Context) (storage.Store, e
 		if err != nil {
 			return nil, err
 		}
-		return inspectionReadOnlyStore{store}, nil
+		s.initializeStorageAttemptObserver(store)
+		return newObservedStore(inspectionReadOnlyStore{store}, s.metrics, s.logger), nil
 	default:
 		return nil, storage.ErrUnavailable
 	}
@@ -41,6 +44,7 @@ func (s *Service) runStorageInventory(ctx context.Context) {
 			return maintenanceProgress{}, err
 		}
 		defer release()
+		leaseCtx = withStorageReason(leaseCtx, "storage_inventory")
 		guarded := inventory.WithWriteGuard(leaseCtx, func(ctx context.Context) error { return s.tasks.Leases().Validate(ctx, ownership) })
 		state, _, err := inventory.Read[storageCollection](guarded, s.store, storageInventoryPrefix+"checkpoint.json")
 		if err != nil && !errors.Is(err, storage.ErrNotFound) {
@@ -179,6 +183,6 @@ func (s *Service) publishStorageCollection(ctx context.Context, state *storageCo
 	if s.metrics != nil && s.metrics.storageCollection != nil {
 		s.metrics.storageCollection.WithLabelValues("publication", "all").Observe(time.Since(state.Snapshot.StartedAt).Seconds())
 	}
-	*state = storageCollection{NextScanAt: time.Now().Add(5 * time.Minute), LastCompletedAt: state.Snapshot.CompletedAt}
+	*state = storageCollection{NextScanAt: time.Now().Add(storageInventoryRescanInterval), LastCompletedAt: state.Snapshot.CompletedAt}
 	return nil
 }

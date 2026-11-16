@@ -12,9 +12,11 @@ type inventoryDeltaProgress struct {
 	Fence            uint64                    `json:"fence,omitempty"`
 	Cursor           inventory.Cursor          `json:"cursor"`
 	Changes          []inventoryChange         `json:"changes,omitempty"`
+	Changed          bool                      `json:"changed,omitempty"`
 	Offset           int                       `json:"offset"`
 	Phase            int                       `json:"phase"`
 	Fanout           inventory.Cursor          `json:"fanout"`
+	ContentFanout    inventory.Cursor          `json:"contentFanout"`
 	Source           *inventoryGraphProjection `json:"source,omitempty"`
 	Links            inventoryScan             `json:"links"`
 	Projected        bool                      `json:"projected,omitempty"`
@@ -50,14 +52,24 @@ func (s *Service) advanceInventoryDelta(ctx context.Context, p *inventoryDeltaPr
 		}
 		return false, err
 	case 2:
-		if p.PublicationsOnly {
+		if len(p.Changes) == 0 {
 			p.Phase = 3
+			return false, nil
+		}
+		if p.PublicationsOnly {
+			done, err := s.invalidateInventoryContentFragments(ctx, p)
+			if err != nil {
+				return false, err
+			}
+			if done {
+				p.Phase = 3
+			}
 			return false, nil
 		}
 		if err := s.invalidateInventoryFragments(ctx, p); err != nil {
 			return false, err
 		}
-		if p.Fanout.Done {
+		if p.Fanout.Done && p.ContentFanout.Done {
 			p.Phase = 3
 		}
 	case 3:
@@ -67,7 +79,7 @@ func (s *Service) advanceInventoryDelta(ctx context.Context, p *inventoryDeltaPr
 		if p.Cursor.Done {
 			return true, nil
 		}
-		p.Phase, p.Offset, p.Changes, p.Fanout = 0, 0, nil, inventory.Cursor{}
+		p.Phase, p.Offset, p.Changes, p.Fanout, p.ContentFanout = 0, 0, nil, inventory.Cursor{}, inventory.Cursor{}
 	default:
 		return false, storage.ErrCorruptObject
 	}
@@ -131,7 +143,7 @@ func (s *Service) projectInventoryChange(ctx context.Context, p *inventoryDeltaP
 	return true, nil
 }
 
-func (s *Service) invalidateInventoryFragment(ctx context.Context, fragment inventoryFragment, changes []inventoryChange, fence uint64) error {
+func inventoryFragmentInvalidationParts(fragment inventoryFragment, changes []inventoryChange) []string {
 	parts := []string{fragment.Image.ID}
 	for _, change := range changes {
 		version, observed := fragment.Dependencies.Objects[change.Key]
@@ -151,6 +163,11 @@ func (s *Service) invalidateInventoryFragment(ctx context.Context, fragment inve
 			parts = append(parts, change.Key, change.Revision)
 		}
 	}
+	return parts
+}
+
+func (s *Service) invalidateInventoryFragment(ctx context.Context, fragment inventoryFragment, changes []inventoryChange, fence uint64) error {
+	parts := inventoryFragmentInvalidationParts(fragment, changes)
 	if len(parts) == 1 {
 		return nil
 	}
@@ -159,6 +176,29 @@ func (s *Service) invalidateInventoryFragment(ctx context.Context, fragment inve
 			return inventory.ErrSuperseded
 		}
 		value.Revision = inventory.ID("dirty", parts...)
+		value.Fence = fence
+		return nil
+	})
+}
+
+func (s *Service) invalidateInventoryContentFragment(ctx context.Context, fragment inventoryFragment, changes []inventoryChange, fence uint64) error {
+	parts := inventoryFragmentInvalidationParts(fragment, changes)
+	internal, internalErr := inventoryInternalName(fragment.Image.Identity)
+	for _, change := range changes {
+		published, repository := strings.CutPrefix(change.Key, "distribution/repositories/")
+		publicationChanged := change.Key == "distribution/catalog" || internalErr == nil && repository && published == internal
+		if publicationChanged {
+			parts = append(parts, change.Key, change.Revision)
+		}
+	}
+	if len(parts) == 1 {
+		return nil
+	}
+	return inventory.Update(ctx, s.store, inventoryFragmentKey(fragment.Image, "content"), func(value *inventoryFragment) error {
+		if value.Fence > fence {
+			return inventory.ErrSuperseded
+		}
+		value.Dependencies.Invalid = true
 		value.Fence = fence
 		return nil
 	})

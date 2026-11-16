@@ -23,6 +23,7 @@ type Snapshot struct {
 	SnapshotID           string           `json:"snapshotID"`
 	BuildStartedAt       time.Time        `json:"buildStartedAt"`
 	ObservedAt           time.Time        `json:"observedAt"`
+	LastSourceCheckAt    time.Time        `json:"lastSourceCheckAt,omitempty"`
 	ExpiresAt            time.Time        `json:"expiresAt"`
 	Coverage             string           `json:"coverage"`
 	Building             bool             `json:"building"`

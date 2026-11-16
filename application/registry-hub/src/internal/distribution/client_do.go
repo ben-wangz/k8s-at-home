@@ -5,12 +5,108 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
 	"registry-hub/internal/route"
 	"strings"
+	"time"
 )
+
+type HTTPAttempt struct {
+	Context    context.Context
+	Method     string
+	Operation  string
+	StatusCode int
+	Err        error
+	Duration   time.Duration
+}
+
+type observedTransport struct {
+	base   http.RoundTripper
+	client *Client
+}
+
+func (t observedTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	started := time.Now()
+	response, err := t.base.RoundTrip(request)
+	attempt := HTTPAttempt{
+		Context:   request.Context(),
+		Method:    boundedHTTPMethod(request.Method),
+		Operation: httpOperation(request.URL.Path),
+		Err:       err,
+		Duration:  time.Since(started),
+	}
+	if response != nil {
+		attempt.StatusCode = response.StatusCode
+	}
+	t.client.observeHTTPAttempt(attempt)
+	return response, err
+}
+
+func boundedHTTPMethod(method string) string {
+	switch strings.ToUpper(method) {
+	case "GET", "HEAD", "POST", "PUT", "PATCH", "DELETE":
+		return strings.ToUpper(method)
+	default:
+		return "OTHER"
+	}
+}
+
+func httpOperation(requestPath string) string {
+	segments := strings.Split(strings.Trim(requestPath, "/"), "/")
+	v2Index := -1
+	for index, segment := range segments {
+		if segment == "v2" {
+			v2Index = index
+			break
+		}
+	}
+	if v2Index < 0 {
+		return "other"
+	}
+	segments = segments[v2Index+1:]
+	if len(segments) == 0 {
+		return "api"
+	}
+	if len(segments) == 1 && segments[0] == "_catalog" {
+		return "catalog"
+	}
+	for _, segment := range segments[1:] {
+		switch segment {
+		case "manifests", "blobs", "referrers", "uploads":
+			return segment
+		case "tags":
+			return "tags"
+		}
+	}
+	return "other"
+}
+
+func HTTPAttemptResult(attempt HTTPAttempt) string {
+	if attempt.Err != nil {
+		var networkError net.Error
+		if errors.Is(attempt.Err, context.DeadlineExceeded) || (errors.As(attempt.Err, &networkError) && networkError.Timeout()) {
+			return "timeout"
+		}
+		return "transport_error"
+	}
+	switch {
+	case attempt.StatusCode == http.StatusNotFound:
+		return "not_found"
+	case attempt.StatusCode == http.StatusConflict || attempt.StatusCode == http.StatusPreconditionFailed:
+		return "condition_failed"
+	case attempt.StatusCode >= 500:
+		return "server_error"
+	case attempt.StatusCode >= 400:
+		return "client_error"
+	case attempt.StatusCode >= 200 && attempt.StatusCode < 400:
+		return "success"
+	default:
+		return "other"
+	}
+}
 
 func (c *Client) Do(ctx context.Context, method, registryPath string, query url.Values, headers http.Header, body io.Reader, contentLength int64) (*http.Response, error) {
 	request, err := c.request(ctx, method, registryPath, query, headers, body, contentLength)

@@ -108,6 +108,10 @@ spec:
               value: {{ .Values.backend.inventory.staleSeconds | quote }}
             - name: REGISTRY_HUB_INVENTORY_SNAPSHOT_RETENTION_SECONDS
               value: {{ .Values.backend.inventory.snapshotRetentionSeconds | quote }}
+            - name: REGISTRY_HUB_INVENTORY_FRAGMENT_REUSE_SECONDS
+              value: {{ .Values.backend.inventory.fragmentReuseSeconds | quote }}
+            - name: REGISTRY_HUB_INVENTORY_CONTENT_AUDIT_SECONDS
+              value: {{ .Values.backend.inventory.contentAuditSeconds | quote }}
             - name: REGISTRY_HUB_INVENTORY_BATCH_SIZE
               value: {{ .Values.backend.inventory.batchSize | quote }}
             - name: REGISTRY_HUB_INVENTORY_BATCH_TIMEOUT_SECONDS

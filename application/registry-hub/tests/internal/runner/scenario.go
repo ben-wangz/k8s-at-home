@@ -119,7 +119,7 @@ func (runtime *Runtime) CasesForScenario(id string) ([]testkit.Case, error) {
 		}
 		result = append(result, item)
 	}
-	return result, nil
+	return filterRunAfterOutsideScenario(result), nil
 }
 
 func (runtime *Runtime) PlanScenario(scenarioID string, selected []string) (Plan, error) {
@@ -132,6 +132,24 @@ func (runtime *Runtime) PlanScenario(scenarioID string, selected []string) (Plan
 		return Plan{}, err
 	}
 	return BuildPlan(indexed, selected)
+}
+
+func filterRunAfterOutsideScenario(cases []testkit.Case) []testkit.Case {
+	available := make(map[string]struct{}, len(cases))
+	for _, item := range cases {
+		available[item.Definition.ID] = struct{}{}
+	}
+	result := make([]testkit.Case, len(cases))
+	for index, item := range cases {
+		item.Definition.RunAfter = make([]string, 0, len(item.Definition.RunAfter))
+		for _, predecessor := range cases[index].Definition.RunAfter {
+			if _, exists := available[predecessor]; exists {
+				item.Definition.RunAfter = append(item.Definition.RunAfter, predecessor)
+			}
+		}
+		result[index] = item
+	}
+	return result
 }
 
 func scenarioStateDir(stateRoot, scenarioID, id string) string {

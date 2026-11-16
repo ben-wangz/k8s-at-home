@@ -69,7 +69,8 @@ func (s *Service) auditInventoryObject(ctx context.Context, object inventory.Obj
 	if gate.Epoch != epoch || gate.Exclusive || gate.State != "open" || gate.RecoveryBarrier || generation.Tombstone || generation.Generation != object.Generation {
 		return storage.ErrConditionFailed
 	}
-	proof := inventoryProof{SchemaVersion: 1, Generation: object.Generation, Epoch: epoch, State: "verified", ObservedAt: time.Now().UTC()}
+	verifiedAt := time.Now().UTC()
+	proof := inventoryProof{SchemaVersion: 1, Generation: object.Generation, Epoch: epoch, State: "verified", ObservedAt: verifiedAt, AuditedAt: verifiedAt}
 	return s.saveInventoryProof(ctx, object.ID, proof)
 }
 
@@ -78,7 +79,11 @@ func (s *Service) saveInventoryProof(ctx context.Context, id string, proof inven
 		if old.Generation > proof.Generation || old.Generation == proof.Generation && old.Epoch > proof.Epoch {
 			return nil
 		}
+		if old.Generation == proof.Generation && old.Epoch == proof.Epoch && old.AuditedAt.After(proof.AuditedAt) {
+			proof.AuditedAt = old.AuditedAt
+		}
 		if old.Generation == proof.Generation && old.Epoch == proof.Epoch && old.State == "anchored" && proof.State != "anchored" {
+			old.AuditedAt = proof.AuditedAt
 			return nil
 		}
 		*old = proof

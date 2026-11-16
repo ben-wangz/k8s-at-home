@@ -101,9 +101,19 @@ func solidifiedTask(task map[string]any, taskID, digest string) bool {
 		testkit.String(task["rootDigest"]) == digest && task["rootPublished"] == true
 }
 
-func compareObjectSnapshots(before, after map[string]string) error {
+func compareObjectSnapshots(before, after map[string]string, reclaimableCacheDataKeys ...string) error {
+	reclaimedCachePrefixes := make([]string, 0, len(reclaimableCacheDataKeys))
+	for _, dataKey := range reclaimableCacheDataKeys {
+		prefix, ok := reclaimableCacheIdentityPrefix(dataKey)
+		if !ok {
+			return fmt.Errorf("invalid reclaimable cache data key %q", dataKey)
+		}
+		if !hasObjectWithPrefix(after, prefix) {
+			reclaimedCachePrefixes = append(reclaimedCachePrefixes, prefix)
+		}
+	}
 	for key, value := range before {
-		if transientBackendObject(key) {
+		if transientBackendObject(key) || hasPrefix(key, reclaimedCachePrefixes) {
 			continue
 		}
 		current, exists := after[key]
@@ -115,6 +125,36 @@ func compareObjectSnapshots(before, after map[string]string) error {
 		}
 	}
 	return nil
+}
+
+func reclaimableCacheIdentityPrefix(dataKey string) (string, bool) {
+	const root = backendS3Prefix + "/cache/objects/"
+	if !strings.HasPrefix(dataKey, root) || !strings.HasSuffix(dataKey, "/data") {
+		return "", false
+	}
+	identity := strings.TrimSuffix(strings.TrimPrefix(dataKey, root), "/data")
+	if identity == "" || strings.Contains(identity, "/") {
+		return "", false
+	}
+	return root + identity + "/", true
+}
+
+func hasObjectWithPrefix(objects map[string]string, prefix string) bool {
+	for key := range objects {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPrefix(value string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func snapshotDigest(objects map[string]string) string {

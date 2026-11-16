@@ -14,7 +14,7 @@ backend:
   image:
     registry: ghcr.io
     repository: ben-wangz/k8s-at-home-registry-hub-backend
-    tag: 0.2.19
+    tag: 0.2.20
     digest: ""
     pullPolicy: IfNotPresent
   serviceAccount:
@@ -38,6 +38,8 @@ backend:
     refreshSeconds: 30
     staleSeconds: 120
     snapshotRetentionSeconds: 3600
+    fragmentReuseSeconds: 900
+    contentAuditSeconds: 86400
     batchSize: 100
     batchTimeoutSeconds: 60
   registryInspection:

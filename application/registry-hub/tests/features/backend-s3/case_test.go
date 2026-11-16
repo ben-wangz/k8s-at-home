@@ -24,6 +24,32 @@ func TestCompareObjectSnapshotsRejectsMissingPersistentObject(t *testing.T) {
 	}
 }
 
+func TestCompareObjectSnapshotsAllowsWholeReclaimableCacheIdentity(t *testing.T) {
+	dataKey := backendS3Prefix + "/cache/objects/blob/data"
+	prefix := backendS3Prefix + "/cache/objects/blob/"
+	before := map[string]string{
+		dataKey:                                    "data:10",
+		prefix + "complete/type.json":              "complete:20",
+		prefix + "representation-index.json":       "index:30",
+		prefix + "representations/type.json":       "metadata:40",
+		backendS3Prefix + "/tasks/state/task.json": "task:50",
+	}
+	after := map[string]string{backendS3Prefix + "/tasks/state/task.json": "task:50"}
+	if err := compareObjectSnapshots(before, after, dataKey); err != nil {
+		t.Fatalf("compareObjectSnapshots accepted whole cache identity reclamation: %v", err)
+	}
+
+	partial := map[string]string{
+		dataKey:                                    "data:10",
+		prefix + "complete/type.json":              "complete:20",
+		prefix + "representation-index.json":       "index:30",
+		backendS3Prefix + "/tasks/state/task.json": "task:50",
+	}
+	if err := compareObjectSnapshots(before, partial, dataKey); err == nil {
+		t.Fatal("compareObjectSnapshots accepted partial cache identity reclamation")
+	}
+}
+
 func TestCompareObjectSnapshotsAllowsBackgroundProgressWithoutLosingCheckpoints(t *testing.T) {
 	for _, relative := range []string{
 		"background/v1/statistics-checkpoints/protection.json", "background/v1/statistics/tasks.json",

@@ -14,6 +14,7 @@ type inventoryProof struct {
 	Epoch         uint64    `json:"epoch"`
 	State         string    `json:"state"`
 	ObservedAt    time.Time `json:"observedAt"`
+	AuditedAt     time.Time `json:"auditedAt,omitempty"`
 }
 
 type inventoryObservationKey struct{}

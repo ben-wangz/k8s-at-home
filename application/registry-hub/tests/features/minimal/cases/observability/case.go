@@ -147,10 +147,30 @@ func validateMetrics(metrics []byte) ([]string, error) {
 		"registry_hub_cache_objects", "registry_hub_cache_bytes", "registry_hub_cache_staging_objects",
 		"registry_hub_cache_orphan_objects", "registry_hub_cache_cleanup_pending_objects",
 		"registry_hub_distribution_response_validation_failures_total", "registry_hub_referrer_repair_pending",
+		"registry_hub_storage_work_operations_total", "registry_hub_storage_work_duration_seconds",
+		"registry_hub_registry_http_attempts_total", "registry_hub_registry_http_attempt_duration_seconds",
+		"registry_hub_background_scan_rounds_total", "registry_hub_inventory_snapshot_object_writes_total",
+		"registry_hub_inventory_snapshot_object_write_bytes_total",
 	}
 	for _, name := range required {
 		if !bytesContainsLine(metrics, name) {
 			return nil, fmt.Errorf("metrics do not expose %s", name)
+		}
+	}
+	for _, name := range []string{
+		"registry_hub_storage_work_operations_total",
+		"registry_hub_registry_http_attempts_total",
+		"registry_hub_registry_http_attempt_duration_seconds_count",
+		"registry_hub_background_scan_rounds_total",
+		"registry_hub_inventory_snapshot_object_writes_total",
+		"registry_hub_inventory_snapshot_object_write_bytes_total",
+	} {
+		value, found, err := testkit.PrometheusSum(metrics, name, nil)
+		if err != nil {
+			return nil, err
+		}
+		if !found || value <= 0 {
+			return nil, fmt.Errorf("metrics have no positive sample for %s", name)
 		}
 	}
 	seen := make(map[string]struct{})

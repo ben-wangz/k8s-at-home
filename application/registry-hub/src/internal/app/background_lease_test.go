@@ -118,6 +118,10 @@ func TestBackgroundLeaseRenewalKeepsTTLAndReservedCapacity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
+	identity, ok := leader.Value(diagnosticContextKey{}).(backgroundDiagnosticContext)
+	if !ok || identity.Kind != "test" || identity.Scope != "execution" || identity.RunID == "" {
+		t.Fatalf("leader context lost background identity: %+v", identity)
+	}
 	<-store.writes
 	s.backgroundSlots <- struct{}{}
 	select {

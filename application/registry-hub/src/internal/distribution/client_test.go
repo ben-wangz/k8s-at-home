@@ -218,6 +218,28 @@ func (f distributionRoundTripper) RoundTrip(request *http.Request) (*http.Respon
 	return f(request)
 }
 
+func TestHTTPAttemptObserverReceivesRequestContext(t *testing.T) {
+	type contextKey struct{}
+	ctx := context.WithValue(context.Background(), contextKey{}, "inventory-worker")
+	client := &Client{base: &url.URL{Scheme: "https", Host: "registry.example"}}
+	client.client = &http.Client{Transport: observedTransport{
+		base: distributionRoundTripper(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: request}, nil
+		}),
+		client: client,
+	}}
+	var observed HTTPAttempt
+	client.SetHTTPAttemptObserver(func(attempt HTTPAttempt) { observed = attempt })
+	response, err := client.Do(ctx, http.MethodGet, "/v2/", nil, nil, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if observed.Context == nil || observed.Context.Value(contextKey{}) != "inventory-worker" {
+		t.Fatal("HTTP attempt did not retain its request context")
+	}
+}
+
 func TestStorageRedirectIsRejectedWithoutAllowlist(t *testing.T) {
 	client := &Client{}
 	target, _ := url.Parse("https://storage.example/object")

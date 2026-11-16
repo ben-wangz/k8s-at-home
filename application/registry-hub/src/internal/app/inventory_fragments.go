@@ -52,7 +52,8 @@ func (s *Service) loadInventoryFragment(ctx context.Context, p *inventoryImagePr
 		if value.Epoch != p.Epoch || value.Dependencies.Invalid || len(value.Dependencies.Objects) == 0 || !value.Closure.Complete || value.Image.ContentID != p.Image.ContentID || value.Image.ResolvedDigest != p.Image.ResolvedDigest || value.Image.ContentGeneration != p.Image.ContentGeneration {
 			continue
 		}
-		if len(value.Objects) > s.cfg.Limits.ClosureObjects || value.Closure.Bytes > s.cfg.Limits.ClosureBytes || value.Closure.Depth > s.cfg.Limits.ClosureDepth+1 || time.Since(value.CapturedAt) > min(s.inventoryConfig().StaleAfter, max(5*time.Minute, s.inventoryConfig().RefreshInterval)) {
+		reuseFor := min(s.inventoryConfig().SnapshotRetention, s.inventoryConfig().FragmentReuseInterval)
+		if len(value.Objects) > s.cfg.Limits.ClosureObjects || value.Closure.Bytes > s.cfg.Limits.ClosureBytes || value.Closure.Depth > s.cfg.Limits.ClosureDepth+1 || value.CapturedAt.IsZero() || time.Since(value.CapturedAt) > reuseFor {
 			continue
 		}
 		if kind == "image" && (value.Image.ID != p.Image.ID || value.Image.BindingRevision != p.Image.BindingRevision || value.Image.Generation != p.Image.Generation || value.DirtyRevision != p.DirtyRevision) {

@@ -24,6 +24,13 @@ func TestS3PersistenceUsesFocusedFixtureAndKeepsExplicitMatrixCoverage(t *testin
 	if slices.Contains(plan.Order, "upstream-mirror") || !slices.Contains(plan.Order, "upstream-persistence-fixture") {
 		t.Fatalf("unexpected persistence dependencies: %v", plan.Order)
 	}
+	position := make(map[string]int, len(plan.Order))
+	for index, id := range plan.Order {
+		position[id] = index
+	}
+	if position["image-inventory"] <= position["feature-backend-s3"] {
+		t.Fatalf("image-inventory position %d must follow feature-backend-s3 position %d", position["image-inventory"], position["feature-backend-s3"])
+	}
 	for _, scenario := range []string{"feature-minimal", "feature-registry-s3", "feature-upstream-matrix-s3"} {
 		plan, err := runtime.PlanScenario(scenario, nil)
 		if err != nil {
@@ -79,7 +86,7 @@ func TestLargeLayerScenariosAreExplicitAndUseTheSameCase(t *testing.T) {
 	}
 }
 
-func TestFeatureMinimalOrdersPodmanPullAfterRestartAndUpstreamCases(t *testing.T) {
+func TestFeatureMinimalOrdersInventoryAfterItsFixtureAndBeforeRateLimitCases(t *testing.T) {
 	registered, err := Registry()
 	if err != nil {
 		t.Fatal(err)
@@ -99,6 +106,17 @@ func TestFeatureMinimalOrdersPodmanPullAfterRestartAndUpstreamCases(t *testing.T
 	for _, predecessor := range []string{"restart-reuse", "upstream-mirror", "upstream-resume"} {
 		if position[predecessor] >= position["podman-upstream-pull"] {
 			t.Fatalf("%s position %d must precede podman-upstream-pull position %d", predecessor, position[predecessor], position["podman-upstream-pull"])
+		}
+	}
+	if position["registry-roundtrip"] >= position["image-inventory"] {
+		t.Fatalf("registry-roundtrip position %d must precede image-inventory position %d", position["registry-roundtrip"], position["image-inventory"])
+	}
+	if position["image-inventory"] >= position["default-limits"] {
+		t.Fatalf("image-inventory position %d must precede default-limits position %d", position["image-inventory"], position["default-limits"])
+	}
+	for _, successor := range []string{"client-interop", "referrers-migration", "upstream-mirror", "upstream-resume", "podman-upstream-pull"} {
+		if position["image-inventory"] >= position[successor] {
+			t.Fatalf("image-inventory position %d must precede %s position %d", position["image-inventory"], successor, position[successor])
 		}
 	}
 }

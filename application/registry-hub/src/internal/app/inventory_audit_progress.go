@@ -81,7 +81,8 @@ func (s *Service) advanceInventoryAudit(ctx context.Context, p *inventoryAuditPr
 	if gate.Epoch != p.Epoch || gate.Exclusive || gate.State != "open" || gate.RecoveryBarrier || generation.Tombstone || generation.Generation != p.Object.Generation {
 		return false, storage.ErrConditionFailed
 	}
-	err = s.saveInventoryProof(ctx, p.Object.ID, inventoryProof{SchemaVersion: 1, Generation: p.Object.Generation, Epoch: p.Epoch, State: "verified", ObservedAt: time.Now().UTC()})
+	verifiedAt := time.Now().UTC()
+	err = s.saveInventoryProof(ctx, p.Object.ID, inventoryProof{SchemaVersion: 1, Generation: p.Object.Generation, Epoch: p.Epoch, State: "verified", ObservedAt: verifiedAt, AuditedAt: verifiedAt})
 	return err == nil, err
 }
 

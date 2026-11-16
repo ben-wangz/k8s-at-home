@@ -2,6 +2,7 @@
   "id": "referrers-migration",
   "description": "Verify the referrers migration scenario.",
   "dependsOn": ["installation"],
+  "runAfter": ["image-inventory"],
   "timeoutSeconds": 600,
   "preconditions": ["The feature configuration is deployed and all declared dependencies have passed."],
   "assertions": ["All case-specific behavior is verified by the declared checks."],

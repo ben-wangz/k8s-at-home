@@ -114,7 +114,12 @@ func (s *Service) prepareStoragePage(ctx context.Context, state *storageCollecti
 			offset++
 			continue
 		}
-		object := s.inspectStorageObject(ctx, domain, namespace, entry)
+		var object storageObject
+		if domain == "state" && strings.HasPrefix(entry.Key, storageInventoryPrefix) {
+			object = s.inspectStorageObjectMetadata(ctx, domain, namespace, entry)
+		} else {
+			object = s.inspectStorageObject(ctx, domain, namespace, entry)
+		}
 		identity := object.Digest
 		if domain == "state" && strings.HasPrefix(entry.Key, "cache/objects/") {
 			parts := strings.Split(entry.Key, "/")

@@ -125,7 +125,7 @@ See the [environment guide](environment/README.md) for prerequisites and environ
 | rbac-boundary | Initialization Role scope, separation of workload identities, and Registry token settings | installation |
 | startup-wait | Init container blocks startup while initialization is pending; Deployment becomes Ready after recovery | installation |
 | registry-roundtrip | OCI content upload/read and digest consistency | admin-auth, initialization-secrets |
-| image-inventory | Inventory discovery of pushed images, local closure proof, authentication, immutable pagination, and query validation | registry-roundtrip |
+| image-inventory | Inventory discovery of pushed images, no-change refresh cost, local closure proof, authentication, immutable pagination, and query validation | registry-roundtrip |
 | feature-diagnostics | Complete physical accounting, independent registry totals, pagination, and retained reports after restart | registry-roundtrip, image-inventory |
 | client-interop | Real Podman image and Helm OCI chart round trips | installation |
 | restart-reuse | Job recreation, repeated Helm upgrades, Pod restart, release reinstall, and credential stability | registry-roundtrip |
@@ -148,7 +148,7 @@ See the [environment guide](environment/README.md) for prerequisites and environ
 | artifact-persistence | Persistence of content, referrers, failed tasks, Secrets, records, and PVCs across restart/upgrade | artifact-roundtrip, referrers-read, tag-publication, admin-api |
 | dependency-failure | Distribution scale-down, diagnostic Service, backend errors, and recovery | artifact-persistence |
 | default-limits | Default request-rate limits for manifests, descriptors, uploads, tags/list, and unauthenticated requests | manifest-validation, tags-pagination |
-| observability | JSON logs, Prometheus metrics, low-cardinality labels, and sensitive-data scans | dependency-failure, default-limits, referrers-lifecycle, delete-semantics |
+| observability | JSON logs, Prometheus metrics, low-cardinality labels, and sensitive-data scans | dependency-failure, default-limits, referrers-lifecycle, delete-semantics, image-inventory |
 | podman-upstream-pull | Podman pulls a pinned image from the NJU GHCR mirror by tag, index digest, and platform manifest digest, then rejects a controlled wrong-digest blob | installation; runs after restart-reuse and upstream-resume when they are in the plan |
 | upstream-mirror | Local-first behavior, Docker/OCI media negotiation, upstream error matrix, descriptor.data/urls, nested multi-platform index graphs, original-field solidification, non-recursive subjects, HEAD metadata/cache boundaries, shared digest conflicts, default closure depth, controlled closure/object-byte limits, Range/If-Range, and digest validation | installation |
 | upstream-resume | Digest verification, persisted offsets, repeated interruption, timeouts, restart and retry recovery, concurrency, Range fallback, and a real Podman pull | upstream-mirror |

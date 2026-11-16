@@ -66,6 +66,7 @@ func TestQuotaScanBatchRestartRetainsCandidatesAndExplicitEnd(t *testing.T) {
 	if p.Round != 2 || p.Status.LastScanCompletedAt.IsZero() || !p.Status.Complete {
 		t.Fatalf("round not completed: %+v", p)
 	}
+	assertMetricsCounter(t, f.service.metrics, "registry_hub_background_scan_rounds_total", map[string]string{"kind": "quota_waiters", "result": "complete"}, 1)
 	empty := sourceSweepCheckpoint{Round: 1, Backoff: map[string]entityBackoff{}}
 	f.service.sourceSweepBatch(ctx, "quota_waiters", "empty-prefix/", &empty, step)
 	if !empty.Cursor.Done {

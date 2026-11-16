@@ -11,21 +11,23 @@ import (
 )
 
 func (s *observedStore) CleanupOrphans(ctx context.Context, olderThan time.Duration, limit int) (int, error) {
+	callCtx := attributedStorageContext(ctx, "cleanup_orphans", "")
 	cleaner, ok := s.Store.(interface {
 		CleanupOrphans(context.Context, time.Duration, int) (int, error)
 	})
 	if !ok {
 		err := errors.New("storage backend does not support orphan cleanup")
-		s.record(ctx, "cleanup_orphans", err, time.Now())
+		s.record(callCtx, "cleanup_orphans", err, time.Now())
 		return 0, err
 	}
 	started := time.Now()
-	removed, err := cleaner.CleanupOrphans(ctx, olderThan, limit)
-	s.record(ctx, "cleanup_orphans", err, started)
+	removed, err := cleaner.CleanupOrphans(callCtx, olderThan, limit)
+	s.record(callCtx, "cleanup_orphans", err, started)
 	return removed, err
 }
 
 func (s *observedStore) CleanupOrphansStep(ctx context.Context, olderThan time.Duration, token string) (string, int, error) {
+	callCtx := attributedStorageContext(ctx, "cleanup_orphans", "")
 	cleaner, ok := s.Store.(interface {
 		CleanupOrphansStep(context.Context, time.Duration, string) (string, int, error)
 	})
@@ -33,8 +35,8 @@ func (s *observedStore) CleanupOrphansStep(ctx context.Context, olderThan time.D
 		return "", 0, nil
 	}
 	started := time.Now()
-	next, removed, err := cleaner.CleanupOrphansStep(ctx, olderThan, token)
-	s.record(ctx, "cleanup_orphans", err, started)
+	next, removed, err := cleaner.CleanupOrphansStep(callCtx, olderThan, token)
+	s.record(callCtx, "cleanup_orphans", err, started)
 	return next, removed, err
 }
 

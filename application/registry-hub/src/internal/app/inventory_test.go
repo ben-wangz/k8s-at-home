@@ -28,7 +28,7 @@ func refreshTestInventory(t *testing.T, s *Service) inventory.Snapshot {
 			t.Fatal("source scan did not converge")
 		}
 		if err := s.scanInventoryPage(ctx, &scan); err != nil {
-			t.Fatal(err)
+			t.Fatalf("source scan phase %d: %v", scan.Phase, err)
 		}
 	}
 	scan.Phase = 3
@@ -38,7 +38,7 @@ func refreshTestInventory(t *testing.T, s *Service) inventory.Snapshot {
 			t.Fatal("closure scan did not converge")
 		}
 		if err := s.scanInventoryPage(ctx, &scan); err != nil {
-			t.Fatal(err)
+			t.Fatalf("closure scan phase %d: %v", scan.Phase, err)
 		}
 	}
 	writer := s.inventory.NewWriter(time.Now().UTC(), time.Hour, 1)
@@ -47,18 +47,18 @@ func refreshTestInventory(t *testing.T, s *Service) inventory.Snapshot {
 		t.Fatal(err)
 	}
 	writer.Snapshot.GCEpoch = gate.Epoch
-	state := inventoryCheckpoint{Build: &writer.Snapshot, Scan: scan}
+	state := inventoryCheckpoint{Fence: writer.Snapshot.BuilderFence, Build: &writer.Snapshot, Scan: scan}
 	for n := 0; state.Build != nil; n++ {
 		if n > 5000 {
 			t.Fatal("snapshot build did not converge")
 		}
 		if err := s.buildInventoryPage(ctx, &state); err != nil {
-			t.Fatal(err)
+			t.Fatalf("snapshot build phase %d image=%t: %v", state.BuildPhase, state.ImageBuild != nil, err)
 		}
 	}
 	snapshot, err := s.inventory.Snapshot(ctx, "", time.Minute)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read published snapshot: %v", err)
 	}
 	return snapshot
 }

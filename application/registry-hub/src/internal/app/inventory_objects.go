@@ -51,7 +51,7 @@ func (s *Service) inspectInventoryObject(ctx context.Context, identity inventory
 		object.Reasons = append(object.Reasons, "storage_read_error")
 		return object, true, nil
 	}
-	_, observationErr := s.records.FindLocalObservation(ctx, identity.Authority, identity.Repository, role, ref.Digest, ref.Size, generation.Generation, epoch)
+	observation, observationErr := s.records.FindLocalObservation(ctx, identity.Authority, identity.Repository, role, ref.Digest, ref.Size, generation.Generation, epoch)
 	if identity.Authority == "" {
 		observationErr = storage.ErrNotFound
 	}
@@ -88,7 +88,18 @@ func (s *Service) inspectInventoryObject(ctx context.Context, identity inventory
 		object.Reasons = append(object.Reasons, "local_evidence_invalid")
 		return object, true, nil
 	}
-	if !validObservation && !validProof {
+	lastVerifiedAt := time.Time{}
+	if validProof {
+		lastVerifiedAt = proof.AuditedAt
+		if lastVerifiedAt.IsZero() {
+			lastVerifiedAt = proof.ObservedAt
+		}
+	}
+	if validObservation && observation.ObservedAt.After(lastVerifiedAt) {
+		lastVerifiedAt = observation.ObservedAt
+	}
+	auditDue := !validObservation && !validProof || lastVerifiedAt.IsZero() || time.Since(lastVerifiedAt) > s.inventoryConfig().ContentAuditInterval
+	if auditDue {
 		if pending, ok := ctx.Value(inventoryAuditCapture{}).(**inventoryAuditProgress); ok {
 			*pending = &inventoryAuditProgress{Object: object, Path: path, Epoch: epoch}
 			return object, true, nil

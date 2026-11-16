@@ -11,6 +11,7 @@ import (
 
 type attemptTransport struct {
 	base     http.RoundTripper
+	domain   string
 	observer atomic.Pointer[storage.HTTPAttemptObserver]
 }
 
@@ -25,7 +26,8 @@ func (t *attemptTransport) RoundTrip(request *http.Request) (*http.Response, err
 	}
 	observer := t.observer.Load()
 	if observer != nil {
-		attempt := storage.HTTPAttempt{Method: request.Method, StartedAt: started, FinishedAt: time.Now().UTC(), Error: err}
+		attribution := storage.CallAttributionFromContext(request.Context())
+		attempt := storage.HTTPAttempt{Method: request.Method, Domain: t.domain, Operation: attribution.Operation, KeyClass: attribution.KeyClass, Reason: attribution.Reason, StartedAt: started, FinishedAt: time.Now().UTC(), Error: err}
 		for _, field := range strings.Split(request.Header.Get("Amz-Sdk-Request"), ";") {
 			key, value, ok := strings.Cut(strings.TrimSpace(field), "=")
 			if ok && key == "attempt" {

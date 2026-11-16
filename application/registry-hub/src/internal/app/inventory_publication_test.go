@@ -78,18 +78,28 @@ func TestInventoryClientPublicationReconcilesOnlyChangedRepository(t *testing.T)
 				}
 				advance()
 			}
+			completeRounds, _ := metricsCounterValue(t, f.service.metrics, "registry_hub_background_scan_rounds_total", map[string]string{"kind": "inventory", "result": "complete"})
+			incompleteRounds, _ := metricsCounterValue(t, f.service.metrics, "registry_hub_background_scan_rounds_total", map[string]string{"kind": "inventory", "result": "incomplete"})
+			if completeRounds+incompleteRounds != 1 {
+				t.Fatalf("initial inventory publication rounds=%v, want 1", completeRounds+incompleteRounds)
+			}
 			if !state.NextReconcileAt.After(time.Now().Add(4 * time.Minute)) {
 				t.Fatal("test requires a future periodic reconciliation deadline")
 			}
 			initialCatalogReads, reconcileAt := catalogReads.Load(), state.NextReconcileAt
 			if duringBuild {
-				state.NextScanAt = time.Time{}
-				for step := 0; state.Build == nil; step++ {
-					if step == 1000 {
-						t.Fatal("test draft did not start before client publication")
-					}
-					advance()
+				writer := f.service.inventory.NewWriter(time.Now().UTC(), f.service.inventoryConfig().SnapshotRetention, leader.FencingToken)
+				gate, err := f.service.inventoryEpoch(ctx)
+				if err != nil {
+					t.Fatal(err)
 				}
+				writer.Snapshot.GCEpoch = gate.Epoch
+				state.Build = &writer.Snapshot
+				state.BuildPhase, state.BuildToken, state.BuildPage = 0, "", nil
+				state.ImageBuild, state.ParallelImages, state.ImagesEnrolled = nil, nil, false
+				state.DeferredImages = nil
+				state.Publications, state.PublicationsCaptured = nil, false
+				advance()
 				if err := f.service.recordInventoryChange(ctx, "tasks/state/unrelated.json", "unrelated-version"); err != nil {
 					t.Fatal(err)
 				}

@@ -79,6 +79,7 @@ type Service struct {
 	backgroundSlots         chan struct{}
 	backgroundScheduler     *backgroundScheduler
 	backgroundReady         map[string]chan struct{}
+	backgroundWake          map[string]chan struct{}
 	collectorSlots          chan struct{}
 	collectorPace           <-chan time.Time
 	backgroundPace          <-chan time.Time
@@ -131,6 +132,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 			serviceMetrics.recordDistributionError(result)
 		}
 	})
+	registry.SetHTTPAttemptObserver(serviceMetrics.recordRegistryHTTPAttempt)
 	registryCtx, registryCancel := context.WithTimeout(context.Background(), 90*time.Second)
 	err = pingWithRetry(registryCtx, registry.Ping, time.Second)
 	registryCancel()
@@ -176,6 +178,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	if observed, ok := store.(*observedStore); ok {
 		observed.inventoryNotify = func() { service.inventoryDirty.Store(true) }
 		observed.inventoryChange = service.recordInventoryChange
+		observed.backgroundNotify = service.signalBackgroundScans
 		observed.diagnosticFailure = service.recordDiagnosticStorageFailure
 	}
 	for index := range service.upstreamPerKey {

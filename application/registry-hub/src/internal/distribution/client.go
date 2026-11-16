@@ -23,6 +23,7 @@ type Client struct {
 	client            *http.Client
 	transport         *http.Transport
 	observer          func(string, string)
+	attemptObserver   func(HTTPAttempt)
 }
 
 func New(cfg config.Config) (*Client, error) {
@@ -56,7 +57,7 @@ func New(cfg config.Config) (*Client, error) {
 		ResponseHeaderTimeout: 30 * time.Second,
 	}
 	client.transport = transport
-	client.client = &http.Client{Transport: transport, CheckRedirect: client.checkRedirect}
+	client.client = &http.Client{Transport: observedTransport{base: transport, client: client}, CheckRedirect: client.checkRedirect}
 	return client, nil
 }
 
@@ -89,6 +90,16 @@ func (c *Client) checkRedirect(request *http.Request, via []*http.Request) error
 
 func (c *Client) SetObserver(observer func(string, string)) {
 	c.observer = observer
+}
+
+func (c *Client) SetHTTPAttemptObserver(observer func(HTTPAttempt)) {
+	c.attemptObserver = observer
+}
+
+func (c *Client) observeHTTPAttempt(attempt HTTPAttempt) {
+	if c.attemptObserver != nil {
+		c.attemptObserver(attempt)
+	}
 }
 
 func (c *Client) observe(event, result string) {

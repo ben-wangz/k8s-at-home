@@ -67,7 +67,11 @@ func newStore(ctx context.Context, cfg config.S3, readOnly bool) (*Store, error)
 		ResponseHeaderTimeout: 30 * time.Second,
 	}
 	httpClient := &http.Client{Transport: transport, Timeout: cfg.Timeout}
-	attempts := &attemptTransport{base: transport}
+	domain := "state"
+	if readOnly {
+		domain = "registry"
+	}
+	attempts := &attemptTransport{base: transport, domain: domain}
 	sdkHTTPClient := &http.Client{Transport: attempts, Timeout: cfg.Timeout}
 	loadOptions := []func(*awsconfig.LoadOptions) error{
 		awsconfig.WithRegion(cfg.Region),

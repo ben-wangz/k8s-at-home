@@ -29,14 +29,17 @@ type inventoryCheckpoint struct {
 	Steps                uint64                    `json:"steps"`
 	ScanStartedAt        time.Time                 `json:"scanStartedAt,omitempty"`
 	LastPublishedAt      time.Time                 `json:"lastPublishedAt,omitempty"`
+	LastSourceCheckAt    time.Time                 `json:"lastSourceCheckAt,omitempty"`
 	LastCompleteAt       time.Time                 `json:"lastCompleteAt,omitempty"`
 	LastBuildSeconds     float64                   `json:"lastBuildSeconds"`
 	LastRefreshSeconds   float64                   `json:"lastRefreshSeconds"`
 	Batch                inventoryBatchProgress    `json:"batch"`
 	NextScanAt           time.Time                 `json:"nextScanAt"`
+	NextEventScanAt      time.Time                 `json:"nextEventScanAt,omitempty"`
 	NextMaintenanceAt    time.Time                 `json:"nextMaintenanceAt"`
 	MaintenancePhase     int                       `json:"maintenancePhase,omitempty"`
 	NextReconcileAt      time.Time                 `json:"nextReconcileAt,omitempty"`
+	FullReconcilePending bool                      `json:"fullReconcilePending,omitempty"`
 	Delta                *inventoryDeltaProgress   `json:"delta,omitempty"`
 }
 
@@ -155,6 +158,13 @@ func (s *Service) advanceInventory(ctx context.Context, leader lease.Lease, stat
 		return err
 	}
 	if state.Build != nil {
+		ctx = withStorageReason(ctx, "inventory_snapshot_build")
+	} else if !state.Scan.Complete || state.NextReconcileAt.IsZero() || !time.Now().Before(state.NextReconcileAt) {
+		ctx = withStorageReason(ctx, "inventory_full_reconcile")
+	} else {
+		ctx = withStorageReason(ctx, "inventory_refresh")
+	}
+	if state.Build != nil {
 		if err := s.buildInventoryPage(ctx, state); err != nil {
 			if errors.Is(err, storage.ErrConditionFailed) {
 				state.Build = nil
@@ -173,14 +183,16 @@ func (s *Service) advanceInventory(ctx context.Context, leader lease.Lease, stat
 	} else if !s.inventoryIdle(state) {
 		if state.ScanStartedAt.IsZero() {
 			state.ScanStartedAt = time.Now().UTC()
+			s.inventoryDirty.Store(false)
 		}
-		s.inventoryDirty.Store(false)
-		ready, err := s.advanceInventorySources(ctx, state)
+		sourceCtx := context.WithValue(ctx, inventoryLeaderContextKey{}, leader)
+		ready, err := s.advanceInventorySources(sourceCtx, state)
 		if err != nil {
 			return err
 		}
 		if ready {
 			writer := s.inventory.NewWriter(time.Now().UTC(), s.inventoryConfig().SnapshotRetention, leader.FencingToken)
+			writer.Snapshot.LastSourceCheckAt = state.LastSourceCheckAt
 			state.Build = &writer.Snapshot
 			gate, err := s.inventoryEpoch(ctx)
 			if err != nil {

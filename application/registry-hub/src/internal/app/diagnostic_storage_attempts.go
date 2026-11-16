@@ -11,6 +11,9 @@ import (
 type diagnosticTaskKey struct{}
 
 func (s *Service) recordStorageHTTPAttempt(ctx context.Context, attempt storage.HTTPAttempt) {
+	if s.metrics != nil {
+		s.metrics.recordS3HTTPAttempt(ctx, attempt)
+	}
 	if ctx.Value(diagnosticWriteKey{}) != nil || ctx.Value(diagnosticReadKey{}) != nil {
 		return
 	}

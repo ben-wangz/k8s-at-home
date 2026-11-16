@@ -9,6 +9,7 @@ func (s *Service) startBackgroundWorkers(ctx context.Context) {
 	s.backgroundSlots = make(chan struct{}, 2)
 	s.backgroundScheduler = &backgroundScheduler{capacity: cap(s.backgroundSlots)}
 	s.backgroundReady = map[string]chan struct{}{}
+	s.backgroundWake = newBackgroundScanWakeChannels()
 	s.collectorSlots = make(chan struct{}, 1)
 	collectorPace := time.NewTicker(250 * time.Millisecond)
 	s.collectorPace = collectorPace.C

@@ -14,6 +14,11 @@ func (r *Repository) Snapshot(ctx context.Context, id string, stale time.Duratio
 		if !ValidID(id) {
 			return Snapshot{}, ErrInvalid
 		}
+		current, _, currentErr := Read[Snapshot](ctx, r.Store, Prefix+"current.json")
+		if currentErr == nil && current.SnapshotID == id {
+			value := current
+			return r.validateSnapshot(value, stale, true)
+		}
 		key = Prefix + "snapshots/" + id + "/manifest.json"
 	}
 	value, _, err := Read[Snapshot](ctx, r.Store, key)
@@ -26,17 +31,25 @@ func (r *Repository) Snapshot(ctx context.Context, id string, stale time.Duratio
 	if err != nil {
 		return value, err
 	}
+	return r.validateSnapshot(value, stale, id != "")
+}
+
+func (r *Repository) validateSnapshot(value Snapshot, stale time.Duration, explicit bool) (Snapshot, error) {
 	if value.SchemaVersion != 1 || !ValidID(value.SnapshotID) || value.ObservedAt.IsZero() {
 		return value, storage.ErrCorruptObject
 	}
 	if !value.ExpiresAt.After(time.Now()) {
-		if id == "" {
-			return value, ErrCurrentExpired
+		if explicit {
+			return value, ErrExpired
 		}
-		return value, ErrExpired
+		return value, ErrCurrentExpired
 	}
-	value.Freshness = Freshness{State: "fresh", AgeSeconds: max(0, int64(time.Since(value.ObservedAt).Seconds()))}
-	if time.Since(value.ObservedAt) > stale {
+	freshnessAt := value.LastSourceCheckAt
+	if freshnessAt.IsZero() {
+		freshnessAt = value.ObservedAt
+	}
+	value.Freshness = Freshness{State: "fresh", AgeSeconds: max(0, int64(time.Since(freshnessAt).Seconds()))}
+	if time.Since(freshnessAt) > stale {
 		value.Freshness.State = "stale"
 	}
 	return value, nil

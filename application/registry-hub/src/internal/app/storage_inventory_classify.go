@@ -41,6 +41,8 @@ func storageCategory(domain, key string) string {
 		return "background_checkpoints"
 	case strings.HasPrefix(key, diagnostics.Prefix+"events/"):
 		return "diagnostic_events"
+	case strings.HasPrefix(key, storageInventoryPrefix):
+		return "storage_inventory_output"
 	case strings.HasPrefix(key, diagnostics.Prefix):
 		return "diagnostic_metadata"
 	case strings.HasPrefix(key, inventory.Prefix+"snapshots/"):

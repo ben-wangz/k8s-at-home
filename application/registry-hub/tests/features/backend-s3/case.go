@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/support"
 	"github.com/ben-wangz/registry-hub-tests/internal/testkit"
+	"net/http"
 	"path/filepath"
 	"strings"
 )
@@ -108,6 +109,10 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err != nil {
 		return err
 	}
+	metrics, err := readS3AttemptMetrics(ctx, environment)
+	if err != nil {
+		return err
+	}
 	multipartBlobDigest := testkit.String(resumeEvidence["digest"])
 	multipartBlobSize := testkit.Int(resumeEvidence["size"])
 	storedMultipartSize := testkit.Int(resumeEvidence["multipartObjectSize"])
@@ -157,7 +162,8 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err != nil {
 		return err
 	}
-	if err := compareObjectSnapshots(beforeObjects, afterObjects); err != nil {
+	resumedBlobCacheKey := testkit.String(resumeEvidence["cacheObjectKey"])
+	if err := compareObjectSnapshots(beforeObjects, afterObjects, resumedBlobCacheKey); err != nil {
 		return err
 	}
 	return support.WriteResult(environment, map[string]any{
@@ -169,11 +175,40 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		"s3ObjectCountBefore": len(beforeObjects), "s3ObjectCountAfter": len(afterObjects),
 		"s3ObjectKeysSHA256": snapshotDigest(afterObjects),
 		"taskID":             taskID, "taskStatus": testkit.String(taskAfter["status"]),
+		"backendS3HTTPMetrics": metrics,
 		"gcRecovery":           gcRecovery,
 		"rootDigest":           manifestDigest,
 		"manifestDigestBefore": support.Digest(manifestBefore), "manifestDigestAfter": support.Digest(manifestAfter),
 		"downloadResume": resumeEvidence,
 	})
+}
+
+func readS3AttemptMetrics(ctx context.Context, environment testkit.CaseContext) (map[string]float64, error) {
+	response, err := support.AdminRequest(ctx, environment, http.MethodGet, "/metrics", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode != http.StatusOK {
+		response.Body.Close()
+		return nil, fmt.Errorf("metrics returned %s", response.Status)
+	}
+	body, err := testkit.ReadBody(response, 8<<20)
+	if err != nil {
+		return nil, err
+	}
+	labels := map[string]string{"domain": "state"}
+	values := make(map[string]float64, 2)
+	for _, name := range []string{"registry_hub_s3_http_attempts_total", "registry_hub_s3_http_attempt_duration_seconds_count"} {
+		value, found, err := testkit.PrometheusSum(body, name, labels)
+		if err != nil {
+			return nil, err
+		}
+		if !found || value <= 0 {
+			return nil, fmt.Errorf("backend S3 metric %s has no positive state-domain samples", name)
+		}
+		values[name] = value
+	}
+	return values, nil
 }
 
 func verifyBackendS3Environment(ctx context.Context, environment testkit.CaseContext, secretName string) error {

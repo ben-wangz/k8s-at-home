@@ -72,7 +72,7 @@ func (s *Service) backgroundStatus(ctx context.Context) backgroundStatus {
 	}
 	for _, kind := range []string{"tasks", "cache", "intents", "protection"} {
 		read("statistics/"+kind, func() error {
-			value, _, err := inventory.Read[backgroundScanStatus](ctx, s.store, workqueue.Prefix+"statistics/"+kind+".json")
+			value, err := readMetricScanStatus(ctx, s.store, kind)
 			value.Stale = value.LastSuccessAt.IsZero() || time.Since(value.LastSuccessAt) > 90*time.Second
 			sanitizeScanStatus(&value)
 			mu.Lock()
@@ -83,7 +83,7 @@ func (s *Service) backgroundStatus(ctx context.Context) backgroundStatus {
 	}
 	for _, kind := range backgroundScanKinds {
 		read("maintenance/"+kind, func() error {
-			value, _, err := inventory.Read[backgroundScanStatus](ctx, s.store, workqueue.Prefix+"scans/"+kind+".json")
+			value, err := readBackgroundScanStatus(ctx, s.store, kind)
 			lastSuccess := value.LastSuccessAt
 			if lastSuccess.IsZero() && value.Complete {
 				lastSuccess = value.ObservedAt
@@ -133,6 +133,15 @@ func (s *Service) backgroundStatus(ctx context.Context) backgroundStatus {
 	})
 	group.Wait()
 	return status
+}
+
+func readBackgroundScanStatus(ctx context.Context, store storage.Store, kind string) (backgroundScanStatus, error) {
+	switch kind {
+	case "storage_inventory", "storage_orphans", "download_quota":
+		return readMaintenanceScanStatus(ctx, store, kind)
+	default:
+		return readSourceScanStatus(ctx, store, kind)
+	}
 }
 
 func sanitizeScanStatus(value *backgroundScanStatus) {

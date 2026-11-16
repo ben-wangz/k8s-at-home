@@ -144,6 +144,7 @@ func (s *Service) runMaintenanceLeader(ctx context.Context, holder lease.Lease, 
 					status.Complete = false
 				}
 				if progress.RoundComplete {
+					s.metrics.recordBackgroundScanRound(kind, true)
 					recordScanRecovery(kind, "maintenance", status, &state.DiagnosticOutbox, "")
 					status.Complete = true
 					status.ObservedAt = time.Now().UTC()

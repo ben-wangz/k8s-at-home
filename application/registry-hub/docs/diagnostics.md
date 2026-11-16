@@ -1,8 +1,40 @@
 # Management diagnostics and storage inventory
 
-`registry_hub_storage_work_operations_total` and `registry_hub_storage_work_duration_seconds` attribute storage calls to bounded `kind`, `purpose`, `operation`, and `result` labels. Purposes distinguish ordinary work, queue polling, checkpoints, and lease operations. Requests and service work without a worker context have separate categories; unknown worker identities collapse to `other`. These metrics measure calls at the storage interface, including concurrent work, rather than wall-clock task latency or individual SDK retry attempts.
+`registry_hub_storage_work_operations_total` and `registry_hub_storage_work_duration_seconds` attribute storage calls to bounded `kind`, `purpose`, `operation`, `key_class`, `reason`, and `result` labels. `registry_hub_s3_http_attempts_total` and `registry_hub_s3_http_attempt_duration_seconds` count individual S3 HTTP attempts, including SDK retries, by bounded `domain`, `kind`, `purpose`, `operation`, `key_class`, `reason`, and `result` labels. `registry_hub_registry_http_attempts_total` and `registry_hub_registry_http_attempt_duration_seconds` count internal Distribution HTTP requests at the Go `RoundTripper` boundary by bounded `kind`, `purpose`, method, route class, reason, and result; redirects and bearer challenge retries are separate observations. Route classes never contain repository, tag, or digest values. Domains are `state` and `registry`; key classes and reasons are fixed categories and never contain an object key or digest. Purposes distinguish ordinary work, queue polling, checkpoints, and lease operations. Requests and service work without a worker context have separate categories; unknown worker identities collapse to `other`. Store metrics measure calls at the storage interface, while HTTP attempt metrics measure requests observed at their respective transport boundaries; none represents wall-clock task latency.
 
-Durable queues use coalesced local wake hints and an idle scan backoff capped at five seconds; admission and storage time add to that interval. A local durable enqueue also promotes an idle queue already waiting for admission. Hints are optional: other replicas, restarts, and lost notifications recover from durable jobs. Empty queue checkpoints publish at most once per 30 seconds. Ordinary admission remains limited to two concurrent units, with active queues prioritized and maintenance admitted after at most three consecutive priority admissions (or alternating with aged maintenance). Running work is never preempted, so this policy bounds admission turns rather than promising a wall-clock deadline when storage is slow. The physical storage collector retains its separate capacity.
+For a fixed observation window, use `increase()` to compare observed calls with configured scan and checkpoint budgets. These queries report measured counts after the new binary has run for the selected window; they cannot provide pre-deployment values.
+
+```promql
+sum by (kind, purpose, operation, key_class, reason, result) (
+  increase(registry_hub_storage_work_operations_total[1h])
+)
+```
+
+```promql
+sum by (domain, kind, purpose, operation, key_class, reason, result) (
+  increase(registry_hub_s3_http_attempts_total[1h])
+)
+```
+
+```promql
+sum by (kind, purpose, operation, reason, result) (
+  increase(registry_hub_registry_http_attempts_total{method="HEAD"}[1h])
+)
+```
+
+`registry_hub_background_scan_rounds_total{kind,result}` counts ended source, statistics, and maintenance scan rounds plus inventory snapshot publication rounds. `complete` means the round completed without an unresolved scan error; `incomplete` means traversal ended with work/errors still requiring a later retry. Use the counter for scan counts, including across process restarts:
+
+```promql
+sum by (kind, result) (
+  increase(registry_hub_background_scan_rounds_total[1h])
+)
+```
+
+`/api/v1/workers` exposes the latest durable round status, configured cadence, checkpoint budget, and lease state, but not a cumulative round count. Source sweeps cap their event-free interval at one minute; statistics and history sweeps cap at two and five minutes. Full inventory source reconciliation runs five minutes after publication, or at the configured refresh interval when longer. Empty queue polling is capped at five seconds; physical storage collection starts promptly and repeats after 15 minutes. These are schedules, not throughput guarantees: scan duration, admission, storage latency, restarts and lease contention add time. Current post-fix observed values require a deployment and must be reported separately from the 0.1.25 baseline in the analysis report.
+
+Source, statistics, history and maintenance scan status is read from its durable checkpoint. The legacy status summary is refreshed on lease, success, error, or dependency-wait transitions, otherwise no more often than every 30 seconds; it is used only when no checkpoint exists.
+
+Durable queues use coalesced local wake hints and an idle scan backoff capped at five seconds; admission and storage time add to that interval. A local durable enqueue also promotes an idle queue already waiting for admission. Source sweeps, statistics and history sweeps double their event-free delay from 15 seconds, with caps of one, two and five minutes respectively. Writes to matching source prefixes send coalesced local wake hints; the next pass starts after a five-second minimum idle interval. Missed hints are corrected by periodic full scans, so the correction pass is scheduled no later than the cap after the preceding completed pass, plus scan duration and admission/storage delay. Other replicas and restarts use the same durable checkpoints and polling fallback. Empty queue checkpoints publish at most once per 30 seconds. Ordinary admission remains limited to two concurrent units, with active queues prioritized and maintenance admitted after at most three consecutive priority admissions (or alternating with aged maintenance). Running work is never preempted, so this policy bounds admission turns rather than promising a wall-clock deadline when storage is slow. The physical storage collector retains its separate capacity.
 
 Cache-ready activation events receive active-work priority. A consumed event is retained across admission timeouts and protection recovery pauses until it can execute or the service stops. Periodic durable reconciliation still recovers process restarts and missed notifications. Execution projections advance past demand or graph entries removed after listing; storage failures other than a confirmed missing object retain normal retry behavior.
 
@@ -131,6 +163,34 @@ Byte totals are assigned to the observation's timestamp; an attempt spanning the
 
 Payload work is exposed through `registry_hub_payload_bytes_total{kind,purpose,operation}` and `registry_hub_payload_duration_seconds` with bounded labels. Purposes distinguish cache verification, client delivery, Distribution upload/readback, download assembly, and cleanup verification. `read`, `write`, and `hash` count logical object/body work; filesystem version hashing is included. Metadata also contributes to these logical counters. `s3_read` and `s3_write` measure consumed SDK HTTP bodies, including retry attempts and error responses. They overlap logical storage work: do not add them to `read`/`write` as though they were independent copies. They exclude protocol headers and server-side physical disk activity.
 
+Use this query for consumed S3 request/response body bytes. These bytes include retries and error responses and exclude protocol headers and server-side physical disk activity:
+
+```promql
+sum by (kind, purpose, operation) (
+  increase(registry_hub_payload_bytes_total{operation=~"s3_read|s3_write"}[1h])
+)
+```
+
+Inventory snapshot objects have dedicated counters. `registry_hub_inventory_snapshot_object_writes_total` counts successful Store PUTs that create immutable objects below `inventory/v1/snapshots/`; `registry_hub_inventory_snapshot_object_write_bytes_total` counts the bytes read from those successful PUT bodies. These exclude failed attempts and objects reused after an already-exists or unknown-commit response. The `inventory_snapshot` storage key class also makes all PUT attempts visible by result:
+
+```promql
+sum by (kind, purpose, reason) (
+  increase(registry_hub_inventory_snapshot_object_writes_total[1h])
+)
+```
+
+```promql
+sum by (kind, purpose, reason) (
+  increase(registry_hub_inventory_snapshot_object_write_bytes_total[1h])
+)
+```
+
+```promql
+sum by (kind, purpose, reason, result) (
+  increase(registry_hub_storage_work_operations_total{operation="put",key_class="inventory_snapshot"}[1h])
+)
+```
+
 `registry_hub_distribution_verification_total{result}` and `registry_hub_distribution_verification_seconds{result}` distinguish successful observation reuse, full readback, deferred work, and errors. The `wait` duration covers the handoff only; queue and admission durations are reported separately. Dispatch runtime status exposes candidate pages and reads separately from canonical repair reads, so index rebuild work is not mistaken for warm dispatch cost.
 
 Counters aggregate at EOF, errors, and Close, including partial consumption; opening and closing an unread body contributes zero consumed bytes. Duration histograms measure active I/O or verification time. Nested and concurrent durations overlap and cannot be summed into request latency. For a complete filesystem layer of size B, strict cache verification reads B and verification plus consumption reads 2B; strict S3 verification plus consumption remains 2B before retries. Metadata-only internal readiness consumes zero payload bytes. The initial Distribution readback still hashes the full object.
@@ -141,7 +201,7 @@ Compare cache commit, activation, task execution, upload, readback, and platform
 
 Terminal projection reuse requires the exact task storage revision, matching GC epoch and an open gate without recovery or cleanup. Changes invalidate reuse. Cached manifest topology reuse requires the same content generation and a completed manifest projection receipt. Complete transitive closure topology also has a durable reuse record: each source content version is revalidated in resumable steps, and current closure limits must still permit reuse. A changed or missing version falls back to descriptor traversal. Snapshot construction still rechecks object generations and current availability; retained snapshots stay immutable and TTL is not extended to hide slow builds. Projection capture only retains a revision that remains unchanged from the start to the end of image construction. A completion cannot acknowledge a different source revision based on its timestamp.
 
-Source scanning, image metadata/capture and snapshot assembly batch at most four transitions per checkpoint, further bounded by the configured batch size, cancellation and remaining execution time. A new graph capture identity is checkpointed before its immutable pages are written. Image metadata is checkpointed before immutable capture begins; subsequent payload writes can replay from that frozen metadata. Assembly checkpoints use the version read at the start of the unit and retain conditional-write and unknown-commit recovery checks. Routine refreshes also retain change-journal and dependency fanout progress. Unchanged image fragments are reused only after source versions, listing membership, physical payload fingerprints, identity, closure limits and GC epoch validation; original evidence times remain visible. Status includes incremental progress, the next full source reconciliation, and fragment validation offsets. Empty change journals or projection queues do not establish complete source coverage. Representative storage latency and discovery acceptance remain separate checks; see [inventory.md](inventory.md) for reconciliation and reuse limits.
+Source scanning, image metadata/capture and snapshot assembly batch at most four transitions per checkpoint, further bounded by the configured batch size, cancellation and remaining execution time. A new graph capture identity is checkpointed before its immutable pages are written. Image metadata is checkpointed before immutable capture begins; subsequent payload writes can replay from that frozen metadata. Assembly checkpoints use the version read at the start of the unit and retain conditional-write and unknown-commit recovery checks. Routine refreshes also retain change-journal and dependency fanout progress. Unchanged image fragments reuse captured evidence while generation, binding identity, GC epoch and the open non-exclusive gate remain valid; journal changes invalidate affected image and content fragments. A full inspection checks source versions and registry existence after the configured fragment reuse interval, while content hashing is repeated after the configured content audit interval or when no current verification evidence exists. Original evidence times remain visible. Status includes incremental progress and the next full source reconciliation. Empty change journals or projection queues do not establish complete source coverage. Representative storage latency and discovery acceptance remain separate checks; see [inventory.md](inventory.md) for reconciliation and reuse limits.
 
 Confirmed client manifest pushes save a durable notification for the affected repository. Routine refresh and a single pass before draft reference capture reconcile its paginated tags and content links before retiring the captured notification revision. The draft pass exposes `publicationReconciliation` progress and leaves unrelated source revisions pending. Publications arriving after that pass wait for a subsequent refresh. An adopted older reference cursor defers the pass rather than acknowledging bindings it might already have skipped. `TestInventoryClientPublicationReconcilesOnlyChangedRepository` exercises idle and active-draft pushes with an initially empty catalog, reloads every checkpoint and rejects a global rescan. Marker failure and older global notifications retain the checkpoint barrier before full reconciliation acknowledgement. Image construction refills free slots among four concurrent images while preserving each metadata barrier; large progress buffers defer additional images without truncation. Parallel capture regressions cover partial immutable writes, checkpoint replay and deferred progress recovery.
 
@@ -189,7 +249,7 @@ Transfers preserve original session times when available. Unknown byte counts re
 
 Usage queries group by `dimension=category|repository|image|platform`. Combine `category`, `repository`, `imageID`, `platform` and `domain` filters to narrow the group. Without an explicit dimension, a single filter selects its own dimension; multiple filters select category; an unfiltered query returns the independent single-dimension groups. Repository/image/platform intersections require one matching captured association. An object counts once per matching group, even when several associations match. Usage results are materialized during collection; GET performs no aggregation writes. Legacy retained reports support their original single-dimension queries and return 400 for unsupported intersections.
 
-The collector persists leased checkpoints and publishes immutable object pages containing at most 32 objects or 1 MiB. Usage deltas are reduced and sorted through immutable runs with persisted merge cursors and at most 32 output rows per page. Each usage merge transition batches up to four deterministic merge operations, yielding before its deadline reserve; freshly inspected physical objects retain their separate checkpoint before immutable output. The checkpoint does not retain all groups, and new reports have no global 4,096 usage-group limit. Published usage pages contain at most 32 rows; GET reads one bounded page, so filters may yield empty continuation pages. Completed scans restart after five minutes; reports expire after one hour. The collector excludes its active output directory to avoid counting a growing report recursively; prior reports are counted on the next sweep. GET pagination binds the retained storage snapshot even if a newer report is published. Attribution uses a retained inventory snapshot, with up to 128 image associations per physical object; transfer association totals retain their 4,096-group bound. `coverage`, `reasons` and `truncated` accompany usage pages, including truncation in legacy reports. Expired attribution sources and association limits remain explicit; physical collection continues with unknown/partial attribution.
+The collector persists leased checkpoints and publishes immutable object pages containing at most 32 objects or 1 MiB. Usage deltas are reduced and sorted through immutable runs with persisted merge cursors and at most 32 output rows per page. Each usage merge transition batches up to four deterministic merge operations, yielding before its deadline reserve; freshly inspected physical objects retain their separate checkpoint before immutable output. The checkpoint does not retain all groups, and new reports have no global 4,096 usage-group limit. Published usage pages contain at most 32 rows; GET reads one bounded page, so filters may yield empty continuation pages. The first scan starts promptly; completed scans restart after 15 minutes and reports expire after one hour. The collector excludes its active output directory to avoid counting a growing report recursively; prior reports remain included in physical totals under the `storage_inventory_output` category, with list metadata only and no reclaim-evidence reads. Inventory snapshots and diagnostic metadata also remain included under their own categories. GET pagination binds the retained storage snapshot even if a newer report is published. Attribution uses a retained inventory snapshot, with up to 128 image associations per physical object; transfer association totals retain their 4,096-group bound. `coverage`, `reasons` and `truncated` accompany usage pages, including truncation in legacy reports. Expired attribution sources and association limits remain explicit; physical collection continues with unknown/partial attribution.
 
 Physical bytes count each observed object once within its domain. Duplicate payloads in cache and Distribution occupy both domains. Logical bytes count the union of declared referenced objects in the captured inventory, including missing physical content. `residentPayloadBytes` counts observed payload bytes. Image/repository/platform groups overlap and cannot be added to obtain a domain total. Shared/exclusive bytes are relative to canonical image content IDs in the captured inventory; multiple tags for identical content do not create additional owners. Missing or truncated associations remain unknown. Category totals are mutually exclusive and can be summed to the domain total.
 

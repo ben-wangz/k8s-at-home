@@ -4,11 +4,20 @@ import (
 	"context"
 	"errors"
 	"registry-hub/internal/inventory"
+	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
 	"time"
 )
 
+type inventoryLeaderContextKey struct{}
+
 func (s *Service) advanceInventorySources(ctx context.Context, state *inventoryCheckpoint) (bool, error) {
+	fullReconcile := !state.Scan.Complete || state.NextReconcileAt.IsZero() || !time.Now().Before(state.NextReconcileAt)
+	if fullReconcile {
+		ctx = withStorageReason(ctx, "inventory_full_reconcile")
+	} else {
+		ctx = withStorageReason(ctx, "inventory_refresh")
+	}
 	if s.inventoryReconcile.Swap(false) && !state.NextReconcileAt.IsZero() {
 		state.NextReconcileAt = time.Time{}
 		return false, nil
@@ -41,13 +50,39 @@ func (s *Service) advanceInventorySources(ctx context.Context, state *inventoryC
 			if err != nil {
 				return false, err
 			}
+			if len(state.Delta.Changes) > 0 {
+				state.Delta.Changed = true
+			}
 			if done {
+				changed := state.Delta.Changed
 				state.Delta = nil
 				if !time.Now().Before(state.NextReconcileAt) {
 					state.Scan.Complete = false
 					return false, nil
 				}
-				return true, nil
+				now := time.Now().UTC()
+				state.LastSourceCheckAt = now
+				if changed {
+					return true, nil
+				}
+				leader, ok := ctx.Value(inventoryLeaderContextKey{}).(lease.Lease)
+				if !ok {
+					return false, errors.New("inventory source freshness update requires builder lease")
+				}
+				current, err := s.refreshInventorySourceCheck(ctx, leader, state)
+				if err != nil {
+					return false, err
+				}
+				if current {
+					completedAt := time.Now().UTC()
+					state.NextScanAt = completedAt.Add(s.inventoryConfig().RefreshInterval)
+					state.NextEventScanAt = completedAt.Add(inventoryMinimumIdle)
+					if !state.ScanStartedAt.IsZero() {
+						state.LastRefreshSeconds = completedAt.Sub(state.ScanStartedAt).Seconds()
+						state.ScanStartedAt = time.Time{}
+					}
+				}
+				return !current, nil
 			}
 			if state.Delta.Source != nil && state.Delta.Source.Prefix != prefix {
 				break
@@ -66,10 +101,47 @@ func (s *Service) advanceInventorySources(ctx context.Context, state *inventoryC
 		return false, err
 	}
 	if state.Scan.Phase == 0 && state.Scan.Complete {
+		state.LastSourceCheckAt = time.Now().UTC()
 		state.NextReconcileAt = time.Now().Add(max(5*time.Minute, s.inventoryConfig().RefreshInterval))
+		state.FullReconcilePending = true
 		return true, nil
 	}
 	return false, nil
+}
+
+func (s *Service) refreshInventorySourceCheck(ctx context.Context, leader lease.Lease, state *inventoryCheckpoint) (bool, error) {
+	current, _, err := inventory.Read[inventory.Snapshot](ctx, s.store, inventory.Prefix+"current.json")
+	if errors.Is(err, storage.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if current.SnapshotID == "" || !current.ExpiresAt.After(time.Now()) {
+		return false, nil
+	}
+	checkpointCtx := inventory.WithWriteGuard(ctx, func(ctx context.Context) error {
+		return s.tasks.Leases().Validate(ctx, leader)
+	})
+	err = inventory.Update(checkpointCtx, s.store, inventory.Prefix+"current.json", func(value *inventory.Snapshot) error {
+		if value.BuilderFence > state.Fence {
+			return inventory.ErrSuperseded
+		}
+		if value.SnapshotID != current.SnapshotID {
+			return storage.ErrConditionFailed
+		}
+		value.LastSourceCheckAt = state.LastSourceCheckAt
+		value.ExpiresAt = maxTime(value.ExpiresAt, state.LastSourceCheckAt.Add(s.inventoryConfig().SnapshotRetention))
+		return nil
+	})
+	return err == nil, err
+}
+
+func maxTime(first, second time.Time) time.Time {
+	if first.After(second) {
+		return first
+	}
+	return second
 }
 
 func (s *Service) inventoryImageDirtyRevision(ctx context.Context, id string) (string, error) {
