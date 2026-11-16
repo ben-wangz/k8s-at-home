@@ -52,13 +52,22 @@ Print the deterministic plan without connecting to the cluster or building an im
 
     application/registry-hub/tests/features/minimal/run.sh plan --case restart-reuse
 
-If a case fails, environment creation fails, or the process is interrupted, the suite retains namespace resources and the report. Use the same ID to inspect, explicitly resume, or destroy the environment:
+If a case fails, environment creation fails, or the process is interrupted, the suite retains PVCs, fixtures, and the report, but scales release-owned Deployments to zero and waits for their Pods to terminate. The report records `workloadsPaused` or a `pauseError`; lost ownership or an API failure can prevent pausing. Use the same ID to inspect, explicitly resume, or destroy the environment. Reuse redeploys the chart and restores its replicas:
 
     application/registry-hub/tests/features/minimal/environment/scripts/inspect.sh --id <id>
     application/registry-hub/tests/features/minimal/run.sh run --id <id> --reuse --case <case-id>
     application/registry-hub/tests/features/minimal/environment/scripts/destroy.sh --id <id>
 
 After all selected cases and dependencies pass, the runner uninstalls the release, verifies resource UIDs, and removes this run's PVCs, initialization-generated Secrets/ConfigMaps, and registration. Manual destruction is repeatable. The runner refuses deletion if an object's identity or UID does not match. PV reclamation follows the default StorageClass reclaimPolicy; the runner does not delete cluster-scoped PVs.
+
+Before starting a run, the runner destroys failed, interrupted, cleanup-failed, or abandoned in-progress registrations that have been inactive for at least 24 hours and have no valid lease. Activity includes lease renewal and explicit reuse. The requested run ID and intentionally created `environment-ready` environments are excluded. Older registrations fall back to their start time and last lease deadline. Expiry is rechecked while conditionally claiming ownership, so a concurrent renewal or reuse prevents destruction. Local reports and original failure details remain after expiry.
+
+Inspect or invoke the same sweep manually:
+
+    application/registry-hub/tests/features/minimal/run.sh environment prune --older-than 24h --dry-run
+    application/registry-hub/tests/features/minimal/run.sh environment prune --older-than 24h
+
+The sweep runs on subsequent test starts or explicit invocation; schedule it when no new runs are expected. SIGKILL, a failed host, and an unavailable API cannot perform immediate pausing. Standalone storage fixture Pods remain available for preserved-volume inspection until destruction.
 
 The external-combinations case creates immutable Secret fixtures under the current run ID to test switching between automatic and external modes before restoring empty configuration. Fixtures carry test-ID and instance labels. Successful cleanup and manual destruction remove them by recorded name and UID.
 
@@ -70,9 +79,9 @@ The cases run serially in dependency order. `restart-reuse` precedes `podman-ups
 
 security-defaults probes TLS and authentication through the internal Registry ClusterIP using the generated CA and Basic credentials. A disposable probe Pod checks valid authentication, invalid authentication, an invalid CA, and an invalid service name. It carries the backend selector label but remains NotReady and is excluded from backend endpoints. Two other disposable Pods test NetworkPolicy: a Pod without the backend selector must be unable to connect, while a Pod with the selector is the positive control. Probe Pods mount only ca.crt; the TLS probe also mounts config.json. They do not mount a private key or use the product ServiceAccount and are removed after the case. Failures retain the release and are not silently skipped. The case also records permanent failure tasks caused by SSRF rejection.
 
-dependency-failure creates a temporary diagnostic ClusterIP Service labeled with the run ID, sets publishNotReadyAddresses=true, and selects only the backend. It scales this run's Registry Deployment to zero, checks healthz, readyz, read/write/delete errors, then restores replicas and deletes the diagnostic Service. The Service exists only while the case runs. On failure, the release and diagnostic state remain available. To restore manually:
+dependency-failure creates a temporary diagnostic ClusterIP Service labeled with the run ID, sets publishNotReadyAddresses=true, and selects only the backend. It scales this run's Registry Deployment to zero, checks healthz, readyz, read/write/delete errors, then restores replicas and deletes the diagnostic Service. The Service exists only while the case runs. On failure, the release and diagnostic state remain available with Deployments paused. To restore manually:
 
-    kubectl -n develop scale deployment/<fullname>-registry --replicas=1
+    kubectl -n develop scale deployment/<fullname> deployment/<fullname>-registry --replicas=1
     kubectl -n develop rollout status deployment/<fullname>-registry --timeout=5m
     kubectl -n develop delete service <run-id-diagnostic-service> --ignore-not-found
 

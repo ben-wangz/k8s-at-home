@@ -156,11 +156,13 @@ func runSuite(ctx context.Context, runtime *runner.Runtime, arguments []string) 
 
 func environmentCommand(ctx context.Context, runtime *runner.Runtime, arguments []string) error {
 	if len(arguments) == 0 {
-		return fmt.Errorf("environment requires check, create, inspect, or destroy")
+		return fmt.Errorf("environment requires check, create, inspect, destroy, or prune")
 	}
 	switch arguments[0] {
 	case "check":
 		return checkEnvironment(ctx, runtime, arguments[1:])
+	case "prune":
+		return pruneEnvironments(ctx, runtime, arguments[1:])
 	case "create":
 		flags := flag.NewFlagSet("environment create", flag.ContinueOnError)
 		id := flags.String("id", "", "test run ID")

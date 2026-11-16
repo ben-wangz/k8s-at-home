@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/ben-wangz/registry-hub-tests/internal/environment"
 	"github.com/ben-wangz/registry-hub-tests/internal/testkit"
-	"os"
 	"path/filepath"
 	"time"
 )
@@ -53,6 +52,9 @@ func (runtime *Runtime) Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := runtime.Prune(ctx, FailedEnvironmentRetention, false, id); err != nil {
+		return err
+	}
 	configPath := filepath.Join(runtime.Environment.AppDir, scenario.ConfigPath)
 	configHash, err := hashFile(configPath)
 	if err != nil {
@@ -87,23 +89,8 @@ func (runtime *Runtime) Run(ctx context.Context, options RunOptions) error {
 		_ = runtime.Environment.ReleaseLease(releaseContext, id, owner)
 	}()
 	preserve := func(cause error, state string) error {
-		report.State = state
-		report.Failure = cause.Error()
-		now := time.Now().UTC()
-		report.FinishedAt = &now
-		_ = saveRecord(stateDir, report)
-		updateContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		defer cancel()
-		registration.State = state
-		registration.ActiveOwner = owner
-		_ = runtime.Environment.UpdateRegistration(updateContext, registration)
-		if state == "cleanup_failed" {
-			report.CleanupError = cause.Error()
-			_ = saveRecord(stateDir, report)
-			fmt.Fprintf(os.Stderr, "Cases passed; cleanup failed. Inspect or destroy test ID %s.\n", id)
-		}
-		printSummary(report)
-		return cause
+		stopLease()
+		return runtime.preserveRunFailure(cause, state, stateDir, registration, registrationUID, &report)
 	}
 	expectedFixtureHash := report.ScenarioFixtureSHA256
 	if expectedFixtureHash == "" {

@@ -39,6 +39,9 @@ func New(root string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := initializeLocks(resolved); err != nil {
+		return nil, err
+	}
 	return &Store{root: resolved, ops: fileOperations{
 		syncFile: func(file *os.File) error { return file.Sync() },
 		rename:   os.Rename,
@@ -100,14 +103,14 @@ func (s *Store) put(ctx context.Context, key string, body io.Reader, size int64,
 	if err != nil {
 		return storage.Entry{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return storage.Entry{}, err
-	}
 	unlock, err := s.lock(ctx, path)
 	if err != nil {
 		return storage.Entry{}, err
 	}
 	defer unlock()
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return storage.Entry{}, err
+	}
 	current, currentErr := s.head(ctx, path, key)
 	if currentErr != nil && !errors.Is(currentErr, storage.ErrNotFound) {
 		return storage.Entry{}, currentErr

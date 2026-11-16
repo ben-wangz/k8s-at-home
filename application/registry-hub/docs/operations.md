@@ -2,6 +2,28 @@
 
 The backend and Distribution each run as a single instance. Use the private admin endpoint and credentials prepared in [Security](security.md#generated-admin-credentials). Examples below assume `ADMIN_URL` and `ADMIN_NETRC` are set. Request and response schemas are available at the authenticated `/docs` and `/openapi.yaml` endpoints.
 
+## Filesystem inodes and lock protocol upgrades
+
+Monitor free inodes as well as bytes on the filesystem backing the backend PVC (`df -i` and `df -h`). Logical storage inventory excludes filesystem locks and staging files, so its object count is not the volume's inode usage. Current FileSystem storage uses at most 4096 permanent lock files in `.registry-hub-locks`, creating them lazily. Empty object directories are pruned when an exclusive directory lock is available; busy attempts yield and remaining directories can be reclaimed during maintenance.
+
+Earlier versions left a `<key>.lock` file for every mutated key even after its data was deleted. Switching between the legacy protocol and the bounded pool requires stopping every backend writer sharing the root. Upgrade or roll back all writers together, using a stop/start deployment. Overlapping versions cannot safely coordinate mutations. Data keys and contents remain compatible.
+
+With every backend writer stopped, mount the backend PVC in a maintenance environment and inspect the proposed cleanup:
+
+```sh
+python3 /absolute/repository/application/registry-hub/scripts/compact-filesystem.py \
+  --root /absolute/backend/root
+```
+
+Apply the cleanup, then start the selected backend version:
+
+```sh
+python3 /absolute/repository/application/registry-hub/scripts/compact-filesystem.py \
+  --root /absolute/backend/root --apply --offline
+```
+
+Use this tool only on a Registry Hub backend root. It removes empty regular legacy `.lock` files and empty directories, preserves payloads, staging files, symlinks and the permanent pool, and refuses an overlapping root lock from the new implementation. Older writers do not acquire the root lock; `--offline` acknowledges that they have been stopped. Never unlink live pool locks or remove legacy locks while an older writer remains active.
+
 ## Solidification tasks
 
 List tasks, then inspect an individual task:

@@ -103,6 +103,8 @@ func (runtime *Runtime) resumeRun(ctx context.Context, scenarioID, id, stateDir,
 	identity = claimedIdentity
 	report.State = "preparing"
 	report.Failure = ""
+	report.WorkloadsPaused = false
+	report.PauseError = ""
 	report.FinishedAt = nil
 	if err := saveRecord(stateDir, report); err != nil {
 		return report, registration, identity.UID, owner, err

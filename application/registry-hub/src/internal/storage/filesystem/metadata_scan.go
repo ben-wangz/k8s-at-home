@@ -57,6 +57,9 @@ func (s *Store) walkMetadata(ctx context.Context, dir, prefix, token string, lim
 		if len(*result) >= limit {
 			return nil
 		}
+		if dir == s.root && child.Name() == lockDirectory {
+			continue
+		}
 		if child.Type()&os.ModeSymlink != 0 || strings.HasPrefix(child.Name(), ".staging-") || strings.HasSuffix(child.Name(), ".lock") {
 			continue
 		}

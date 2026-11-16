@@ -23,6 +23,7 @@ func registrationData(registration Registration) map[string]string {
 		"valuesFile":              registration.ValuesFile,
 		"state":                   registration.State,
 		"startedAt":               registration.StartedAt.UTC().Format(time.RFC3339Nano),
+		"lastActivityAt":          formatTimestamp(registration.LastActivityAt),
 		"activeOwner":             registration.ActiveOwner,
 		"leaseUntil":              formatTimestamp(registration.LeaseUntil),
 	}

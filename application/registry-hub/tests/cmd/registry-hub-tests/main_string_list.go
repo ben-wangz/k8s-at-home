@@ -19,4 +19,5 @@ func (values *stringList) Set(value string) error {
 func printUsage() {
 	fmt.Println("Usage: registry-hub-tests <list|plan|check|run|environment>")
 	fmt.Println("Run 'registry-hub-tests run --help' for run options.")
+	fmt.Println("Environment commands: check, create, inspect, destroy, prune.")
 }

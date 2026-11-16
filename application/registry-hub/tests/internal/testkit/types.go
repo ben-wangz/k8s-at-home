@@ -87,6 +87,8 @@ type RunRecord struct {
 	Cases                   map[string]CaseResult `json:"cases"`
 	Resources               []ResourceIdentity    `json:"resources,omitempty"`
 	CleanupError            string                `json:"cleanupError,omitempty"`
+	WorkloadsPaused         bool                  `json:"workloadsPaused,omitempty"`
+	PauseError              string                `json:"pauseError,omitempty"`
 }
 
 type CaseResult struct {

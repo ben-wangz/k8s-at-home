@@ -25,6 +25,7 @@ func (environment Environment) RenewLease(ctx context.Context, id, owner string)
 			return fmt.Errorf("test ID %s lease expired or was taken by another runner", id)
 		}
 		registration.LeaseUntil = time.Now().UTC().Add(RunnerLeaseDuration)
+		registration.LastActivityAt = time.Now().UTC()
 		object["data"] = registrationData(registration)
 		encoded, err := json.Marshal(object)
 		if err != nil {

@@ -3,7 +3,6 @@ package filesystem
 import (
 	"context"
 	"errors"
-	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
 	"registry-hub/internal/storage"
@@ -40,6 +39,9 @@ func (s *Store) list(ctx context.Context, prefix, token string, limit int, versi
 				return nil
 			}
 			return walkErr
+		}
+		if path == filepath.Join(s.root, lockDirectory) {
+			return filepath.SkipDir
 		}
 		if d.IsDir() || strings.HasPrefix(d.Name(), ".staging-") || strings.HasSuffix(d.Name(), ".lock") {
 			return nil
@@ -95,36 +97,11 @@ func (s *Store) list(ctx context.Context, prefix, token string, limit int, versi
 
 func (s *Store) Close() error { return nil }
 
-func (s *Store) lock(ctx context.Context, path string) (func(), error) {
-	file, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
-	}
-	for {
-		err = unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB)
-		if err == nil {
-			return func() {
-				_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
-				_ = file.Close()
-			}, nil
-		}
-		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
-			_ = file.Close()
-			return nil, err
-		}
-		timer := time.NewTimer(25 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			_ = file.Close()
-			return nil, ctx.Err()
-		case <-timer.C:
-		}
-	}
-}
-
 func (s *Store) path(key string) (string, error) {
 	if key == "" || strings.HasPrefix(key, "/") || strings.Contains(key, "\\") {
+		return "", storage.ErrInvalidKey
+	}
+	if key == lockDirectory || strings.HasPrefix(key, lockDirectory+"/") {
 		return "", storage.ErrInvalidKey
 	}
 	for _, part := range strings.Split(key, "/") {

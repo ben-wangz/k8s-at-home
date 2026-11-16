@@ -32,6 +32,7 @@ type Registration struct {
 	ActiveOwner             string    `json:"activeOwner,omitempty"`
 	LeaseUntil              time.Time `json:"leaseUntil,omitempty"`
 	StartedAt               time.Time `json:"startedAt"`
+	LastActivityAt          time.Time `json:"lastActivityAt,omitempty"`
 }
 
 func RegistrationName(id string) string {
@@ -39,6 +40,7 @@ func RegistrationName(id string) string {
 }
 
 func (environment Environment) Reserve(ctx context.Context, registration Registration) (testkit.ResourceIdentity, error) {
+	registration.LastActivityAt = time.Now().UTC()
 	payload := map[string]any{
 		"apiVersion": "v1",
 		"kind":       "ConfigMap",
@@ -117,6 +119,13 @@ func parseRegistration(object map[string]any, id string) (Registration, testkit.
 		}
 		registration.LeaseUntil = parsed
 	}
+	if activity := testkit.String(data["lastActivityAt"]); activity != "" {
+		parsed, parseErr := time.Parse(time.RFC3339Nano, activity)
+		if parseErr != nil {
+			return Registration{}, testkit.ResourceIdentity{}, fmt.Errorf("test ID registration has an invalid activity time")
+		}
+		registration.LastActivityAt = parsed
+	}
 	if registration.ID != id || registration.ScenarioID == "" || registration.Release == "" || registration.Fullname == "" || registration.KubeContext == "" {
 		return Registration{}, testkit.ResourceIdentity{}, fmt.Errorf("test ID registration is incomplete")
 	}
@@ -142,6 +151,7 @@ func (environment Environment) replaceRegistration(ctx context.Context, registra
 			return fmt.Errorf("test ID %s lease is no longer owned by this runner", registration.ID)
 		}
 		candidate := registration
+		candidate.LastActivityAt = time.Now().UTC()
 		if releaseLease {
 			candidate.ActiveOwner = ""
 			candidate.LeaseUntil = time.Time{}
@@ -166,6 +176,10 @@ func (environment Environment) replaceRegistration(ctx context.Context, registra
 }
 
 func (environment Environment) ClaimRegistration(ctx context.Context, id, owner, contextName string) (Registration, testkit.ResourceIdentity, error) {
+	return environment.claimRegistration(ctx, id, owner, contextName, 0)
+}
+
+func (environment Environment) claimRegistration(ctx context.Context, id, owner, contextName string, olderThan time.Duration) (Registration, testkit.ResourceIdentity, error) {
 	object, err := testkit.KubectlGet(ctx, Namespace, "configmap", RegistrationName(id))
 	if err != nil {
 		return Registration{}, testkit.ResourceIdentity{}, err
@@ -174,14 +188,18 @@ func (environment Environment) ClaimRegistration(ctx context.Context, id, owner,
 	if err != nil {
 		return Registration{}, testkit.ResourceIdentity{}, err
 	}
-	if registration.KubeContext != contextName {
-		return Registration{}, testkit.ResourceIdentity{}, fmt.Errorf("test ID %s belongs to Kubernetes context %s", id, registration.KubeContext)
+	if err := ValidateRegistration(registration, id, contextName); err != nil {
+		return Registration{}, testkit.ResourceIdentity{}, err
+	}
+	if olderThan > 0 && !RegistrationExpired(registration, time.Now().UTC(), olderThan) {
+		return Registration{}, testkit.ResourceIdentity{}, ErrRegistrationNotExpired
 	}
 	if registration.ActiveOwner != "" && registration.LeaseUntil.After(time.Now().UTC()) {
 		return Registration{}, testkit.ResourceIdentity{}, fmt.Errorf("test ID %s is active on another runner until %s", id, registration.LeaseUntil.UTC().Format(time.RFC3339))
 	}
 	registration.ActiveOwner = owner
 	registration.LeaseUntil = time.Now().UTC().Add(RunnerLeaseDuration)
+	registration.LastActivityAt = time.Now().UTC()
 	metadata := testkit.Map(object["metadata"])
 	object["data"] = registrationData(registration)
 	encoded, err := json.Marshal(object)

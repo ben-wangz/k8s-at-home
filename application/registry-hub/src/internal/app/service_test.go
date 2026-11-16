@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -27,20 +28,22 @@ func TestPingWithRetryWaitsForDependencyAndHonorsDeadline(t *testing.T) {
 	})
 
 	t.Run("deadline", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
-		defer cancel()
-		attempts := 0
-		pingErr := errors.New("connection refused")
-		err := pingWithRetry(ctx, func(context.Context) error {
-			attempts++
-			return pingErr
-		}, time.Millisecond)
-		if err == nil || !strings.Contains(err.Error(), pingErr.Error()) || !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("pingWithRetry() error = %v, want last probe error and deadline", err)
-		}
-		if attempts < 2 {
-			t.Fatalf("ping attempts = %d, want retries before deadline", attempts)
-		}
+		synctest.Test(t, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+			defer cancel()
+			attempts := 0
+			pingErr := errors.New("connection refused")
+			err := pingWithRetry(ctx, func(context.Context) error {
+				attempts++
+				return pingErr
+			}, time.Millisecond)
+			if err == nil || !strings.Contains(err.Error(), pingErr.Error()) || !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("pingWithRetry() error = %v, want last probe error and deadline", err)
+			}
+			if attempts < 2 {
+				t.Fatalf("ping attempts = %d, want retries before deadline", attempts)
+			}
+		})
 	})
 
 	t.Run("cancellation", func(t *testing.T) {

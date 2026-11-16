@@ -29,13 +29,13 @@ With no case selection, the runner executes all registered cases. Selected cases
 
     application/registry-hub/tests/features/minimal/run.sh run --case registry-roundtrip --case restart-reuse
 
-Use --id <id> to choose a run ID. The runner generates and prints one when omitted. Do not reuse an existing ID for a new run. Failed runs retain the environment for inspection and explicit reuse:
+Use --id <id> to choose a run ID. The runner generates and prints one when omitted. Do not reuse an existing ID for a new run. Failed runs retain PVCs and reports with release Deployments paused for inspection and explicit reuse:
 
     application/registry-hub/tests/features/minimal/run.sh environment inspect --id <id>
     application/registry-hub/tests/features/minimal/run.sh run --id <id> --reuse --case registry-roundtrip
     application/registry-hub/tests/features/minimal/run.sh environment destroy --id <id>
 
-Reuse recalculates and runs the full dependency set for the selected cases. Create a new ID if the configuration or product source differs from the original run. To create the environment without running cases:
+Reuse restores the chart's replicas, recalculates and runs the full dependency set for the selected cases. Before each start, failed or abandoned runs inactive for 24 hours without a valid lease are destroyed, excluding the requested ID and intentionally created environments. Use `environment prune --older-than 24h --dry-run` to inspect expiry candidates, or omit `--dry-run` to reclaim them. Local reports remain. See [environment lifecycle](environment/README.md#run-and-preserve-failures) for ownership checks, scheduling, and interruption limits. Create a new ID if the configuration or product source differs from the original run. To create the environment without running cases:
 
     application/registry-hub/tests/features/minimal/run.sh environment create --id <id>
 

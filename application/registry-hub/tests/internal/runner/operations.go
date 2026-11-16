@@ -61,6 +61,10 @@ func (runtime *Runtime) Inspect(ctx context.Context, id string) error {
 }
 
 func (runtime *Runtime) Destroy(ctx context.Context, id string) error {
+	return runtime.destroy(ctx, id, 0)
+}
+
+func (runtime *Runtime) destroy(ctx context.Context, id string, olderThan time.Duration) error {
 	if err := testkit.ValidateRunID(id); err != nil {
 		return err
 	}
@@ -92,7 +96,12 @@ func (runtime *Runtime) Destroy(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	registration, identity, err := runtime.Environment.ClaimRegistration(ctx, id, owner, contextName)
+	var identity testkit.ResourceIdentity
+	if olderThan > 0 {
+		registration, identity, err = runtime.Environment.ClaimExpiredRegistration(ctx, id, owner, contextName, olderThan)
+	} else {
+		registration, identity, err = runtime.Environment.ClaimRegistration(ctx, id, owner, contextName)
+	}
 	if err != nil {
 		return err
 	}
@@ -123,10 +132,14 @@ func (runtime *Runtime) Destroy(ctx context.Context, id string) error {
 	if err != nil {
 		report.State = "cleanup_failed"
 		report.CleanupError = err.Error()
-		report.Failure = err.Error()
+		if report.Failure == "" {
+			report.Failure = err.Error()
+		}
 		_ = saveRecord(stateDir, report)
 		registration.State = "cleanup_failed"
-		_ = runtime.Environment.UpdateRegistration(context.Background(), registration)
+		updateContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		_ = runtime.Environment.UpdateRegistration(updateContext, registration)
 		return err
 	}
 	reservationPresent = false
@@ -136,7 +149,6 @@ func (runtime *Runtime) Destroy(ctx context.Context, id string) error {
 	report.FinishedAt = &now
 	report.Resources = resources
 	report.CleanupError = ""
-	report.Failure = ""
 	if err := saveRecord(stateDir, report); err != nil {
 		return err
 	}
