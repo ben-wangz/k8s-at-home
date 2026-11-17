@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io"
 	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/inventory"
@@ -51,7 +52,11 @@ func (s *Service) observeDistributionTransfer(task tasks.Task, size int64) *tran
 	}
 	now := time.Now().UTC()
 	id := inventory.ID("distribution_write", task.Authority, task.Repository, task.BlobDigest, session)
-	o := &transferObserver{service: s, task: task, view: transferAttempt{ID: id, AttemptID: diagnostics.ID("distribution_upload", task.ID, now.Format(time.RFC3339Nano)), StartedAt: now, ProgressAt: now, TotalBytes: size, EvidenceSource: "HTTP transport body bytes read; not proof of remote acceptance; commit requires successful digest-qualified response"}, stop: make(chan struct{}), done: make(chan struct{})}
+	attempt := task.AttemptID
+	if attempt == "" {
+		attempt = session
+	}
+	o := &transferObserver{service: s, task: task, view: transferAttempt{ID: id, AttemptID: diagnostics.ID("distribution_upload", task.ID, attempt), StartedAt: now, ProgressAt: now, TotalBytes: size, EvidenceSource: "HTTP transport body bytes read; not proof of remote acceptance; commit requires successful digest-qualified response"}, stop: make(chan struct{}), done: make(chan struct{})}
 	o.persist()
 	parent := s.ctx
 	if parent == nil {
@@ -88,7 +93,7 @@ func (o *transferObserver) persist() {
 		view.ProgressAt = time.Now().UTC()
 	}
 	o.view = view
-	err := inventory.Update(ctx, o.service.store, diagnostics.Prefix+"transfer-progress/"+view.ID+".json", func(value *transferAttempt) error {
+	err := inventory.Update(ctx, o.service.store, diagnostics.Prefix+"transfer-progress/"+view.ID+"/"+view.AttemptID+".json", func(value *transferAttempt) error {
 		if value.StartedAt.After(view.StartedAt) {
 			return inventory.ErrSuperseded
 		}
@@ -105,7 +110,12 @@ func (o *transferObserver) finish(cause error, status int, committed bool) {
 	<-o.done
 	o.view.FinishedAt, o.view.HTTPStatus, o.view.Committed = time.Now().UTC(), status, committed
 	if cause != nil && !committed {
-		o.view.ErrorClass = diagnosticReason(cause)
+		var failure *tasks.Failure
+		if errors.As(cause, &failure) && failure.Class != "" {
+			o.view.ErrorClass = failure.Class
+		} else {
+			o.view.ErrorClass = diagnosticReason(cause)
+		}
 	}
 	o.persist()
 	result := "complete"
@@ -119,7 +129,11 @@ func (s *Service) attachTransferAttempt(ctx context.Context, view *transferView)
 	if view.Kind != "distribution_write" {
 		return
 	}
-	progress, _, err := inventory.Read[transferAttempt](ctx, s.store, diagnostics.Prefix+"transfer-progress/"+view.ID+".json")
+	key := diagnostics.Prefix + "transfer-progress/" + view.ID + ".json"
+	if view.AttemptRecordID != "" {
+		key = diagnostics.Prefix + "transfer-progress/" + view.ID + "/" + view.AttemptRecordID + ".json"
+	}
+	progress, _, err := inventory.Read[transferAttempt](ctx, s.store, key)
 	if err == nil {
 		view.Attempt = &progress
 	}

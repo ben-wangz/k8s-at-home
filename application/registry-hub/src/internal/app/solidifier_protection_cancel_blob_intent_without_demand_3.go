@@ -99,7 +99,7 @@ func (s *solidifier) releaseUnownedProtectionSession(ctx context.Context, sessio
 	if err != nil || !active {
 		return err
 	}
-	if session.PendingOperations != 0 || session.UncertainRemoteResult {
+	if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWritePermit != "" {
 		return ErrProtectionBusy
 	}
 	stop, err := s.gate.RequestProtectionStop(ctx, sessionID, "cancelled")
@@ -123,7 +123,7 @@ func (s *solidifier) releaseUnownedProtectionSession(ctx context.Context, sessio
 		if err != nil || !active {
 			return err
 		}
-		if session.PendingOperations != 0 || session.UncertainRemoteResult {
+		if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWritePermit != "" {
 			return ErrProtectionBusy
 		}
 		if err := s.gate.MarkProtectionQuiesced(ctx, sessionID); err != nil {

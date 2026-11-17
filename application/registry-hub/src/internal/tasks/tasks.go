@@ -7,6 +7,7 @@ import (
 	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,6 +92,7 @@ type Task struct {
 	ManifestGeneration      uint64                `json:"manifestGeneration,omitempty"`
 	Status                  State                 `json:"status"`
 	WaitReason              string                `json:"waitReason,omitempty"`
+	WaitResourceKey         string                `json:"waitResourceKey,omitempty"`
 	VerificationWorkID      string                `json:"verificationWorkID,omitempty" hidden:"true"`
 	QuotaWaitAt             time.Time             `json:"quotaWaitAt,omitempty"`
 	QuotaWakeRevision       uint64                `json:"quotaWakeRevision,omitempty"`
@@ -133,22 +135,37 @@ type Failure struct {
 }
 
 type Yield struct {
-	Status State
-	Reason string
+	Status      State
+	Reason      string
+	ResourceKey string
 }
 
 func (y *Yield) Error() string { return "task yielded to " + string(y.Status) }
 
 func WaitFor(status State, reason string) error {
+	return WaitForResource(status, reason, "")
+}
+
+func WaitForResource(status State, reason, resourceKey string) error {
 	switch status {
 	case WaitingCache, WaitingDeps, WaitingQuota, VerifiedLocal:
 		if !validWaitReason(reason) {
 			return errors.New("task wait reason must be a stable lowercase identifier")
 		}
-		return &Yield{Status: status, Reason: reason}
+		if resourceKey != "" && !validWaitResourceKey(resourceKey) {
+			return errors.New("task wait resource key is invalid")
+		}
+		return &Yield{Status: status, Reason: reason, ResourceKey: resourceKey}
 	default:
 		return errors.New("unsupported task wait state")
 	}
+}
+
+func validWaitResourceKey(key string) bool {
+	if len(key) > 1024 || strings.ContainsAny(key, "\r\n\x00") {
+		return false
+	}
+	return strings.HasPrefix(key, "objects/") || strings.HasPrefix(key, "protection/")
 }
 
 func validWaitReason(reason string) bool {

@@ -73,9 +73,31 @@ func TestDistributionAttemptTracksTransportBytesWithoutClaimingCommit(t *testing
 	observer := f.service.observeDistributionTransfer(task, 100)
 	observer.bytes.Store(40)
 	observer.finish(storage.ErrTimeout, 0, false)
-	view, _, err := inventory.Read[transferAttempt](context.Background(), f.service.store, diagnostics.Prefix+"transfer-progress/"+observer.view.ID+".json")
+	view, _, err := inventory.Read[transferAttempt](context.Background(), f.service.store, diagnostics.Prefix+"transfer-progress/"+observer.view.ID+"/"+observer.view.AttemptID+".json")
 	if err != nil || view.BodyBytesRead != 40 || view.Committed || view.ErrorClass != "timeout" || view.FinishedAt.IsZero() {
 		t.Fatalf("partial attempt misreported: %+v %v", view, err)
+	}
+}
+
+func TestDistributionAttemptRecordsAreNotOverwrittenByRetry(t *testing.T) {
+	f := newStagedAcceptanceFixture(t, 1<<20)
+	task := tasks.Task{ID: "attempt", RoundID: "round", Authority: "example.org", Repository: "repo", BlobDigest: "sha256:blob", AttemptID: "first"}
+	first := f.service.observeDistributionTransfer(task, 100)
+	first.finish(storage.ErrTimeout, 0, false)
+	task.AttemptID = "second"
+	second := f.service.observeDistributionTransfer(task, 100)
+	second.finish(&tasks.Failure{Class: "distribution", Err: errors.New("registry returned a retryable response")}, 503, false)
+	if first.view.AttemptID == second.view.AttemptID {
+		t.Fatal("separate task attempts reused the same transfer attempt ID")
+	}
+	for _, observer := range []*transferObserver{first, second} {
+		stored, _, err := inventory.Read[transferAttempt](context.Background(), f.service.store, diagnostics.Prefix+"transfer-progress/"+observer.view.ID+"/"+observer.view.AttemptID+".json")
+		if err != nil || stored.AttemptID != observer.view.AttemptID || stored.FinishedAt.IsZero() {
+			t.Fatalf("transfer attempt %s was overwritten or missing: %+v %v", observer.view.AttemptID, stored, err)
+		}
+	}
+	if second.view.ErrorClass != "distribution" {
+		t.Fatalf("original transfer failure class = %q, want distribution", second.view.ErrorClass)
 	}
 }
 

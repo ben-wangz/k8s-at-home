@@ -93,6 +93,64 @@ func TestProtectionRecoveryResumesAbsentWritesWithoutReleasingProtection(t *test
 	}
 }
 
+func TestRuntimeProtectionReconciliationResolvesWriteWithoutRecoveryBarrier(t *testing.T) {
+	t.Run("verified blob", func(t *testing.T) {
+		f := newStagedAcceptanceFixture(t, 1<<20)
+		write := recoveryAbsentWrite("blob")
+		body := []byte("interrupted write")
+		if artifact.CalculateSHA256(body) != write.Digest || int64(len(body)) != write.Size {
+			t.Fatalf("test payload does not match write descriptor: %s/%d", artifact.CalculateSHA256(body), len(body))
+		}
+		f.objects[write.Digest] = stagedAcceptanceObject{body: body, mediaType: "application/octet-stream"}
+		id := admitInterruptedRecoveryWrite(t, f, write)
+		if err := f.service.reconcileRuntimeProtectionWrite(context.Background(), id); err != nil {
+			t.Fatal(err)
+		}
+		session, active, err := f.service.gate.protectionSession(context.Background(), id)
+		if err != nil || !active || session.UncertainRemoteResult || session.RemoteWrite != nil || !session.MayContainUnanchored {
+			t.Fatalf("verified blob reconciliation lost the protected state: %+v active=%t err=%v", session, active, err)
+		}
+		if f.service.gate.State().RecoveryBarrier {
+			t.Fatal("runtime reconciliation raised the global recovery barrier")
+		}
+	})
+
+	t.Run("confirmed miss", func(t *testing.T) {
+		f := newStagedAcceptanceFixture(t, 1<<20)
+		write := recoveryAbsentWrite("blob")
+		id := admitInterruptedRecoveryWrite(t, f, write)
+		if err := f.service.reconcileRuntimeProtectionWrite(context.Background(), id); err != nil {
+			t.Fatal(err)
+		}
+		session, active, err := f.service.gate.protectionSession(context.Background(), id)
+		if err != nil || !active || session.UncertainRemoteResult || session.RemoteWrite != nil || !session.MayContainUnanchored {
+			t.Fatalf("runtime miss reconciliation lost the protected state: %+v active=%t err=%v", session, active, err)
+		}
+		if f.service.gate.State().RecoveryBarrier {
+			t.Fatal("runtime reconciliation raised the global recovery barrier")
+		}
+	})
+
+	t.Run("untrusted registry result keeps protection", func(t *testing.T) {
+		f := newStagedAcceptanceFixture(t, 1<<20)
+		write := recoveryAbsentWrite("blob")
+		id := admitInterruptedRecoveryWrite(t, f, write)
+		f.service.registry = newLocalRegistry(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		if err := f.service.reconcileRuntimeProtectionWrite(context.Background(), id); err == nil {
+			t.Fatal("unavailable registry result was treated as resolved")
+		}
+		session, active, err := f.service.gate.protectionSession(context.Background(), id)
+		if err != nil || !active || !session.UncertainRemoteResult || session.RemoteWrite == nil || session.RemoteRecovery == nil || session.RemoteRecovery.Attempts != 1 || session.RemoteRecovery.ErrorClass != "distribution_reconcile" {
+			t.Fatalf("untrusted registry result released protection or missed retry state: %+v active=%t err=%v", session, active, err)
+		}
+		if f.service.gate.State().RecoveryBarrier {
+			t.Fatal("runtime reconciliation raised the global recovery barrier")
+		}
+	})
+}
+
 func TestProtectionRecoveryCheckpointsAbsentWriteAcrossOwners(t *testing.T) {
 	f, _ := newRecoveryFixture(t)
 	write := recoveryAbsentWrite("blob")

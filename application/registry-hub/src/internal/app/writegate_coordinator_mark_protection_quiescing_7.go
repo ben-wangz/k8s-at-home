@@ -23,7 +23,7 @@ func (g *writeGate) MarkProtectionQuiesced(ctx context.Context, sessionID string
 		if session.State != "stop_requested" && session.State != "quiescing" && session.State != "recovery_required" {
 			return errors.New("protection session is not stopping")
 		}
-		if session.PendingOperations != 0 || session.UncertainRemoteResult {
+		if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWritePermit != "" {
 			return errors.New("protection session still has unresolved remote operations")
 		}
 		session.State = "quiesced"
@@ -64,7 +64,7 @@ func (g *writeGate) ReleaseProtection(ctx context.Context, sessionID, reason str
 	if err != nil {
 		return err
 	}
-	if session.PendingOperations != 0 || session.UncertainRemoteResult {
+	if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWritePermit != "" {
 		return errors.New("protection session cannot be released before quiescence")
 	}
 	currentTotal := g.state.ReservedDistributionBytes

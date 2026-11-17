@@ -10,25 +10,28 @@ import (
 )
 
 type protectionSessionRecord struct {
-	SchemaVersion         int                    `json:"schemaVersion"`
-	ID                    string                 `json:"id"`
-	ScopeID               string                 `json:"scopeID"`
-	OwnerSetID            string                 `json:"ownerSetID"`
-	ReservationClass      string                 `json:"reservationClass,omitempty"`
-	State                 string                 `json:"state"`
-	TerminalReason        string                 `json:"terminalReason,omitempty"`
-	ReservationID         string                 `json:"reservationID,omitempty"`
-	ReservedBytes         int64                  `json:"reservedBytes"`
-	CreatedAt             time.Time              `json:"createdAt"`
-	LastProgressAt        time.Time              `json:"lastProgressAt"`
-	StopRequestedAt       time.Time              `json:"stopRequestedAt,omitempty"`
-	PendingOperations     int                    `json:"pendingOperations"`
-	UncertainRemoteResult bool                   `json:"uncertainRemoteResult,omitempty"`
-	RemoteWrite           *protectionRemoteWrite `json:"remoteWrite,omitempty"`
-	MayContainUnanchored  bool                   `json:"mayContainUnanchored,omitempty"`
-	CancelPhase           string                 `json:"cancelPhase,omitempty"`
-	RecoveryStage         string                 `json:"recoveryStage,omitempty"`
-	RecoveryReason        string                 `json:"recoveryReason,omitempty"`
+	SchemaVersion         int                         `json:"schemaVersion"`
+	ID                    string                      `json:"id"`
+	ScopeID               string                      `json:"scopeID"`
+	OwnerSetID            string                      `json:"ownerSetID"`
+	ReservationClass      string                      `json:"reservationClass,omitempty"`
+	State                 string                      `json:"state"`
+	TerminalReason        string                      `json:"terminalReason,omitempty"`
+	ReservationID         string                      `json:"reservationID,omitempty"`
+	ReservedBytes         int64                       `json:"reservedBytes"`
+	CreatedAt             time.Time                   `json:"createdAt"`
+	LastProgressAt        time.Time                   `json:"lastProgressAt"`
+	StopRequestedAt       time.Time                   `json:"stopRequestedAt,omitempty"`
+	PendingOperations     int                         `json:"pendingOperations"`
+	RemoteWritePermit     string                      `json:"remoteWritePermit,omitempty"`
+	RemoteWriteAttemptID  string                      `json:"remoteWriteAttemptID,omitempty"`
+	UncertainRemoteResult bool                        `json:"uncertainRemoteResult,omitempty"`
+	RemoteWrite           *protectionRemoteWrite      `json:"remoteWrite,omitempty"`
+	RemoteRecovery        *protectionRemoteCheckpoint `json:"remoteRecovery,omitempty"`
+	MayContainUnanchored  bool                        `json:"mayContainUnanchored,omitempty"`
+	CancelPhase           string                      `json:"cancelPhase,omitempty"`
+	RecoveryStage         string                      `json:"recoveryStage,omitempty"`
+	RecoveryReason        string                      `json:"recoveryReason,omitempty"`
 	version               string
 }
 
@@ -43,20 +46,23 @@ type protectionRemoteWrite struct {
 }
 
 type protectionSessionStatus struct {
-	ID                    string `json:"id"`
-	ScopeID               string `json:"scopeID"`
-	ReservationClass      string `json:"reservationClass"`
-	State                 string `json:"state"`
-	OwnerCount            int    `json:"ownerCount"`
-	ReservedBytes         int64  `json:"reservedBytes"`
-	PendingOperations     int    `json:"pendingOperations"`
-	UncertainRemoteResult bool   `json:"uncertainRemoteResult,omitempty"`
-	MayContainUnanchored  bool   `json:"mayContainUnanchored,omitempty"`
-	RemoteOperationKind   string `json:"remoteOperationKind,omitempty"`
-	RemoteDigest          string `json:"remoteDigest,omitempty"`
-	RemoteSubject         string `json:"remoteSubject,omitempty"`
-	CancelPhase           string `json:"cancelPhase,omitempty"`
-	RecoveryReason        string `json:"recoveryReason,omitempty"`
+	ID                          string    `json:"id"`
+	ScopeID                     string    `json:"scopeID"`
+	ReservationClass            string    `json:"reservationClass"`
+	State                       string    `json:"state"`
+	OwnerCount                  int       `json:"ownerCount"`
+	ReservedBytes               int64     `json:"reservedBytes"`
+	PendingOperations           int       `json:"pendingOperations"`
+	WritePermitActive           bool      `json:"writePermitActive,omitempty"`
+	UncertainRemoteResult       bool      `json:"uncertainRemoteResult,omitempty"`
+	RemoteRecoveryErrorClass    string    `json:"remoteRecoveryErrorClass,omitempty"`
+	RemoteRecoveryNextAttemptAt time.Time `json:"remoteRecoveryNextAttemptAt,omitempty"`
+	MayContainUnanchored        bool      `json:"mayContainUnanchored,omitempty"`
+	RemoteOperationKind         string    `json:"remoteOperationKind,omitempty"`
+	RemoteDigest                string    `json:"remoteDigest,omitempty"`
+	RemoteSubject               string    `json:"remoteSubject,omitempty"`
+	CancelPhase                 string    `json:"cancelPhase,omitempty"`
+	RecoveryReason              string    `json:"recoveryReason,omitempty"`
 }
 
 func (g *writeGate) AdmitProtection(ctx context.Context, sessionID, scopeID, demandID string, reservedBytes int64, maxSessions int, maxBytes int64) error {

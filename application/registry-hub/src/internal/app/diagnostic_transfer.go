@@ -38,6 +38,7 @@ type transferView struct {
 	StorageSnapshotID     string           `json:"storageSnapshotID,omitempty"`
 	TemporaryReason       string           `json:"temporaryReason"`
 	Attempt               *transferAttempt `json:"attempt,omitempty"`
+	AttemptRecordID       string           `json:"attemptRecordID,omitempty"`
 }
 
 func (s *Service) projectDiagnosticTransfer(ctx context.Context, key string, data json.RawMessage) error {
@@ -105,6 +106,11 @@ func (s *Service) projectDiagnosticTransfer(ctx context.Context, key string, dat
 		if view.SessionID == "" {
 			view.SessionID = task.ID
 		}
+		attemptID := task.AttemptID
+		if attemptID == "" {
+			attemptID = view.SessionID
+		}
+		view.AttemptRecordID = diagnostics.ID("distribution_upload", task.ID, attemptID)
 		view.ProgressAt = task.LastProgressAt
 		for _, event := range task.DiagnosticOutbox {
 			if event.Result == string(tasks.Running) {

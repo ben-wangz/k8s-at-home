@@ -148,7 +148,7 @@ func (m *Manager) wake(ctx context.Context, id string, expected *Task) (Task, er
 		if err != nil {
 			return Task{}, err
 		}
-		if expected != nil && (task.Generation != expected.Generation || task.RoundID != expected.RoundID || task.AttemptID != expected.AttemptID || task.VerificationWorkID != expected.VerificationWorkID || task.ProtectionSessionID != expected.ProtectionSessionID || task.Status != expected.Status || task.WaitReason != expected.WaitReason || task.QuotaWakeRevision != expected.QuotaWakeRevision || task.CancelRequested) {
+		if expected != nil && (task.Generation != expected.Generation || task.RoundID != expected.RoundID || task.AttemptID != expected.AttemptID || task.VerificationWorkID != expected.VerificationWorkID || task.ProtectionSessionID != expected.ProtectionSessionID || task.Status != expected.Status || task.WaitReason != expected.WaitReason || task.WaitResourceKey != expected.WaitResourceKey || task.QuotaWakeRevision != expected.QuotaWakeRevision || task.CancelRequested) {
 			return Task{}, storage.ErrConditionFailed
 		}
 		if task.CancelRequested {
@@ -177,6 +177,7 @@ func (m *Manager) wake(ctx context.Context, id string, expected *Task) (Task, er
 			task.ExecutableAt = time.Now().UTC()
 		}
 		task.WaitReason = ""
+		task.WaitResourceKey = ""
 		task.QuotaWaitBytes = 0
 		task.QuotaReplaceableBytes = 0
 		task.QuotaReplaceableSlots = 0

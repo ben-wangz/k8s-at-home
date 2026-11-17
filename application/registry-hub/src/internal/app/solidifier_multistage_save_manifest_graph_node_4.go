@@ -84,7 +84,7 @@ func (s *solidifier) distributionBlobPresent(ctx context.Context, task *tasks.Ta
 	leaseCtx, release, err := acquireContentLease(ctx, s.tasks.Leases(), task.Authority, task.Repository, blob.digest, task.ID)
 	if err != nil {
 		if errors.Is(err, lease.ErrHeld) {
-			return false, temporary("object_busy", err)
+			return false, waitForObjectLease(task.Authority, task.Repository, blob.digest)
 		}
 		return false, temporary("object_lease", err)
 	}

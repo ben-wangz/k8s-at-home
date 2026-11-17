@@ -7,7 +7,7 @@ import (
 )
 
 func (g *writeGate) reopenProtectionSessionLocked(ctx context.Context, session *protectionSessionRecord, demandID string) error {
-	if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil {
+	if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil || session.RemoteWritePermit != "" {
 		return ErrProtectionBusy
 	}
 	if demandID != "" {
@@ -23,6 +23,9 @@ func (g *writeGate) reopenProtectionSessionLocked(ctx context.Context, session *
 	session.PendingOperations = 0
 	session.UncertainRemoteResult = false
 	session.RemoteWrite = nil
+	session.RemoteWritePermit = ""
+	session.RemoteWriteAttemptID = ""
+	session.RemoteRecovery = nil
 	session.MayContainUnanchored = true
 	session.CancelPhase = ""
 	session.RecoveryStage = ""
@@ -115,7 +118,7 @@ func (g *writeGate) validateProtectionStateLocked(ctx context.Context, requireQu
 			newTotal += session.ReservedBytes
 			newSessionCount++
 		}
-		if requireQuiescent && (session.PendingOperations != 0 || session.UncertainRemoteResult || session.State != "protected" && session.State != "anchored") {
+		if requireQuiescent && (session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWritePermit != "" || session.State != "protected" && session.State != "anchored") {
 			return ErrRecoveryBarrier
 		}
 	}

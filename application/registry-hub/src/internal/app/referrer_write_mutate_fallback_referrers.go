@@ -12,6 +12,7 @@ import (
 	"registry-hub/internal/lease"
 	"registry-hub/internal/route"
 	"registry-hub/internal/storage"
+	"registry-hub/internal/tasks"
 	"time"
 )
 
@@ -19,7 +20,11 @@ func (s *Service) resolveProtectedReferrerWrite(ctx context.Context, sessionID s
 	if err := s.gate.MarkProtectionContentObserved(ctx, sessionID); err != nil {
 		return err
 	}
-	return s.gate.MarkProtectionWriteResolved(ctx, sessionID, remoteWrite)
+	if err := s.gate.MarkProtectionWriteResolved(ctx, sessionID, remoteWrite); err != nil {
+		return err
+	}
+	s.signalTaskReconciliation()
+	return nil
 }
 
 func (s *Service) mutateFallbackReferrers(ctx context.Context, routed route.Route, subject string, descriptor json.RawMessage, remove, deleteManifest bool, taskID, protectionSessionID string) (*referrerRepairIntent, error) {
@@ -72,6 +77,10 @@ func (s *Service) mutateFallbackReferrers(ctx context.Context, routed route.Rout
 		err = s.writeFallbackReferrersProtected(leaseCtx, current, tagCtx, tagLease, routed, subject, tag, mutate, remoteWrite, protectionSessionID)
 	}
 	if err != nil {
+		var yielded *tasks.Yield
+		if errors.As(err, &yielded) {
+			return intent, err
+		}
 		if updateErr := s.recordReferrerRepairFailure(leaseCtx, intent, err); updateErr != nil {
 			s.logger.Warn("referrer repair intent update failed", "error_class", "storage")
 		}
@@ -150,9 +159,27 @@ func (s *Service) writeFallbackReferrersProtected(leaseCtx context.Context, curr
 		}
 		path := "/v2/" + routed.Internal + "/manifests/" + url.PathEscape(tag)
 		if remoteWrite != nil {
-			if err := s.gate.MarkProtectionWriteStarted(indexCtx, sessionID, *remoteWrite); err != nil {
+			permitID := hashID("protection-write-permit", requestID())
+			if err := s.gate.AcquireProtectionWritePermit(indexCtx, sessionID, permitID); err != nil {
 				_ = releaseIndex()
-				return fmt.Errorf("record fallback referrer write intent: %w", err)
+				if errors.Is(err, ErrProtectionReconcilePending) {
+					return tasks.WaitForResource(tasks.WaitingDeps, "protection_reconcile_pending", "protection/"+sessionID)
+				} else if errors.Is(err, ErrProtectionBusy) {
+					return tasks.WaitForResource(tasks.WaitingDeps, "protection_busy", "protection/"+sessionID)
+				}
+				return err
+			}
+			if err := s.gate.MarkProtectionWriteStartedWithPermit(indexCtx, sessionID, permitID, *remoteWrite); err != nil {
+				releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				releaseErr := s.gate.ReleaseProtectionWritePermit(releaseCtx, sessionID, permitID)
+				cancel()
+				_ = releaseIndex()
+				if errors.Is(err, ErrProtectionBusy) {
+					err = tasks.WaitForResource(tasks.WaitingDeps, "protection_busy", "protection/"+sessionID)
+				} else if errors.Is(err, ErrProtectionReconcilePending) {
+					err = tasks.WaitForResource(tasks.WaitingDeps, "protection_reconcile_pending", "protection/"+sessionID)
+				}
+				return errors.Join(fmt.Errorf("record fallback referrer write intent: %w", err), releaseErr)
 			}
 		}
 		put, err := s.registry.Do(indexCtx, http.MethodPut, path, nil, http.Header{"Content-Type": []string{referrerIndexMediaType}}, bytes.NewReader(data), int64(len(data)))
@@ -169,6 +196,7 @@ func (s *Service) writeFallbackReferrersProtected(leaseCtx context.Context, curr
 						_ = releaseIndex()
 						return resolveErr
 					}
+					s.signalTaskReconciliation()
 				}
 				if releaseErr := releaseIndex(); releaseErr != nil {
 					return fmt.Errorf("release fallback content lease after conflict: %w", releaseErr)
@@ -205,6 +233,7 @@ func (s *Service) writeFallbackReferrersProtected(leaseCtx context.Context, curr
 			if err := s.gate.MarkProtectionWriteResolved(leaseCtx, sessionID, *remoteWrite); err != nil {
 				return fmt.Errorf("resolve fallback referrer write: %w", err)
 			}
+			s.signalTaskReconciliation()
 		}
 		if err := s.tasks.Leases().Validate(leaseCtx, current); err != nil {
 			return fmt.Errorf("final referrer lease validation: %w", err)

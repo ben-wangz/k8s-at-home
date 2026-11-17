@@ -37,7 +37,7 @@ func (g *writeGate) confirmInactiveProtectionSessionReleased(ctx context.Context
 	if (expectedScopeID != "" && session.ScopeID != expectedScopeID) || (expectedReservationClass != "" && session.ReservationClass != expectedReservationClass) {
 		return errors.New("inactive protection session identity does not match the task reference")
 	}
-	if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil {
+	if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil || session.RemoteWritePermit != "" {
 		return ErrProtectionBusy
 	}
 	if session.RecoveryStage != "" || session.RecoveryReason != "" {

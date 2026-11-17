@@ -64,6 +64,38 @@ func TestWakeOldestWaitingQuotaUsesStableCreationOrder(t *testing.T) {
 	}
 }
 
+func TestResourceWaitPersistsAndClearsOnMatchingWake(t *testing.T) {
+	ctx := context.Background()
+	store, err := filesystem.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	manager, err := NewManager(store, 1, 10, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	task, _, err := manager.Enqueue(ctx, "ghcr.io", "team/image", "latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Status = WaitingDeps
+	task.WaitReason = "protection_busy"
+	task.WaitResourceKey = "protection/0123456789abcdef0123456789abcdef"
+	if err := manager.save(ctx, &task); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := manager.Get(ctx, task.ID)
+	if err != nil || loaded.WaitResourceKey != task.WaitResourceKey {
+		t.Fatalf("resource wait did not persist: %+v err=%v", loaded, err)
+	}
+	woken, err := manager.WakeMatching(ctx, loaded)
+	if err != nil || woken.Status != Pending || woken.WaitReason != "" || woken.WaitResourceKey != "" {
+		t.Fatalf("matching wake did not clear resource wait: %+v err=%v", woken, err)
+	}
+}
+
 func TestWokenQuotaWaiterKeepsPriorityUntilAdmissionFinishes(t *testing.T) {
 	for _, status := range []State{Pending, Running} {
 		t.Run(string(status), func(t *testing.T) {

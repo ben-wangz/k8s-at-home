@@ -37,6 +37,8 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 		return
 	}
 	latest.Status = Running
+	latest.WaitReason = ""
+	latest.WaitResourceKey = ""
 	latest.ParentAttemptID = latest.AttemptID
 	latest.AttemptID = diagnostics.ID("solidification_attempt", latest.ID, strconv.FormatUint(currentLease.FencingToken, 10))
 	latest.AttemptStartedAt, latest.AttemptFinishedAt = time.Now().UTC(), time.Time{}
@@ -100,6 +102,7 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 		latest.Status = Cancelled
 		latest.CancelPhase = "quiesced"
 		latest.WaitReason = ""
+		latest.WaitResourceKey = ""
 		clearTaskQuotaWait(&latest)
 		latest.Retryable = false
 		latest.NextAttemptAt = time.Time{}
@@ -108,6 +111,7 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 		if errors.As(err, &yielded) && isWaiting(yielded.Status) && validWaitReason(yielded.Reason) {
 			latest.Status = yielded.Status
 			latest.WaitReason = yielded.Reason
+			latest.WaitResourceKey = yielded.ResourceKey
 			if yielded.Status == WaitingQuota {
 				latest.ExecutableAt = time.Time{}
 				if latest.QuotaWaitAt.IsZero() || latest.QuotaWaitReason != yielded.Reason {
@@ -122,12 +126,14 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 			latest.ErrorClass = ""
 			latest.ErrorMessage = ""
 		} else {
+			latest.WaitResourceKey = ""
 			clearTaskQuotaWait(&latest)
 			m.finishFailure(&latest, err)
 		}
 	} else {
 		latest.Status = Solidified
 		latest.WaitReason = ""
+		latest.WaitResourceKey = ""
 		clearTaskQuotaWait(&latest)
 		latest.LastProgressAt = time.Now().UTC()
 		latest.ExpiresAt = latest.LastProgressAt.Add(m.idleTimeout)
@@ -203,6 +209,7 @@ func (m *Manager) finishFailure(task *Task, err error) {
 		task.NextAttemptAt = time.Now().UTC().Add(retryDelay(task.RetryCount))
 	}
 	task.WaitReason = ""
+	task.WaitResourceKey = ""
 	if errors.As(err, &failure) {
 		task.ErrorClass = failure.Class
 		task.ErrorMessage = safeMessage(failure.Err)

@@ -24,6 +24,7 @@ var ErrRecoveryBarrier = errors.New("solidification recovery barrier is active")
 var ErrProtectionAnchored = errors.New("solidification protection was already anchored")
 
 var ErrProtectionBusy = errors.New("solidification protection has active operations")
+var ErrProtectionReconcilePending = errors.New("solidification protection has an unresolved remote write")
 
 var ErrProtectionHasContent = errors.New("solidification protection may contain unanchored content")
 

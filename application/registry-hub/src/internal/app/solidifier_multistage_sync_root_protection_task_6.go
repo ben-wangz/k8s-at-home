@@ -155,7 +155,7 @@ func (s *solidifier) anchorManifestScope(ctx context.Context, task *tasks.Task, 
 		return temporary("protection_state", err)
 	}
 	if active {
-		if session.PendingOperations != 0 || session.UncertainRemoteResult {
+		if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWritePermit != "" {
 			return tasks.WaitFor(tasks.WaitingDeps, "remote_operations_pending")
 		}
 	}

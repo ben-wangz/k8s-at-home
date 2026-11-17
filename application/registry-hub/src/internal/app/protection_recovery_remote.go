@@ -11,18 +11,22 @@ import (
 	"registry-hub/internal/artifact"
 	"registry-hub/internal/route"
 	"registry-hub/internal/storage"
+	"time"
 )
 
 type protectionRemoteCheckpoint struct {
-	Write       *protectionRemoteWrite `json:"write,omitempty"`
-	Offset      int64                  `json:"offset,omitempty"`
-	Hash        []byte                 `json:"hash,omitempty"`
-	Verified    bool                   `json:"verified,omitempty"`
-	Absent      bool                   `json:"absent,omitempty"`
-	Query       string                 `json:"query,omitempty"`
-	Pages       []string               `json:"pages,omitempty"`
-	Fallback    bool                   `json:"fallback,omitempty"`
-	HeadChecked bool                   `json:"headChecked,omitempty"`
+	Write         *protectionRemoteWrite `json:"write,omitempty"`
+	Offset        int64                  `json:"offset,omitempty"`
+	Hash          []byte                 `json:"hash,omitempty"`
+	Verified      bool                   `json:"verified,omitempty"`
+	Absent        bool                   `json:"absent,omitempty"`
+	Query         string                 `json:"query,omitempty"`
+	Pages         []string               `json:"pages,omitempty"`
+	Fallback      bool                   `json:"fallback,omitempty"`
+	HeadChecked   bool                   `json:"headChecked,omitempty"`
+	Attempts      int                    `json:"attempts,omitempty"`
+	NextAttemptAt time.Time              `json:"nextAttemptAt,omitempty"`
+	ErrorClass    string                 `json:"errorClass,omitempty"`
 }
 
 func (r *protectionRecovery) remoteStep(ctx context.Context) error {
@@ -107,7 +111,10 @@ func (r *protectionRecovery) verifyRemoteBlobChunk(ctx context.Context) error {
 			remote.Absent = true
 			return nil
 		}
-		if response.StatusCode != http.StatusOK || response.ContentLength != write.Size || response.Header.Get("Docker-Content-Digest") != write.Digest {
+		if response.StatusCode != http.StatusOK {
+			return fmt.Errorf("Distribution blob recovery HEAD returned status %d", response.StatusCode)
+		}
+		if response.ContentLength != write.Size || response.Header.Get("Docker-Content-Digest") != write.Digest {
 			return ErrRecoveryBarrier
 		}
 		remote.HeadChecked = true

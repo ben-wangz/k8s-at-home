@@ -28,7 +28,7 @@ func (g *writeGate) ReleaseEmptyProtection(ctx context.Context, sessionID, deman
 	if session.MayContainUnanchored {
 		return ErrProtectionHasContent
 	}
-	if session.PendingOperations != 0 || session.UncertainRemoteResult {
+	if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWritePermit != "" {
 		return ErrProtectionBusy
 	}
 	if session.State != "protected" && session.State != "anchoring" {
@@ -92,6 +92,14 @@ func (g *writeGate) ReleaseEmptyProtection(ctx context.Context, sessionID, deman
 }
 
 func (g *writeGate) BeginProtectionOperation(ctx context.Context, sessionID string) (func(context.Context) error, error) {
+	return g.beginProtectionOperation(ctx, sessionID, false)
+}
+
+func (g *writeGate) BeginProtectionVerificationOperation(ctx context.Context, sessionID string) (func(context.Context) error, error) {
+	return g.beginProtectionOperation(ctx, sessionID, true)
+}
+
+func (g *writeGate) beginProtectionOperation(ctx context.Context, sessionID string, allowRemoteRecovery bool) (func(context.Context) error, error) {
 	releaseWrite, err := g.Enter(ctx)
 	if err != nil {
 		return nil, err
@@ -112,6 +120,16 @@ func (g *writeGate) BeginProtectionOperation(ctx context.Context, sessionID stri
 		g.mu.Unlock()
 		releaseWrite()
 		return nil, errors.New("protection session does not admit new operations")
+	}
+	if !allowRemoteRecovery && (session.UncertainRemoteResult || session.RemoteWrite != nil) {
+		g.mu.Unlock()
+		releaseWrite()
+		return nil, ErrProtectionReconcilePending
+	}
+	if session.RemoteWritePermit != "" {
+		g.mu.Unlock()
+		releaseWrite()
+		return nil, ErrProtectionBusy
 	}
 	session.PendingOperations++
 	if err := g.saveProtectionSession(ctx, &session); err != nil {

@@ -23,12 +23,15 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 	defer s.finishProtectedOperation(finishOperation, &result)
 	leaseCtx, releaseObject, err := acquireContentLease(ctx, s.tasks.Leases(), task.Authority, task.Repository, blob.digest, task.ID)
 	if errors.Is(err, lease.ErrHeld) {
-		return temporary("object_busy", err)
+		return waitForObjectLease(task.Authority, task.Repository, blob.digest)
 	}
 	if err != nil {
 		return temporary("object_lease", err)
 	}
-	defer releaseObject()
+	defer func() {
+		_ = releaseObject()
+		s.service.signalTaskReconciliation()
+	}()
 	ctx = leaseCtx
 	transferTimeout := s.cfg.Limits.BlobTransferTimeout
 	if transferTimeout <= 0 {
@@ -114,6 +117,15 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 	if err := s.service.checkContentGeneration(ctx, task.Authority, task.Repository, blob.digest); err != nil {
 		return permanent("generation", err)
 	}
+	permitID, releasePermit, err := s.service.acquireProtectionWritePermit(ctx, protectionSessionID)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := releasePermit(); err != nil {
+			result = errors.Join(result, temporary("protection_write_permit", err))
+		}
+	}()
 	uploadPath := "/v2/" + internalRepository + "/blobs/uploads/"
 	observer := s.service.observeDistributionTransfer(*task, object.Size)
 	defer func() { performance.uploadedBytes = observer.bytes.Load() }()
@@ -153,7 +165,7 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 	if err := s.tasks.CheckActive(ctx, task, taskLease); err != nil {
 		return err
 	}
-	if err := s.markRemoteWrite(ctx, protectionSessionID, remoteWrite); err != nil {
+	if err := s.markRemoteWrite(ctx, protectionSessionID, permitID, remoteWrite); err != nil {
 		return err
 	}
 	writeStarted = true

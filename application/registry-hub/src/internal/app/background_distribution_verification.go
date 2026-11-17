@@ -93,7 +93,7 @@ func (s *Service) distributionVerificationStep(ctx context.Context, job *workque
 		job.Superseded = true
 		return nil, true, nil
 	}
-	finish, err := processor.beginProtectedOperation(ctx, work.SessionID)
+	finish, err := processor.beginProtectedVerificationOperation(ctx, work.SessionID)
 	if err != nil {
 		return nil, false, err
 	}

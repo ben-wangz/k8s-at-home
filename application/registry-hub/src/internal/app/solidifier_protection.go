@@ -81,6 +81,14 @@ func isDigestReference(reference string) bool {
 }
 
 func (s *solidifier) beginProtectedOperation(ctx context.Context, sessionID string) (func() error, error) {
+	return s.beginProtectedOperationMode(ctx, sessionID, false)
+}
+
+func (s *solidifier) beginProtectedVerificationOperation(ctx context.Context, sessionID string) (func() error, error) {
+	return s.beginProtectedOperationMode(ctx, sessionID, true)
+}
+
+func (s *solidifier) beginProtectedOperationMode(ctx context.Context, sessionID string, verification bool) (func() error, error) {
 	if sessionID == "" {
 		release, err := s.gate.Enter(ctx)
 		if err != nil {
@@ -91,14 +99,27 @@ func (s *solidifier) beginProtectedOperation(ctx context.Context, sessionID stri
 			return nil
 		}, nil
 	}
-	finish, err := s.gate.BeginProtectionOperation(ctx, sessionID)
+	var finish func(context.Context) error
+	var err error
+	if verification {
+		finish, err = s.gate.BeginProtectionVerificationOperation(ctx, sessionID)
+	} else {
+		finish, err = s.gate.BeginProtectionOperation(ctx, sessionID)
+	}
 	if err != nil {
+		if errors.Is(err, ErrProtectionReconcilePending) {
+			return nil, tasks.WaitForResource(tasks.WaitingDeps, "protection_reconcile_pending", "protection/"+sessionID)
+		} else if errors.Is(err, ErrProtectionBusy) {
+			return nil, tasks.WaitForResource(tasks.WaitingDeps, "protection_busy", "protection/"+sessionID)
+		}
 		return nil, temporary("protection_operation", err)
 	}
 	return func() error {
 		finishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return finish(finishCtx)
+		err := finish(finishCtx)
+		s.service.signalTaskReconciliation()
+		return err
 	}, nil
 }
 
@@ -108,14 +129,46 @@ func (s *solidifier) finishProtectedOperation(finish func() error, result *error
 	}
 }
 
-func (s *solidifier) markRemoteWrite(ctx context.Context, sessionID string, remoteWrite protectionRemoteWrite) error {
+func (s *solidifier) markRemoteWrite(ctx context.Context, sessionID, permitID string, remoteWrite protectionRemoteWrite) error {
 	if sessionID == "" {
 		return nil
 	}
-	if err := s.gate.MarkProtectionWriteStarted(ctx, sessionID, remoteWrite); err != nil {
+	if err := s.gate.MarkProtectionWriteStartedWithPermit(ctx, sessionID, permitID, remoteWrite); err != nil {
+		if errors.Is(err, ErrProtectionReconcilePending) {
+			return tasks.WaitForResource(tasks.WaitingDeps, "protection_reconcile_pending", "protection/"+sessionID)
+		} else if errors.Is(err, ErrProtectionBusy) {
+			return tasks.WaitForResource(tasks.WaitingDeps, "protection_busy", "protection/"+sessionID)
+		}
 		return temporary("protection_write_state", err)
 	}
 	return nil
+}
+
+func (s *Service) acquireProtectionWritePermit(ctx context.Context, sessionID string) (string, func() error, error) {
+	if sessionID == "" {
+		return "", func() error { return nil }, nil
+	}
+	permitID := hashID("protection-write-permit", requestID())
+	if err := s.gate.AcquireProtectionWritePermit(ctx, sessionID, permitID); errors.Is(err, ErrProtectionReconcilePending) {
+		return "", nil, tasks.WaitForResource(tasks.WaitingDeps, "protection_reconcile_pending", "protection/"+sessionID)
+	} else if errors.Is(err, ErrProtectionBusy) {
+		return "", nil, tasks.WaitForResource(tasks.WaitingDeps, "protection_busy", "protection/"+sessionID)
+	} else if err != nil {
+		return "", nil, temporary("protection_write_permit", err)
+	}
+	return permitID, func() error {
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.gate.ReleaseProtectionWritePermit(releaseCtx, sessionID, permitID); err != nil {
+			return err
+		}
+		s.signalTaskReconciliation()
+		return nil
+	}, nil
+}
+
+func waitForObjectLease(authority, repository, digest string) error {
+	return tasks.WaitForResource(tasks.WaitingDeps, "object_lease_pending", "objects/"+objectLeaseKey(authority, repository, digest))
 }
 
 func (s *solidifier) markRemoteContentObserved(ctx context.Context, sessionID string) error {
@@ -132,5 +185,6 @@ func (s *solidifier) resolveRemoteWrite(ctx context.Context, sessionID string, r
 	if err := s.gate.MarkProtectionWriteResolved(ctx, sessionID, remoteWrite); err != nil {
 		return temporary("protection_write_state", err)
 	}
+	s.service.signalTaskReconciliation()
 	return nil
 }

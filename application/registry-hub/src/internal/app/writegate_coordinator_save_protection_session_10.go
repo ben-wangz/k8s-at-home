@@ -42,7 +42,7 @@ func (g *writeGate) prepareProtectionSessionLocked(ctx context.Context, sessionI
 		if !reopenAnchored {
 			return protectionSessionRecord{}, false, false, ErrProtectionAnchored
 		}
-		if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil {
+		if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil || session.RemoteWritePermit != "" {
 			return protectionSessionRecord{}, false, false, ErrProtectionBusy
 		}
 		session.State = "protected"
@@ -62,7 +62,7 @@ func (g *writeGate) prepareProtectionSessionLocked(ctx context.Context, sessionI
 	if session.State != "released" || session.TerminalReason != "empty" && session.TerminalReason != "cancelled" && session.TerminalReason != "failed" && session.TerminalReason != "expired" {
 		return protectionSessionRecord{}, false, false, errors.New("existing protection session is not safely reusable")
 	}
-	if session.PendingOperations != 0 || session.UncertainRemoteResult {
+	if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWritePermit != "" {
 		return protectionSessionRecord{}, false, false, ErrProtectionBusy
 	}
 	owners, err := g.countProtectionOwnersLocked(ctx, session.OwnerSetID)
@@ -80,6 +80,11 @@ func (g *writeGate) prepareProtectionSessionLocked(ctx context.Context, sessionI
 	session.StopRequestedAt = time.Time{}
 	session.PendingOperations = 0
 	session.UncertainRemoteResult = false
+	session.RemoteWrite = nil
+	session.RemoteWriteAttemptID = ""
+	session.RemoteRecovery = nil
+	session.RemoteWrite = nil
+	session.RemoteWritePermit = ""
 	session.MayContainUnanchored = false
 	session.CancelPhase = ""
 	session.RecoveryStage = ""

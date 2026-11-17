@@ -117,7 +117,7 @@ func (r *protectionRecovery) terminalSessionStep(ctx context.Context, task tasks
 		c.Half = 0
 		return nil
 	}
-	if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil {
+	if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil || session.RemoteWritePermit != "" {
 		if _, terminal := ctx.Value(terminalWriteScopeKey{}).(*terminalWriteScope); terminal && (session.UncertainRemoteResult || session.RemoteWrite != nil) {
 			return errTerminalRemoteUnknown
 		}

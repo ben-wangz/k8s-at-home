@@ -116,7 +116,7 @@ func (m *Manager) SaveProgress(ctx context.Context, task *Task, currentLease lea
 }
 
 func taskProgressChanged(current, next Task) bool {
-	return current.RootDigest != next.RootDigest || current.BlobDigest != next.BlobDigest ||
+	return current.RootDigest != next.RootDigest || current.BlobDigest != next.BlobDigest || current.WaitResourceKey != next.WaitResourceKey ||
 		current.MediaType != next.MediaType || current.Generation != next.Generation ||
 		current.Discovery != next.Discovery || current.GraphVersion != next.GraphVersion ||
 		!reflect.DeepEqual(current.Graph, next.Graph) || !reflect.DeepEqual(current.Checkpoints, next.Checkpoints) ||

@@ -7,6 +7,7 @@ import (
 	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
+	"strings"
 	"time"
 )
 
@@ -43,6 +44,9 @@ func (s *Service) runTaskReconciliation(ctx context.Context) {
 		}
 		if gate.RecoveryBarrier || gate.State != "open" || task.CancelRequested {
 			return nil
+		}
+		if task.Status == tasks.WaitingDeps && task.WaitResourceKey != "" {
+			return s.reconcileTaskResourceWait(ctx, task)
 		}
 		if task.Status == tasks.WaitingDeps && task.WaitReason == "distribution_verification" {
 			return s.reconcileVerificationWait(ctx, task)
@@ -87,6 +91,35 @@ func (s *Service) runTaskReconciliation(ctx context.Context) {
 		}
 		return nil
 	})
+}
+
+func (s *Service) reconcileTaskResourceWait(ctx context.Context, task tasks.Task) error {
+	switch task.WaitReason {
+	case "object_lease_pending":
+		if !strings.HasPrefix(task.WaitResourceKey, "objects/") {
+			return nil
+		}
+		active, err := s.tasks.Leases().Active(ctx, task.WaitResourceKey)
+		if err != nil || active {
+			return err
+		}
+	case "protection_busy", "protection_reconcile_pending", "protection_write_pending":
+		if !strings.HasPrefix(task.WaitResourceKey, "protection/") {
+			return nil
+		}
+		sessionID := strings.TrimPrefix(task.WaitResourceKey, "protection/")
+		session, active, err := s.gate.protectionSession(ctx, sessionID)
+		if err != nil || active && (session.PendingOperations != 0 || session.RemoteWritePermit != "" || session.UncertainRemoteResult || session.RemoteWrite != nil) {
+			return err
+		}
+	default:
+		return nil
+	}
+	_, err := s.tasks.WakeMatching(ctx, task)
+	if errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrNotFound) {
+		return nil
+	}
+	return err
 }
 
 func (s *Service) runProtectionRecovery(ctx context.Context) {

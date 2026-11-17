@@ -93,6 +93,7 @@ func (m *Manager) AnchorBlobTask(ctx context.Context, id string) error {
 	}
 	task.Status = Solidified
 	task.WaitReason = ""
+	task.WaitResourceKey = ""
 	task.NextAttemptAt = time.Time{}
 	task.Retryable = false
 	task.ErrorClass = ""

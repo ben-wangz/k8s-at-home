@@ -119,6 +119,13 @@ func (g *writeGate) updateProtectionSession(ctx context.Context, sessionID strin
 		return err
 	}
 	if err := g.saveProtectionSession(ctx, &session); err != nil {
+		if errors.Is(err, storage.ErrConditionFailed) {
+			if reloadErr := g.reloadLocked(ctx); reloadErr != nil {
+				g.failClosedLocked("protection_state_unknown")
+				return errors.Join(err, reloadErr)
+			}
+			return storage.ErrConditionFailed
+		}
 		if !terminalMutationKnown(ctx) {
 			g.failClosedLocked("protection_state_unknown")
 		}
@@ -165,6 +172,15 @@ func (g *writeGate) readProtectionSession(ctx context.Context, id string) (prote
 	var session protectionSessionRecord
 	if err := json.Unmarshal(data, &session); err != nil || session.SchemaVersion != 1 || session.ID != id || !validGateID(session.OwnerSetID) || session.ScopeID == "" || session.ReservedBytes < 0 || session.PendingOperations < 0 {
 		return protectionSessionRecord{}, errors.New("protection session is invalid")
+	}
+	if session.RemoteWritePermit != "" && (!validGateID(session.RemoteWritePermit) || session.UncertainRemoteResult || session.RemoteWrite != nil) {
+		return protectionSessionRecord{}, errors.New("protection write permit state is invalid")
+	}
+	if session.RemoteWriteAttemptID != "" && (!validGateID(session.RemoteWriteAttemptID) || !session.UncertainRemoteResult) {
+		return protectionSessionRecord{}, errors.New("protection write attempt identity is invalid")
+	}
+	if session.RemoteRecovery != nil && (!session.UncertainRemoteResult || session.RemoteRecovery.Write == nil || session.RemoteWrite != nil && *session.RemoteRecovery.Write != *session.RemoteWrite || session.RemoteWriteAttemptID == "") {
+		return protectionSessionRecord{}, errors.New("protection write recovery checkpoint is invalid")
 	}
 	if session.RemoteWrite != nil && (!session.UncertainRemoteResult || !validProtectionRemoteWrite(*session.RemoteWrite)) {
 		return protectionSessionRecord{}, errors.New("protection remote write state is invalid")

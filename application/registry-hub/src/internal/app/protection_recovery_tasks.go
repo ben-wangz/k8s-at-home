@@ -129,7 +129,7 @@ func (r *protectionRecovery) activeTaskSessionStep(ctx context.Context, task tas
 		return err
 	}
 	if active {
-		if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil || session.State != "protected" && session.State != "anchored" {
+		if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil || session.RemoteWritePermit != "" || session.State != "protected" && session.State != "anchored" {
 			return ErrRecoveryBarrier
 		}
 		if session.State == "protected" {

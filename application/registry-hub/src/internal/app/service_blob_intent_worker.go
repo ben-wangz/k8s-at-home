@@ -11,7 +11,7 @@ import (
 
 func (s *Service) runBlobIntentReconciliation(ctx context.Context) {
 	var group sync.WaitGroup
-	for _, worker := range []func(context.Context){s.runIntentSourceReconciliation, s.runTaskReconciliation, s.runProtectionRecovery, s.runQuotaReconciliation} {
+	for _, worker := range []func(context.Context){s.runIntentSourceReconciliation, s.runTaskReconciliation, s.runProtectionRecovery, s.runRuntimeProtectionReconciliation, s.runQuotaReconciliation} {
 		group.Add(1)
 		go func() { defer group.Done(); worker(ctx) }()
 	}

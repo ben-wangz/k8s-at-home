@@ -113,7 +113,7 @@ func (s *Service) anchoredReuseManifestClosurePresent(ctx context.Context, task 
 		return false, err
 	}
 	terminalAnchored := session.State == "anchored" || session.State == "released" && session.TerminalReason == "anchored"
-	if session.ID != sessionID || session.ScopeID != scopeID || !terminalAnchored || session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil {
+	if session.ID != sessionID || session.ScopeID != scopeID || !terminalAnchored || session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil || session.RemoteWritePermit != "" {
 		return false, nil
 	}
 	state := s.gate.State()

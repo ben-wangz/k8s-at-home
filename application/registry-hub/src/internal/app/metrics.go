@@ -84,7 +84,7 @@ type metrics struct {
 var taskWaitReasonLabels = []string{
 	"awaiting_manifest_anchor", "awaiting_manifest_demand", "cache_entry_unavailable", "dependencies_unavailable",
 	"distribution_quota", "distribution_verification", "gc_admission", "manifest_scope_admission", "protected_cache_capacity",
-	"protection_transfer", "remote_operations_pending", "other",
+	"object_lease_pending", "protection_busy", "protection_reconcile_pending", "protection_transfer", "protection_write_pending", "remote_operations_pending", "other",
 }
 
 var blobIntentMetricStates = []string{

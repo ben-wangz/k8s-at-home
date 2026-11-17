@@ -107,7 +107,16 @@ func (s *solidifier) publishRootTag(ctx context.Context, task *tasks.Task, taskL
 	if err := s.tasks.Leases().Validate(tagCtx, tagLease); err != nil {
 		return temporary("tag_lease", err)
 	}
-	if err := s.markRemoteWrite(tagCtx, protectionSessionID, remoteWrite); err != nil {
+	permitID, releasePermit, err := s.service.acquireProtectionWritePermit(tagCtx, protectionSessionID)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := releasePermit(); err != nil {
+			result = errors.Join(result, temporary("protection_write_permit", err))
+		}
+	}()
+	if err := s.markRemoteWrite(tagCtx, protectionSessionID, permitID, remoteWrite); err != nil {
 		return err
 	}
 	uploadReader, err := newUploadIntegrityReader(ctx, object.Body, task.RootDigest, object.Size)

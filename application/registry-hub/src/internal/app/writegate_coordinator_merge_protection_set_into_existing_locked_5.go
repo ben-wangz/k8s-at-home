@@ -28,7 +28,7 @@ func (g *writeGate) mergeProtectionSetIntoExistingLocked(ctx context.Context, ol
 		if err != nil {
 			return err
 		}
-		if session.State != "protected" && session.State != "anchoring" || session.PendingOperations != 0 || session.UncertainRemoteResult {
+		if session.State != "protected" && session.State != "anchoring" || session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWritePermit != "" {
 			return ErrProtectionBusy
 		}
 		if session.ReservationClass == "legacy" {

@@ -33,12 +33,15 @@ func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskL
 	ctx = manifestCtx
 	leaseCtx, releaseObject, err := acquireContentLease(ctx, s.tasks.Leases(), task.Authority, task.Repository, manifest.digest, task.ID)
 	if errors.Is(err, lease.ErrHeld) {
-		return temporary("object_busy", err)
+		return waitForObjectLease(task.Authority, task.Repository, manifest.digest)
 	}
 	if err != nil {
 		return temporary("object_lease", err)
 	}
-	defer releaseObject()
+	defer func() {
+		_ = releaseObject()
+		s.service.signalTaskReconciliation()
+	}()
 	ctx = leaseCtx
 	if err := s.tasks.CheckActive(ctx, task, taskLease); err != nil {
 		return err
@@ -112,7 +115,16 @@ func (s *solidifier) ensureManifest(ctx context.Context, task *tasks.Task, taskL
 	if err := s.service.checkContentGeneration(ctx, task.Authority, task.Repository, manifest.digest); err != nil {
 		return permanent("generation", err)
 	}
-	if err := s.markRemoteWrite(ctx, protectionSessionID, remoteWrite); err != nil {
+	permitID, releasePermit, err := s.service.acquireProtectionWritePermit(ctx, protectionSessionID)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := releasePermit(); err != nil {
+			result = errors.Join(result, temporary("protection_write_permit", err))
+		}
+	}()
+	if err := s.markRemoteWrite(ctx, protectionSessionID, permitID, remoteWrite); err != nil {
 		return err
 	}
 	uploadReader, err := newUploadIntegrityReader(ctx, object.Body, manifest.digest, object.Size)
@@ -174,6 +186,15 @@ func (s *solidifier) syncReferrerManifestWithProtectionSession(ctx context.Conte
 		return permanent("route_invalid", err)
 	}
 	_, err = s.service.publishReferrerManifest(ctx, routed, data, mediaType, digest, nativeSubjectHeader, requireSubjectHeader, task.ID, protectionSessionID)
+	var yielded *tasks.Yield
+	if errors.As(err, &yielded) {
+		if fenced {
+			if abortErr := s.tasks.AbortRootPublish(ctx, task, taskLease); abortErr != nil {
+				return abortErr
+			}
+		}
+		return err
+	}
 	var repairPending *referrerRepairPendingError
 	if fenced && !errors.As(err, &repairPending) {
 		if abortErr := s.tasks.AbortRootPublish(ctx, task, taskLease); abortErr != nil {

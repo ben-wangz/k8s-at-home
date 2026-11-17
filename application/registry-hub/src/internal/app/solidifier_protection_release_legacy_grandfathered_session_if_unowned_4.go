@@ -15,7 +15,7 @@ func (s *solidifier) releaseLegacyGrandfatheredSessionIfUnowned(ctx context.Cont
 	if session.ReservationClass != "legacy" || session.ScopeID != legacyGrandfatheredScopeID {
 		return errors.New("legacy grandfathered session identity is invalid")
 	}
-	if session.PendingOperations != 0 || session.UncertainRemoteResult {
+	if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWritePermit != "" {
 		return ErrProtectionBusy
 	}
 	stop, err := s.gate.RequestProtectionStop(ctx, legacyGrandfatheredSessionID, "cancelled")
@@ -26,7 +26,7 @@ func (s *solidifier) releaseLegacyGrandfatheredSessionIfUnowned(ctx context.Cont
 	if err != nil || !active {
 		return err
 	}
-	if session.PendingOperations != 0 || session.UncertainRemoteResult {
+	if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWritePermit != "" {
 		return ErrProtectionBusy
 	}
 	if session.State == "anchored" {
@@ -42,7 +42,7 @@ func (s *solidifier) releaseLegacyGrandfatheredSessionIfUnowned(ctx context.Cont
 		if err != nil || !active {
 			return err
 		}
-		if session.PendingOperations != 0 || session.UncertainRemoteResult {
+		if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWritePermit != "" {
 			return ErrProtectionBusy
 		}
 		if err := s.gate.MarkProtectionQuiesced(ctx, legacyGrandfatheredSessionID); err != nil {
@@ -97,7 +97,7 @@ func (s *solidifier) releaseAnchoredSession(ctx context.Context, sessionID strin
 	if !active {
 		return s.gate.confirmInactiveProtectionSessionReleased(ctx, sessionID, "", "")
 	}
-	if session.PendingOperations != 0 || session.UncertainRemoteResult {
+	if session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWritePermit != "" {
 		return ErrProtectionBusy
 	}
 	if session.State != "anchored" {

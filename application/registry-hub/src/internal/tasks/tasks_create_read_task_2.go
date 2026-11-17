@@ -96,7 +96,7 @@ func (m *Manager) readTask(ctx context.Context, key string) (Task, error) {
 }
 
 func validateTaskProtectionState(task *Task) error {
-	if task.RequestedBytes < 0 || task.ReservedBytes < 0 || task.QuotaWaitBytes < 0 || task.QuotaReplaceableBytes < 0 || task.QuotaReplaceableSlots < 0 || task.QuotaReplaceableSlots > 4096 || task.QuotaWaitReason != "" && !validWaitReason(task.QuotaWaitReason) || len(task.SessionIDs) > 4096 {
+	if task.RequestedBytes < 0 || task.ReservedBytes < 0 || task.QuotaWaitBytes < 0 || task.QuotaReplaceableBytes < 0 || task.QuotaReplaceableSlots < 0 || task.QuotaReplaceableSlots > 4096 || task.QuotaWaitReason != "" && !validWaitReason(task.QuotaWaitReason) || task.WaitResourceKey != "" && !validWaitResourceKey(task.WaitResourceKey) || len(task.SessionIDs) > 4096 {
 		return errors.New("task protection state is invalid")
 	}
 	seen := make(map[string]struct{}, len(task.SessionIDs))

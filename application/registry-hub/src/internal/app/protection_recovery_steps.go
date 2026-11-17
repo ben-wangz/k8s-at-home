@@ -131,7 +131,7 @@ func (r *protectionRecovery) validateSessionStep(ctx context.Context) error {
 		if session.State == "released" || session.ReservedBytes < 0 {
 			return storage.ErrCorruptObject
 		}
-		if c.Phase == "validate_final" && (session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil || session.State != "protected" && session.State != "anchored") {
+		if c.Phase == "validate_final" && (session.PendingOperations != 0 || session.UncertainRemoteResult || session.RemoteWrite != nil || session.RemoteWritePermit != "" || session.State != "protected" && session.State != "anchored") {
 			return ErrRecoveryBarrier
 		}
 		total := &c.NewTotal

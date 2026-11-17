@@ -88,6 +88,7 @@ func (m *Manager) Retry(ctx context.Context, id string) (Task, error) {
 	task.Status = Pending
 	task.Phase = "solidification"
 	task.WaitReason = ""
+	task.WaitResourceKey = ""
 	task.NextAttemptAt = time.Time{}
 	task.ErrorClass = ""
 	task.ErrorMessage = ""

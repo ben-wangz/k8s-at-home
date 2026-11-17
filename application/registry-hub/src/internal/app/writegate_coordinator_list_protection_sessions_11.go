@@ -73,8 +73,13 @@ func (g *writeGate) protectionSessionStatusFromRecordLocked(ctx context.Context,
 	status := protectionSessionStatus{
 		ID: session.ID, ScopeID: session.ScopeID, ReservationClass: session.ReservationClass, State: session.State, OwnerCount: ownerCount,
 		ReservedBytes: session.ReservedBytes, PendingOperations: session.PendingOperations,
+		WritePermitActive:     session.RemoteWritePermit != "",
 		UncertainRemoteResult: session.UncertainRemoteResult, MayContainUnanchored: session.MayContainUnanchored,
 		CancelPhase: session.CancelPhase, RecoveryReason: session.RecoveryReason,
+	}
+	if session.RemoteRecovery != nil {
+		status.RemoteRecoveryErrorClass = session.RemoteRecovery.ErrorClass
+		status.RemoteRecoveryNextAttemptAt = session.RemoteRecovery.NextAttemptAt
 	}
 	if session.RemoteWrite != nil {
 		status.RemoteOperationKind = session.RemoteWrite.Kind
