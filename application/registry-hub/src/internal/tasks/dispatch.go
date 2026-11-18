@@ -86,7 +86,16 @@ func (m *Manager) dispatchAvailableTask(ctx context.Context, worker int, task Ta
 func (m *Manager) dispatchCapacity() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return !m.recoveryPaused.Load() && len(m.active) < m.workers
+	return !m.recoveryPaused.Load() && !m.admissionBlocked.Load() && len(m.active) < m.workers
+}
+
+// WakeDispatch resumes task dispatch after processor capacity becomes available.
+func (m *Manager) WakeDispatch() {
+	m.admissionBlocked.Store(false)
+	select {
+	case m.dispatchWake <- struct{}{}:
+	default:
+	}
 }
 
 func (m *Manager) dispatchTask(ctx context.Context, worker int, task Task) {
@@ -107,6 +116,9 @@ func (m *Manager) dispatchTask(ctx context.Context, worker int, task Task) {
 			delete(m.active, task.ID)
 			m.mu.Unlock()
 			m.runtimeTask(task.ID, false)
+			if !m.admissionBlocked.Load() {
+				m.WakeDispatch()
+			}
 		}()
 		m.process(ctx, worker, task)
 	}()

@@ -15,7 +15,13 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 	if err != nil {
 		return
 	}
-	defer func() { _ = m.leases.Release(context.Background(), currentLease) }()
+	var releaseAdmission func()
+	defer func() {
+		_ = m.leases.Release(context.Background(), currentLease)
+		if releaseAdmission != nil {
+			releaseAdmission()
+		}
+	}()
 	latest, err := m.Get(parent, task.ID)
 	if err == nil && (latest.Status == Solidified || latest.Status == Failed || latest.Status == Cancelled) {
 		return
@@ -36,6 +42,31 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 	if !dispatchEligible(latest, time.Now()) {
 		return
 	}
+	workParent := parent
+	if admission, ok := m.processor.(TaskAdmission); ok {
+		admittedCtx, release, admitted := admission.AdmitTask(parent, &latest)
+		if !admitted {
+			m.admissionBlocked.Store(true)
+			if release != nil {
+				release()
+			}
+			if latest.Status == Running {
+				latest.Status = Pending
+				latest.WaitReason = ""
+				latest.WaitResourceKey = ""
+				latest.AttemptFinishedAt = time.Now().UTC()
+				latest.UpdatedAt = latest.AttemptFinishedAt
+				if m.leases.Validate(parent, currentLease) == nil {
+					_ = m.save(parent, &latest)
+				}
+			}
+			return
+		}
+		if admittedCtx != nil {
+			workParent = admittedCtx
+		}
+		releaseAdmission = release
+	}
 	latest.Status = Running
 	latest.WaitReason = ""
 	latest.WaitResourceKey = ""
@@ -47,7 +78,7 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 	if err := m.save(parent, &latest); err != nil {
 		return
 	}
-	workCtx, cancel := context.WithCancel(parent)
+	workCtx, cancel := context.WithCancel(workParent)
 	defer cancel()
 	m.mu.Lock()
 	if m.cancels == nil {

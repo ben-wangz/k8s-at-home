@@ -46,6 +46,9 @@ func (s *Service) acquireSolidificationSlot(ctx context.Context, repair bool) (f
 				s.newSolidifications--
 			}
 			s.solidificationMu.Unlock()
+			if s.tasks != nil {
+				s.tasks.WakeDispatch()
+			}
 		})
 	}, true
 }

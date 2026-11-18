@@ -56,6 +56,19 @@ func manifestReadHeaders() http.Header {
 	return http.Header{"Accept": []string{manifestAccept}}
 }
 
+type solidificationAdmissionKey struct{}
+
+func (s *solidifier) AdmitTask(ctx context.Context, _ *tasks.Task) (context.Context, func(), bool) {
+	releaseSlot, ok := s.service.acquireSolidificationSlot(ctx, false)
+	if !ok {
+		if ctx.Err() == nil && s.service.metrics != nil {
+			s.service.metrics.recordRejection("solidification_concurrency")
+		}
+		return ctx, nil, false
+	}
+	return context.WithValue(ctx, solidificationAdmissionKey{}, true), releaseSlot, true
+}
+
 func (s *solidifier) Process(ctx context.Context, task *tasks.Task, taskLease lease.Lease) (result error) {
 	ctx = context.WithValue(ctx, diagnosticContextKey{}, backgroundDiagnosticContext{Kind: "solidification", Scope: "execution", WorkID: task.ID})
 	ctx = context.WithValue(ctx, storageOperationIDKey{}, task.ID)
@@ -65,15 +78,19 @@ func (s *solidifier) Process(ctx context.Context, task *tasks.Task, taskLease le
 		return tasks.WaitFor(tasks.WaitingDeps, "gc_admission")
 	}
 	defer func() { s.logSolidificationResult(task, performance, result) }()
-	releaseSlot, ok := s.service.acquireSolidificationSlot(ctx, false)
-	if !ok {
-		if ctx.Err() != nil {
-			return ctx.Err()
+	if admitted, _ := ctx.Value(solidificationAdmissionKey{}).(bool); !admitted {
+		releaseSlot, ok := s.service.acquireSolidificationSlot(ctx, false)
+		if !ok {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if s.service.metrics != nil {
+				s.service.metrics.recordRejection("solidification_concurrency")
+			}
+			return temporary("solidification_busy", errors.New("solidification worker slot is unavailable"))
 		}
-		s.service.metrics.recordRejection("solidification_concurrency")
-		return temporary("solidification_busy", errors.New("solidification worker slot is unavailable"))
+		defer releaseSlot()
 	}
-	defer releaseSlot()
 	if err := s.consumeVerificationResult(ctx, task); err != nil {
 		return err
 	}

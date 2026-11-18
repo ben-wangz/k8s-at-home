@@ -19,7 +19,7 @@ func NewManager(store storage.Store, workers, pendingMax int, processor Processo
 	return &Manager{
 		store: store, leases: lease.NewManager(store), processor: processor,
 		workers: workers, pendingMax: pendingMax, maxWaitingRoots: pendingMax, idleTimeout: 24 * time.Hour,
-		active: make(map[string]struct{}), cancels: make(map[string]context.CancelFunc), owner: owner,
+		dispatchWake: make(chan struct{}, 1), active: make(map[string]struct{}), cancels: make(map[string]context.CancelFunc), owner: owner,
 	}, nil
 }
 

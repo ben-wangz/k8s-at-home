@@ -200,6 +200,11 @@ type Processor interface {
 	Process(context.Context, *Task, lease.Lease) error
 }
 
+// TaskAdmission reserves processor capacity before a task is marked running.
+type TaskAdmission interface {
+	AdmitTask(context.Context, *Task) (context.Context, func(), bool)
+}
+
 type TaskTerminalHandler interface {
 	TaskTerminal(context.Context, *Task) error
 }
@@ -213,22 +218,24 @@ type TaskQuotaChangedHandler interface {
 }
 
 type Manager struct {
-	recoveryPaused  atomic.Bool
-	runtime         RuntimeStatus
-	runtimeMu       sync.Mutex
-	store           storage.Store
-	leases          *lease.Manager
-	processor       Processor
-	workers         int
-	pendingMax      int
-	maxWaitingRoots int
-	idleTimeout     time.Duration
-	dispatchMu      sync.Mutex
-	dispatchToken   string
-	mu              sync.Mutex
-	active          map[string]struct{}
-	cancels         map[string]context.CancelFunc
-	owner           string
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
+	recoveryPaused   atomic.Bool
+	runtime          RuntimeStatus
+	runtimeMu        sync.Mutex
+	store            storage.Store
+	leases           *lease.Manager
+	processor        Processor
+	workers          int
+	pendingMax       int
+	maxWaitingRoots  int
+	idleTimeout      time.Duration
+	dispatchMu       sync.Mutex
+	dispatchToken    string
+	dispatchWake     chan struct{}
+	admissionBlocked atomic.Bool
+	mu               sync.Mutex
+	active           map[string]struct{}
+	cancels          map[string]context.CancelFunc
+	owner            string
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
 }

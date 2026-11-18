@@ -80,4 +80,7 @@ func (s *Service) setRepairPending(pending bool) {
 	if s.metrics != nil {
 		s.metrics.setReferrerRepairPending(pending)
 	}
+	if s.tasks != nil {
+		s.tasks.WakeDispatch()
+	}
 }

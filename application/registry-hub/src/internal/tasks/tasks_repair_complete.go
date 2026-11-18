@@ -110,12 +110,14 @@ func (m *Manager) run(ctx context.Context, worker int) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			m.admissionBlocked.Store(false)
+		case <-m.dispatchWake:
 		}
 	}
 }
 
 func (m *Manager) dispatch(ctx context.Context, worker int) {
-	if m.recoveryPaused.Load() || !m.dispatchMu.TryLock() {
+	if m.recoveryPaused.Load() || m.admissionBlocked.Load() || !m.dispatchMu.TryLock() {
 		return
 	}
 	defer m.dispatchMu.Unlock()
