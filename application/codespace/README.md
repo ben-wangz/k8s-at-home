@@ -24,6 +24,10 @@ Cursor does not currently publish an npm package for its CLI. The image uses
 `@nothumanwork/cursor-agent-cli` to install the official Cursor Agent binary via
 npm and exposes it only as `cursor-agent`.
 
+Node.js is installed under `/usr/local`, so npm's default global prefix matches
+the system-wide CLI location. Users can run these tools, while updating
+root-owned global npm installs requires root privileges.
+
 Run `magpie --help` for CLI commands or `magpie tui` for interactive terminal
 management. Magpie stores user settings under `~/.config/magpie`, persisted on
 the home PVC.
