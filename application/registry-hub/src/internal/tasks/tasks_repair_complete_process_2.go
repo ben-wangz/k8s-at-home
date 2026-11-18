@@ -197,14 +197,6 @@ func (m *Manager) process(parent context.Context, worker int, task Task) {
 	}
 }
 
-func clearTaskQuotaWait(task *Task) {
-	task.QuotaWaitAt = time.Time{}
-	task.QuotaWaitReason = ""
-	task.QuotaWaitBytes = 0
-	task.QuotaReplaceableBytes = 0
-	task.QuotaReplaceableSlots = 0
-}
-
 func (m *Manager) notifyYielded(ctx context.Context, task *Task) {
 	handler, ok := m.processor.(TaskYieldedHandler)
 	if ok {
