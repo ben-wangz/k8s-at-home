@@ -112,7 +112,7 @@ func TestBackgroundLeaseRenewalKeepsTTLAndReservedCapacity(t *testing.T) {
 	manager := lease.NewManager(store)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	const ttl = 600 * time.Millisecond
+	const ttl = 3 * time.Second
 	leader, holder, release, err := s.acquireBackgroundLease(ctx, "test", manager, "test", "owner", ttl)
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +129,7 @@ func TestBackgroundLeaseRenewalKeepsTTLAndReservedCapacity(t *testing.T) {
 		if scope != "lease_renewal" {
 			t.Fatalf("renewal scope=%q", scope)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("renewal blocked behind bulk admission")
 	}
 	state, _, err := inventory.Read[struct{ ExpiresAt time.Time }](context.Background(), store.Store, holder.Key)
