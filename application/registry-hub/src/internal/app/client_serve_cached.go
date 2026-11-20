@@ -63,26 +63,6 @@ func (s *Service) serveCached(writer http.ResponseWriter, request *http.Request,
 	}
 }
 
-func recordBlobResponseOutcome(request *http.Request, written, expected int64, copyErr error) {
-	meta, _ := request.Context().Value(requestMetaKey{}).(*requestMeta)
-	if meta == nil {
-		return
-	}
-	meta.responseBodyBytes = written
-	switch {
-	case copyErr != nil:
-		meta.responseBodyState = "copy_error"
-		meta.failureStage = "blob_response_copy"
-		meta.failureCause = "copy_error"
-	case expected >= 0 && written != expected:
-		meta.responseBodyState = "length_mismatch"
-		meta.failureStage = "blob_response_copy"
-		meta.failureCause = "length_mismatch"
-	default:
-		meta.responseBodyState = "copy_complete"
-	}
-}
-
 func (s *Service) pushManifest(writer http.ResponseWriter, request *http.Request, routed route.Route, query url.Values, meta *requestMeta) {
 	prepared, ok := s.prepareManifestPush(writer, request, routed, query)
 	if !ok {
