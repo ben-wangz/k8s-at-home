@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"registry-hub/internal/config"
-	"registry-hub/internal/lease"
 	"registry-hub/internal/storage/filesystem"
 	"registry-hub/internal/tasks"
 )
