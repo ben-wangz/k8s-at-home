@@ -21,8 +21,11 @@ type sourceSweepCheckpoint struct {
 	QuotaWakeIndex      int                      `json:"quotaWakeIndex,omitempty"`
 	Status              backgroundScanStatus     `json:"status"`
 	Cursor              inventory.Cursor         `json:"cursor"`
+	RetryIndexCursor    inventory.Cursor         `json:"retryIndexCursor,omitempty"`
 	Backoff             map[string]entityBackoff `json:"backoff"`
 	Round               uint64                   `json:"round"`
+	EventPartitionDate  string                   `json:"eventPartitionDate,omitempty"`
+	EventRoundEndDate   string                   `json:"eventRoundEndDate,omitempty"`
 	IdleRounds          int                      `json:"idleRounds,omitempty"`
 	RoundFailed         bool                     `json:"roundFailed"`
 	ScanRetries         int                      `json:"scanRetries"`

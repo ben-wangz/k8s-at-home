@@ -16,13 +16,15 @@ import (
 type requestMetaKey struct{}
 
 type requestMeta struct {
-	operation        string
-	cacheSource      string
-	requestID        string
-	errorClass       string
-	failureStage     string
-	failureCause     string
-	failureElapsedMS int64
+	operation         string
+	cacheSource       string
+	requestID         string
+	errorClass        string
+	failureStage      string
+	failureCause      string
+	failureElapsedMS  int64
+	responseBodyBytes int64
+	responseBodyState string
 }
 
 type heldTagLease struct {
@@ -122,6 +124,9 @@ func (s *Service) handleClient(original http.ResponseWriter, request *http.Reque
 		writer.WriteHeader(http.StatusOK)
 		return
 	}
+	if request.Method == http.MethodGet && routed.Endpoint == route.EndpointBlob {
+		s.logger.Info("registry blob delivery started", "request_id", meta.requestID, "operation", meta.operation, "method", request.Method)
+	}
 	if (routed.Endpoint == route.EndpointTags || routed.Endpoint == route.EndpointCatalog) && request.Method != http.MethodGet {
 		registryapi.WriteError(writer, http.StatusMethodNotAllowed, "UNSUPPORTED", "this endpoint supports GET only")
 		return
@@ -172,6 +177,12 @@ func (s *Service) logRegistryRequest(meta *requestMeta, method string, status in
 			"failure_stage", meta.failureStage,
 			"failure_cause", meta.failureCause,
 			"failure_elapsed_ms", meta.failureElapsedMS,
+		)
+	}
+	if meta.responseBodyState != "" {
+		fields = append(fields,
+			"response_body_bytes", meta.responseBodyBytes,
+			"response_body_state", meta.responseBodyState,
 		)
 	}
 	logRequest("registry request", fields...)

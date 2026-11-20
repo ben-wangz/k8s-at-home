@@ -28,7 +28,7 @@ func (s *Service) reconcileGCNoRun(writer http.ResponseWriter, request *http.Req
 		processor.wakeCoordinationWaiters(ctx)
 		s.wakeAvailableQuotaWaiters(ctx, gate)
 	}
-	writeJSON(writer, http.StatusOK, adminGCStatusResponse{Gate: gate, Run: run, Sessions: []protectionSessionStatus{}})
+	writeJSON(writer, http.StatusOK, adminGCStatusResponse{Gate: gate, Run: run, ActiveWrites: s.gate.activeCount(), Sessions: []protectionSessionStatus{}})
 }
 
 func (s *Service) writeGCReconciliationError(writer http.ResponseWriter, err error) {

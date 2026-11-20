@@ -95,6 +95,33 @@ func (s *Service) runTaskReconciliation(ctx context.Context) {
 
 func (s *Service) reconcileTaskResourceWait(ctx context.Context, task tasks.Task) error {
 	switch task.WaitReason {
+	case "blob_intent_admission":
+		if !strings.HasPrefix(task.WaitResourceKey, "blob-intent/") {
+			return nil
+		}
+		intentID := strings.TrimPrefix(task.WaitResourceKey, "blob-intent/")
+		intent, err := s.records.GetBlobIntent(ctx, intentID)
+		if errors.Is(err, storage.ErrNotFound) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		current, err := s.records.GetBlobIntentByIdentity(ctx, intent.Identity)
+		if errors.Is(err, storage.ErrNotFound) || err == nil && current.ID != intent.ID {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if intent.CancelRequested && intent.State != tasks.IntentCancelled && intent.State != tasks.IntentFailed {
+			return nil
+		}
+		if err := s.records.ValidateBlobIntentCleanup(ctx, intent.ID); errors.Is(err, tasks.ErrDemandAdmissionWaiting) {
+			return nil
+		} else if err != nil {
+			return err
+		}
 	case "object_lease_pending":
 		if !strings.HasPrefix(task.WaitResourceKey, "objects/") {
 			return nil

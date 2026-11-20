@@ -1,6 +1,8 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -50,7 +52,11 @@ func (runtime *fixtureRuntime) buildInlineFixtures() error {
 	if err != nil {
 		return fmt.Errorf("fixture missing-blob manifest is invalid: %w", err)
 	}
-	runtime.gcCancellationManifest, err = buildGCCancellationManifest(runtime.config, []byte("gc-cancellation-missing-layer"), []string{"https://github.com/v2/registry-hub-test/fixture/url-must-not-fetch-gc-cancellation"})
+	cancellationLayer, err := buildGCCancellationLayer([]byte("gc-cancellation-missing-layer"))
+	if err != nil {
+		return fmt.Errorf("fixture GC-cancellation layer is invalid: %w", err)
+	}
+	runtime.gcCancellationManifest, err = buildGCCancellationManifest(runtime.config, cancellationLayer)
 	if err != nil {
 		return fmt.Errorf("fixture GC-cancellation manifest is invalid: %w", err)
 	}
@@ -87,7 +93,25 @@ func (runtime *fixtureRuntime) buildInlineFixtures() error {
 	return nil
 }
 
-func buildGCCancellationManifest(config, layer []byte, urls []string) (inlineManifestFixture, error) {
+func buildGCCancellationLayer(content []byte) ([]byte, error) {
+	var layer bytes.Buffer
+	archive := tar.NewWriter(&layer)
+	if err := archive.WriteHeader(&tar.Header{
+		Name: "gc-cancellation.txt", Mode: 0o644, Size: int64(len(content)), Typeflag: tar.TypeReg,
+		ModTime: time.Unix(0, 0).UTC(), Format: tar.FormatUSTAR,
+	}); err != nil {
+		return nil, err
+	}
+	if _, err := archive.Write(content); err != nil {
+		return nil, err
+	}
+	if err := archive.Close(); err != nil {
+		return nil, err
+	}
+	return layer.Bytes(), nil
+}
+
+func buildGCCancellationManifest(config, layer []byte) (inlineManifestFixture, error) {
 	configDigest := "sha256:" + hex.EncodeToString(sha256Bytes(config))
 	layerDigest := "sha256:" + hex.EncodeToString(sha256Bytes(layer))
 	manifest, err := json.Marshal(map[string]any{
@@ -102,7 +126,6 @@ func buildGCCancellationManifest(config, layer []byte, urls []string) (inlineMan
 			"mediaType": "application/vnd.oci.image.layer.v1.tar",
 			"size":      len(layer),
 			"digest":    layerDigest,
-			"urls":      urls,
 		}},
 	})
 	if err != nil {
@@ -205,6 +228,8 @@ func (runtime *fixtureRuntime) serveBlob(writer http.ResponseWriter, request *ht
 		writeDelayedBlob(writer, request, runtime.waiterBlob, runtime.waiterBlobDigest, 36*time.Second)
 	case state.host == "github.com" && path == "/v2/registry-hub-test/fixture/blobs/"+runtime.inlineManifest.LayerDigest && state.auth == "absent":
 		writeBlob(writer, runtime.inlineLayer, runtime.inlineManifest.LayerDigest)
+	case state.host == "github.com" && path == "/v2/registry-hub-test/fixture/blobs/"+runtime.gcCancellationManifest.LayerDigest && state.auth == "absent":
+		writeBlob(writer, runtime.gcCancellationManifest.Layer, runtime.gcCancellationManifest.LayerDigest)
 	case state.host == "github.com" && path == "/v2/registry-hub-test/fixture/blobs/"+runtime.nestedConfigDigest && state.auth == "absent":
 		writeBlob(writer, runtime.nestedConfig, runtime.nestedConfigDigest)
 	case state.host == "ghcr.io" && path == "/v2/registry-hub-test/fixture/blobs/"+runtime.configDigest && state.auth == "bearer-matched":

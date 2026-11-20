@@ -3,14 +3,15 @@ package app
 import (
 	"context"
 	"errors"
+	"registry-hub/internal/lease"
 	"registry-hub/internal/tasks"
 )
 
-func (s *solidifier) prepareManifestBlobs(ctx context.Context, task *tasks.Task, manifest *stagedManifest) (map[string]bool, map[string]tasks.BlobIntent, error) {
+func (s *solidifier) prepareManifestBlobs(ctx context.Context, task *tasks.Task, taskLease lease.Lease, manifest *stagedManifest) (map[string]bool, map[string]tasks.BlobIntent, error) {
 	ready := make(map[string]bool, len(manifest.blobs))
 	intents := make(map[string]tasks.BlobIntent, len(manifest.blobs))
 	for _, blob := range manifest.blobs {
-		cached, intent, err := s.prepareStagedBlob(ctx, task, manifest, blob)
+		cached, intent, err := s.prepareStagedBlob(ctx, task, taskLease, manifest, blob)
 		if err != nil {
 			return nil, nil, err
 		}

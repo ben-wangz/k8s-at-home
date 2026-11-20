@@ -29,6 +29,13 @@ func (s *Service) serveUpstreamBlob(writer http.ResponseWriter, request *http.Re
 		}
 		s.scheduleCachedBlobIntent(intent.Identity)
 		defer cached.Body.Close()
+		if err := s.replayAnchoredRootsForRecoveredBlob(request.Context(), routed.Upstream, routed.RemoteRepo, routed.Reference); err != nil {
+			recordUpstreamBlobFailure(meta, "root_replay", err, time.Since(intentStarted))
+			meta.errorClass = "storage"
+			writer.Header().Set("Retry-After", "5")
+			registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "blob recovery could not be scheduled")
+			return
+		}
 		meta.cacheSource = "cache"
 		s.serveCached(writer, request, routed, cached, true)
 		return
@@ -100,6 +107,13 @@ func (s *Service) serveUpstreamBlob(writer http.ResponseWriter, request *http.Re
 	}
 	defer cached.Body.Close()
 	s.scheduleCachedBlobIntent(intent.Identity)
+	if err := s.replayAnchoredRootsForRecoveredBlob(request.Context(), routed.Upstream, routed.RemoteRepo, routed.Reference); err != nil {
+		recordUpstreamBlobFailure(meta, "root_replay", err, time.Since(fillStarted))
+		meta.errorClass = "storage"
+		writer.Header().Set("Retry-After", "5")
+		registryapi.WriteError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "blob recovery could not be scheduled")
+		return
+	}
 	meta.cacheSource = "upstream"
 	s.serveCached(writer, request, routed, cached, true)
 }

@@ -114,7 +114,7 @@ func (s *solidifier) markStagedManifestPublished(ctx context.Context, task *task
 	return nil
 }
 
-func (s *solidifier) prepareStagedBlob(ctx context.Context, task *tasks.Task, manifest *stagedManifest, blob contentRef) (bool, tasks.BlobIntent, error) {
+func (s *solidifier) prepareStagedBlob(ctx context.Context, task *tasks.Task, taskLease lease.Lease, manifest *stagedManifest, blob contentRef) (bool, tasks.BlobIntent, error) {
 	cached, err := s.service.inspectReadyBlob(ctx, s.cache, task.Authority, task.Repository, blob.digest)
 	if err != nil {
 		return false, tasks.BlobIntent{}, temporary("storage", err)
@@ -125,23 +125,16 @@ func (s *solidifier) prepareStagedBlob(ctx context.Context, task *tasks.Task, ma
 	if cached.Size != blob.size {
 		return false, tasks.BlobIntent{}, permanent("manifest_invalid", errors.New("cached blob size differs from its descriptor"))
 	}
-	generation, err := s.blobContentGeneration(ctx, task, blob.digest)
+	intent, err := s.resolveRootBlobDemand(ctx, task, taskLease, blob, manifest.scopeID, manifest.sessionID, manifest.scopeBytes)
 	if err != nil {
-		return false, tasks.BlobIntent{}, temporary("generation", err)
-	}
-	intent, _, err := s.service.records.EnsureBlobIntent(ctx, tasks.BlobIdentity{Authority: task.Authority, Repository: task.Repository, Digest: blob.digest}, generation, "")
-	if err != nil {
-		return false, tasks.BlobIntent{}, temporary("task_state", err)
-	}
-	demandID := stagedDemandID(task.ID, manifest.scopeID)
-	if err := s.service.records.LinkBlobDemandScope(ctx, intent.ID, demandID, task.ID, manifest.scopeID, manifest.sessionID, manifest.scopeBytes); err != nil {
-		return false, tasks.BlobIntent{}, temporary("task_state", err)
+		return false, tasks.BlobIntent{}, err
 	}
 	ready, err := s.service.records.SetBlobIntentReady(ctx, intent.ID, cached.MediaType, cached.DataVersion, cached.Size)
 	if err != nil {
 		return false, tasks.BlobIntent{}, temporary("task_state", err)
 	}
 	if ready.ID != intent.ID {
+		demandID := stagedDemandID(task.ID, manifest.scopeID)
 		if err := s.service.records.LinkBlobDemandScope(ctx, ready.ID, demandID, task.ID, manifest.scopeID, manifest.sessionID, manifest.scopeBytes); err != nil {
 			return false, tasks.BlobIntent{}, temporary("task_state", err)
 		}

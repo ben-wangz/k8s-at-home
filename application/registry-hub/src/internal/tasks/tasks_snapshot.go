@@ -11,17 +11,21 @@ import (
 )
 
 func (m *Manager) EnqueueResolved(ctx context.Context, authority, repository, reference, digest, mediaType string, generation uint64) (Task, bool, error) {
-	return m.enqueueResolved(ctx, "", authority, repository, reference, digest, mediaType, generation)
+	return m.enqueueResolved(ctx, "", authority, repository, reference, digest, mediaType, generation, false)
+}
+
+func (m *Manager) EnqueueResolvedIfIdle(ctx context.Context, authority, repository, reference, digest, mediaType string, generation uint64) (Task, bool, error) {
+	return m.enqueueResolved(ctx, "", authority, repository, reference, digest, mediaType, generation, true)
 }
 
 func (m *Manager) ResolveDiscovery(ctx context.Context, discoveryTaskID, authority, repository, reference, digest, mediaType string, generation uint64) (Task, bool, error) {
 	if !validID(discoveryTaskID) {
 		return Task{}, false, errors.New("discovery task identity is invalid")
 	}
-	return m.enqueueResolved(ctx, discoveryTaskID, authority, repository, reference, digest, mediaType, generation)
+	return m.enqueueResolved(ctx, discoveryTaskID, authority, repository, reference, digest, mediaType, generation, false)
 }
 
-func (m *Manager) enqueueResolved(ctx context.Context, expectedTaskID, authority, repository, reference, digest, mediaType string, generation uint64) (Task, bool, error) {
+func (m *Manager) enqueueResolved(ctx context.Context, expectedTaskID, authority, repository, reference, digest, mediaType string, generation uint64, rejectActiveConflict bool) (Task, bool, error) {
 	if authority == "" || repository == "" || reference == "" || digest == "" || mediaType == "" {
 		return Task{}, false, errors.New("resolved manifest identity is incomplete")
 	}
@@ -42,6 +46,14 @@ func (m *Manager) enqueueResolved(ctx context.Context, expectedTaskID, authority
 			return Task{}, false, errors.New("discovery task identity does not match the manifest reference")
 		}
 		if exists && isActive(current.Status) {
+			if rejectActiveConflict {
+				if current.RootDigest == digest && current.MediaType == mediaType && current.Generation == generation {
+					m.mu.Unlock()
+					return current, false, nil
+				}
+				m.mu.Unlock()
+				return Task{}, false, ErrActiveRootDemand
+			}
 			if expectedTaskID != "" && current.CancelRequested {
 				m.mu.Unlock()
 				return Task{}, false, ErrCancelled

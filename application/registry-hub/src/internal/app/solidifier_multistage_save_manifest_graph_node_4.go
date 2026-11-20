@@ -9,7 +9,6 @@ import (
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/lease"
 	"registry-hub/internal/route"
-	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
 )
 
@@ -40,7 +39,7 @@ func graphEntryDescriptor(descriptor artifact.Descriptor) tasks.GraphEntry {
 	return entry
 }
 
-func (s *solidifier) assignStagedBlobScopes(ctx context.Context, task *tasks.Task, graph *stagedGraph) error {
+func (s *solidifier) assignStagedBlobScopes(ctx context.Context, task *tasks.Task, taskLease lease.Lease, graph *stagedGraph) error {
 	for _, manifest := range graph.manifests {
 		scopeID, err := protectionScopeID(task.Authority, task.Repository, manifest.ref.digest, task.Generation)
 		if err != nil {
@@ -57,23 +56,8 @@ func (s *solidifier) assignStagedBlobScopes(ctx context.Context, task *tasks.Tas
 			}
 		}
 		for _, blob := range manifest.blobs {
-			intent, err := s.service.records.GetBlobIntentByIdentity(ctx, tasks.BlobIdentity{Authority: task.Authority, Repository: task.Repository, Digest: blob.digest})
-			if errors.Is(err, storage.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return temporary("task_state", err)
-			}
-			generation, err := s.contentGeneration(ctx, task.Authority, task.Repository, blob.digest)
-			if err != nil {
-				return temporary("generation", err)
-			}
-			if intent.Generation != generation {
-				continue
-			}
-			demandID := stagedDemandID(task.ID, manifest.scopeID)
-			if err := s.service.records.LinkBlobDemandScope(ctx, intent.ID, demandID, task.ID, manifest.scopeID, manifest.sessionID, manifest.scopeBytes); err != nil {
-				return temporary("task_state", err)
+			if _, err := s.resolveRootBlobDemand(ctx, task, taskLease, blob, manifest.scopeID, manifest.sessionID, manifest.scopeBytes); err != nil {
+				return err
 			}
 		}
 	}

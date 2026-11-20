@@ -54,7 +54,31 @@ func (r *Records) ensureBlobIntent(ctx context.Context, identity BlobIdentity, g
 			if blobIntentActive(current.State) && current.Generation == generation {
 				if demandID != "" {
 					if err := r.LinkBlobDemand(ctx, current.ID, demandID); err != nil {
-						return BlobIntent{}, false, err
+						if !allowNewRound || !errors.Is(err, ErrDemandAdmissionClosed) {
+							return BlobIntent{}, false, err
+						}
+						if err := r.ValidateBlobIntentCleanup(ctx, current.ID); err != nil {
+							return BlobIntent{}, false, err
+						}
+						if err := r.checkBlobIntentCapacityExcept(ctx, current.ID); err != nil {
+							return BlobIntent{}, false, err
+						}
+						intent, createErr := r.createBlobIntent(ctx, identity, current.Round+1, generation, demandID)
+						if createErr != nil {
+							return BlobIntent{}, false, createErr
+						}
+						lastCandidateID = intent.ID
+						if err := r.writeBlobIntentIndex(ctx, indexKey, intent.ID, indexEntry.Version); errors.Is(err, storage.ErrConditionFailed) {
+							r.discardBlobIntent(intent, demandID)
+							lastCandidateID = ""
+							continue
+						} else if errors.Is(err, storage.ErrUnknownCommit) {
+							continue
+						} else if err != nil {
+							r.discardBlobIntent(intent, demandID)
+							return BlobIntent{}, false, err
+						}
+						return intent, true, nil
 					}
 				}
 				latestIndex, err := r.store.Head(ctx, indexKey)
@@ -65,6 +89,11 @@ func (r *Records) ensureBlobIntent(ctx context.Context, identity BlobIdentity, g
 					continue
 				}
 				return current, current.ID == lastCandidateID, nil
+			}
+			if allowNewRound && (current.State == IntentFailed || current.State == IntentCancelled) {
+				if err := r.ValidateBlobIntentCleanup(ctx, current.ID); err != nil {
+					return BlobIntent{}, false, err
+				}
 			}
 			if err := r.checkBlobIntentCapacity(ctx); err != nil {
 				return BlobIntent{}, false, err

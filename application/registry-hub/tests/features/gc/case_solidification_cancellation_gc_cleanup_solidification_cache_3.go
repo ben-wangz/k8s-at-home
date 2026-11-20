@@ -153,7 +153,12 @@ func distributionBlobMissCount(ctx context.Context, environment testkit.CaseCont
 }
 
 func distributionLogs(ctx context.Context, environment testkit.CaseContext, since time.Time) ([]string, error) {
-	result, err := testkit.Command(ctx, "kubectl", "-n", environment.Namespace, "logs", "deployment/"+environment.Fullname+"-registry", "-c", "registry", "--since-time="+since.UTC().Format(time.RFC3339Nano), "--tail=20000")
+	arguments := []string{"-n", environment.Namespace, "logs", "deployment/" + environment.Fullname + "-registry", "-c", "registry"}
+	if !since.IsZero() {
+		arguments = append(arguments, "--since-time="+since.UTC().Format(time.RFC3339Nano))
+	}
+	arguments = append(arguments, "--tail=20000")
+	result, err := testkit.Command(ctx, "kubectl", arguments...)
 	if err != nil {
 		return nil, fmt.Errorf("read Distribution request evidence: %w", err)
 	}

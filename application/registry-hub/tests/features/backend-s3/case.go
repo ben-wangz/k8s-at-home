@@ -97,6 +97,10 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if !solidifiedTask(taskBefore, taskID, manifestDigest) {
 		return fmt.Errorf("solidified task state is invalid before restart")
 	}
+	rootIntentIDs, err := rootDependencyIntentIDs(ctx, environment, taskID)
+	if err != nil {
+		return err
+	}
 	registry := support.NewRegistryClient(environment)
 	manifestBefore, headersBefore, err := support.ReadManifest(ctx, registry, repository, reference, support.OCIManifestMediaType)
 	if err != nil {
@@ -163,7 +167,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		return err
 	}
 	resumedBlobCacheKey := testkit.String(resumeEvidence["cacheObjectKey"])
-	if err := compareObjectSnapshots(beforeObjects, afterObjects, resumedBlobCacheKey); err != nil {
+	if err := compareObjectSnapshotsAfterTerminalDemandCleanup(beforeObjects, afterObjects, taskID, rootIntentIDs, resumedBlobCacheKey); err != nil {
 		return err
 	}
 	return support.WriteResult(environment, map[string]any{
@@ -175,10 +179,11 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		"s3ObjectCountBefore": len(beforeObjects), "s3ObjectCountAfter": len(afterObjects),
 		"s3ObjectKeysSHA256": snapshotDigest(afterObjects),
 		"taskID":             taskID, "taskStatus": testkit.String(taskAfter["status"]),
-		"backendS3HTTPMetrics": metrics,
-		"gcRecovery":           gcRecovery,
-		"rootDigest":           manifestDigest,
-		"manifestDigestBefore": support.Digest(manifestBefore), "manifestDigestAfter": support.Digest(manifestAfter),
+		"terminalDemandIntentIDs": rootIntentIDs,
+		"backendS3HTTPMetrics":    metrics,
+		"gcRecovery":              gcRecovery,
+		"rootDigest":              manifestDigest,
+		"manifestDigestBefore":    support.Digest(manifestBefore), "manifestDigestAfter": support.Digest(manifestAfter),
 		"downloadResume": resumeEvidence,
 	})
 }

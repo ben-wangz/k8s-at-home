@@ -4,6 +4,7 @@ import (
 	"context"
 	"registry-hub/internal/tasks"
 	"testing"
+	"time"
 )
 
 func TestCachedBlobReconciliationPreservesTerminalRounds(t *testing.T) {
@@ -22,6 +23,27 @@ func TestCachedBlobReconciliationPreservesTerminalRounds(t *testing.T) {
 			}
 			if _, err := f.service.records.SetBlobIntentState(ctx, intent.ID, state, "", ""); err != nil {
 				t.Fatal(err)
+			}
+			if state == tasks.IntentCancelled || state == tasks.IntentFailed {
+				oldTask, err := f.service.tasks.Get(ctx, intent.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				owner, err := f.service.tasks.Leases().Acquire(ctx, "tasks/"+oldTask.ID, "terminal-round-fixture", time.Minute)
+				if err != nil {
+					t.Fatal(err)
+				}
+				oldTask.Status = tasks.Failed
+				if state == tasks.IntentCancelled {
+					oldTask.Status, oldTask.CancelRequested, oldTask.CancelPhase = tasks.Cancelled, true, "quiesced"
+				}
+				oldTask.TerminalCleanupComplete = true
+				if err := f.service.tasks.SaveProgress(ctx, &oldTask, owner); err != nil {
+					t.Fatal(err)
+				}
+				if err := f.service.tasks.Leases().Release(ctx, owner); err != nil {
+					t.Fatal(err)
+				}
 			}
 			for range 3 {
 				if err := f.service.processCachedBlobIntent(ctx, identity); err != nil {

@@ -45,6 +45,56 @@ func TestTaskWaitPreservesUnexpectedTerminalFailure(t *testing.T) {
 	}
 }
 
+func TestTaskWaitTimeoutIncludesQuotaPredecessorEvidence(t *testing.T) {
+	read := func(path string) (map[string]any, error) {
+		if path != "/api/v1/tasks/predecessor?graphLimit=1&ownerLimit=1" {
+			t.Fatalf("unexpected evidence read %q", path)
+		}
+		return map[string]any{
+			"id": "predecessor", "reference": "older-image", "status": "waiting_capacity",
+			"waitReason": "distribution_quota", "quotaWait": map[string]any{"category": "capacity", "coverage": "current_gate_and_demand"},
+		}, nil
+	}
+	task := map[string]any{
+		"id": "target", "reference": "image", "status": "waiting_capacity", "waitReason": "distribution_quota",
+		"quotaWait": map[string]any{"category": "queue_predecessor", "predecessorID": "predecessor"},
+	}
+	err := taskWaitTimeoutError(read, "image", "solidified", 5*time.Minute, "waiting_capacity", task)
+	if err == nil || !strings.Contains(err.Error(), `"category":"queue_predecessor"`) || !strings.Contains(err.Error(), `"predecessorTask"`) || !strings.Contains(err.Error(), `"status":"waiting_capacity"`) {
+		t.Fatalf("timeout omitted quota predecessor evidence: %v", err)
+	}
+}
+
+func TestTaskWaitTimeoutIncludesDependencyBlockers(t *testing.T) {
+	dependencyPath := "/api/v1/tasks/target/dependencies?limit=32"
+	read := func(path string) (map[string]any, error) {
+		if path != dependencyPath {
+			t.Fatalf("unexpected dependency evidence read %q", path)
+		}
+		return map[string]any{
+			"blockingInPage":          1,
+			"knownMissingBytesInPage": float64(4096),
+			"totalScope":              "page; continue until nextToken is absent",
+			"items": []any{map[string]any{
+				"digest": "sha256:missing", "role": "blob", "declaredBytes": float64(4096),
+				"cacheState": "missing", "registryState": "unknown", "reason": "waiting_external_payload",
+				"nextAction": "client_pull_required", "taskStatus": "waiting_dependencies",
+			}},
+			"nextToken": "next-page",
+		}, nil
+	}
+	task := map[string]any{
+		"id": "target", "kind": "root", "reference": "image", "status": "waiting_dependencies",
+		"waitReason": "dependencies_unavailable",
+	}
+	err := taskWaitTimeoutError(read, "image", "solidified", 5*time.Minute, "waiting_dependencies", task)
+	for _, evidence := range []string{"\"kind\":\"root\"", "\"dependencyEvidence\"", "\"blockingInPage\":1", "sha256:missing", "waiting_external_payload", "\"hasMore\":true"} {
+		if err == nil || !strings.Contains(err.Error(), evidence) {
+			t.Fatalf("timeout omitted dependency evidence %q: %v", evidence, err)
+		}
+	}
+}
+
 func TestTaskWaitFindsTargetBeyondFilteredEmptyPage(t *testing.T) {
 	calls := 0
 	read := func(path string) (map[string]any, error) {

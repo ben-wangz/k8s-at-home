@@ -46,15 +46,40 @@ func (s *Service) serveCached(writer http.ResponseWriter, request *http.Request,
 		writer.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, object.Size))
 		writer.WriteHeader(http.StatusPartialContent)
 		if request.Method != http.MethodHead {
-			_, _ = io.CopyN(io.Discard, object.Body, start)
-			_, _ = io.CopyN(writer, object.Body, length)
+			if _, err := io.CopyN(io.Discard, object.Body, start); err != nil {
+				recordBlobResponseOutcome(request, 0, length, err)
+				return
+			}
+			written, copyErr := io.CopyN(writer, object.Body, length)
+			recordBlobResponseOutcome(request, written, length, copyErr)
 		}
 		return
 	}
 	writer.Header().Set("Content-Length", strconv.FormatInt(object.Size, 10))
 	writer.WriteHeader(http.StatusOK)
 	if request.Method != http.MethodHead {
-		_, _ = io.Copy(writer, object.Body)
+		written, copyErr := io.Copy(writer, object.Body)
+		recordBlobResponseOutcome(request, written, object.Size, copyErr)
+	}
+}
+
+func recordBlobResponseOutcome(request *http.Request, written, expected int64, copyErr error) {
+	meta, _ := request.Context().Value(requestMetaKey{}).(*requestMeta)
+	if meta == nil {
+		return
+	}
+	meta.responseBodyBytes = written
+	switch {
+	case copyErr != nil:
+		meta.responseBodyState = "copy_error"
+		meta.failureStage = "blob_response_copy"
+		meta.failureCause = "copy_error"
+	case expected >= 0 && written != expected:
+		meta.responseBodyState = "length_mismatch"
+		meta.failureStage = "blob_response_copy"
+		meta.failureCause = "length_mismatch"
+	default:
+		meta.responseBodyState = "copy_complete"
 	}
 }
 

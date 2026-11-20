@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"registry-hub/internal/artifact"
 	"registry-hub/internal/storage"
@@ -154,5 +155,71 @@ func TestDeletionGenerationBlocksOldTaskAndSurvivesCacheCleanup(t *testing.T) {
 	}
 	if persisted.Generation != deleted.Generation || !persisted.Tombstone {
 		t.Fatalf("generation after cleanup = %#v, want retained counter and tombstone", persisted)
+	}
+}
+
+func TestFreshBlobDemandClearsDeletionTombstoneAndFencesOldTask(t *testing.T) {
+	ctx := context.Background()
+	f := newStagedAcceptanceFixture(t, 1<<20)
+	identity := tasks.BlobIdentity{
+		Authority: "ghcr.io", Repository: "team/image", Digest: artifact.CalculateSHA256([]byte("deleted blob")),
+	}
+	initial, err := f.service.advanceGeneration(ctx, identity.Authority, identity.Repository, identity.Digest, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldIntent, _, err := f.service.records.EnsureBlobIntent(ctx, identity, initial.Generation, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldIntent, err = f.service.records.SetBlobIntentReady(ctx, oldIntent.ID, "application/octet-stream", "cache-v1", 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldTask, _, err := f.service.tasks.EnqueueBlob(ctx, oldIntent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := f.service.advanceGeneration(ctx, identity.Authority, identity.Repository, identity.Digest, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	newIntent, err := f.service.ensureBlobIntentForIdentity(ctx, identity)
+	if err != nil {
+		t.Fatalf("start fresh blob demand: %v", err)
+	}
+	current, err := f.service.generation(ctx, identity.Authority, identity.Repository, identity.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Generation != deleted.Generation+1 || current.Tombstone {
+		t.Fatalf("generation after fresh demand = %#v, want advanced and clear tombstone", current)
+	}
+	if newIntent.ID == oldIntent.ID || newIntent.Round != oldIntent.Round+1 || newIntent.Generation != current.Generation {
+		t.Fatalf("new intent = %#v, want next round at current generation %d", newIntent, current.Generation)
+	}
+
+	oldLease, err := f.service.tasks.Leases().Acquire(ctx, "tasks/"+oldTask.ID, "stale-generation-worker", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.service.tasks.Leases().Release(ctx, oldLease)
+	processor := &solidifier{service: f.service, tasks: f.service.tasks}
+	err = processor.processBlob(ctx, &oldTask, oldLease)
+	var failure *tasks.Failure
+	if !errors.As(err, &failure) || failure.Class != "generation" || !failure.Permanent {
+		t.Fatalf("stale blob worker result = %v, want permanent generation failure", err)
+	}
+	unchanged, err := f.service.ensureBlobIntentForIdentity(ctx, identity)
+	if err != nil {
+		t.Fatalf("repeat blob demand: %v", err)
+	}
+	if unchanged.ID != newIntent.ID {
+		t.Fatalf("repeat demand changed the active intent: %q -> %q", newIntent.ID, unchanged.ID)
+	}
+	latest, err := f.service.generation(ctx, identity.Authority, identity.Repository, identity.Digest)
+	if err != nil || latest.Generation != current.Generation {
+		t.Fatalf("repeat demand changed generation: %#v err=%v", latest, err)
 	}
 }

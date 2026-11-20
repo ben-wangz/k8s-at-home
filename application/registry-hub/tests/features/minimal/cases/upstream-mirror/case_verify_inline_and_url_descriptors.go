@@ -199,6 +199,8 @@ func verifyInlineAndURLDescriptors(ctx context.Context, environment testkit.Case
 		"inlineSubjectRequests":          inlineSubjectRequests,
 		"missingURLTaskStatus":           testkit.String(missingTask["status"]),
 		"missingURLDiscoveredRootDigest": testkit.String(missingTask["rootDigest"]),
+		"missingURLBlobDigest":           missingLayerDigest,
+		"missingURLDiscoveredTaskID":     testkit.String(missingTask["id"]),
 		"missingURLRootPublished":        missingTask["rootPublished"],
 		"missingURLStandardBlobRequests": missingBlobRequests,
 		"missingURLRequests":             missingURLRequests,

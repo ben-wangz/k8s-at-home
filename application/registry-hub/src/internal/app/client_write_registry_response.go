@@ -55,7 +55,10 @@ func (s *Service) writeRegistryResponse(writer http.ResponseWriter, request *htt
 	}
 	writer.WriteHeader(response.StatusCode)
 	if request.Method != http.MethodHead {
-		_, _ = io.Copy(writer, response.Body)
+		written, copyErr := io.Copy(writer, response.Body)
+		if routed.Endpoint == route.EndpointBlob {
+			recordBlobResponseOutcome(request, written, response.ContentLength, copyErr)
+		}
 	}
 }
 

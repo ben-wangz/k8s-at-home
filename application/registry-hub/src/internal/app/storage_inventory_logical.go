@@ -8,12 +8,20 @@ import (
 )
 
 func (s *Service) advanceStorageLogicalUsage(ctx context.Context, state *storageCollection) error {
+	if state.UsagePending != nil {
+		return s.publishStorageUsagePending(ctx, state)
+	}
+	before := *state
+	working := *state
+	working.AttributionUsageCursor = cloneStorageUsageCursor(state.AttributionUsageCursor)
+	working.Usage = cloneStorageUsage(state.Usage)
+	working.Snapshot.Reasons = append([]string(nil), state.Snapshot.Reasons...)
 	started := time.Now()
-	for unit := 0; unit < 16 && state.AttributionPhase == 2; unit++ {
+	for unit := 0; unit < 16 && working.AttributionPhase == 2; unit++ {
 		if unit > 0 && (time.Since(started) > 2*time.Second || !storageQuantumTime(ctx, time.Second)) {
 			break
 		}
-		found, err := s.storageLogicalUsageEntry(ctx, state)
+		found, err := s.storageLogicalUsageEntry(ctx, &working)
 		if err != nil {
 			return err
 		}
@@ -21,9 +29,21 @@ func (s *Service) advanceStorageLogicalUsage(ctx context.Context, state *storage
 			break
 		}
 	}
-	if state.Snapshot.UsageVersion > 0 {
-		return s.flushStorageUsage(ctx, state)
+	if state.Snapshot.UsageVersion > 0 && len(working.Usage) > 0 {
+		pending, err := s.prepareStorageUsagePending(ctx, before, working)
+		if err != nil {
+			return err
+		}
+		state.UsagePending = pending
+		state.Snapshot.AttributionCoverage = working.Snapshot.AttributionCoverage
+		state.Snapshot.Reasons = working.Snapshot.Reasons
+		return nil
 	}
+	state.AttributionUsageCursor = working.AttributionUsageCursor
+	state.AttributionPhase = working.AttributionPhase
+	state.Usage = working.Usage
+	state.Snapshot.AttributionCoverage = working.Snapshot.AttributionCoverage
+	state.Snapshot.Reasons = working.Snapshot.Reasons
 	return nil
 }
 

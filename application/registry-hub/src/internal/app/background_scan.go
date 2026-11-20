@@ -17,6 +17,13 @@ type backgroundScanStatus struct {
 	LastScanCompletedAt  time.Time            `json:"lastScanCompletedAt"`
 	LastSuccessAt        time.Time            `json:"lastSuccessAt"`
 	LastEntityProgressAt time.Time            `json:"lastEntityProgressAt"`
+	LastCursorProgressAt time.Time            `json:"lastCursorProgressAt"`
+	LastSuccessfulRound  uint64               `json:"lastSuccessfulRound"`
+	OldestDueRetryAt     time.Time            `json:"oldestDueRetryAt,omitempty"`
+	NextRetryAt          time.Time            `json:"nextRetryAt,omitempty"`
+	DispatchLagSeconds   float64              `json:"dispatchLagSeconds"`
+	PendingRetries       int64                `json:"pendingRetries"`
+	Operations           uint64               `json:"operations"`
 	ErrorAt              time.Time            `json:"errorAt,omitempty"`
 	ErrorEntity          string               `json:"errorEntity,omitempty"`
 	ErrorClass           string               `json:"errorClass,omitempty"`

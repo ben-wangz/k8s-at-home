@@ -29,10 +29,10 @@ func mutableBackendObject(key string) bool {
 		"system/solidification/sessions/",
 		"background/v1/statistics-checkpoints/", "background/v1/statistics/", "background/v1/maintenance-checkpoints/",
 		"background/v1/queue-checkpoints/", "background/v1/source-checkpoints/", "background/v1/status/", "background/v1/scans/",
-		"diagnostics/v1/event-budgets/", "diagnostics/v1/workers/", "diagnostics/v1/collected/",
+		"diagnostics/v1/archive-projections/", "diagnostics/v1/event-budgets/", "diagnostics/v1/workers/", "diagnostics/v1/collected/",
 		"inventory/v1/contents/", "inventory/v1/bindings/", "inventory/v1/cache/", "inventory/v1/proofs/",
 		"inventory/v1/lifecycle/", "inventory/v1/work/", "inventory/v1/content-work/", "inventory/v1/latest-work/", "inventory/v1/projection-revisions/",
-		"inventory/v1/fragments/image/", "inventory/v1/fragments/content/",
+		"inventory/v1/fragments/image/", "inventory/v1/fragments/content/", "inventory/v1/dirty-images/",
 	} {
 		if strings.HasPrefix(relative, prefix) {
 			return true
@@ -56,4 +56,18 @@ func mutableUnpublishedAssociation(key string, before map[string]string) bool {
 	}
 	parts := strings.Split(suffix, "/")
 	return len(parts) == 3 && parts[0] == "associations" && (parts[1] == "state" || parts[1] == "registry") && strings.HasSuffix(parts[2], ".json")
+}
+
+func mutableUnpublishedAssembly(key string, before map[string]string) bool {
+	prefix := backendS3Prefix + "/inventory/v1/snapshots/"
+	relative, ok := strings.CutPrefix(key, prefix)
+	if !ok {
+		return false
+	}
+	snapshotID, suffix, ok := strings.Cut(relative, "/")
+	if !ok || snapshotID == "" || suffix != "assembly.json" {
+		return false
+	}
+	_, published := before[prefix+snapshotID+"/manifest.json"]
+	return !published
 }

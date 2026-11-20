@@ -39,6 +39,11 @@ func TestAdminGCStatusPagesProtectionOwnersAndBlockedResponse(t *testing.T) {
 		gate: gate,
 	}
 	service.gc = &gcController{service: service}
+	releaseWrite, err := gate.Enter(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseWrite()
 
 	ownerRequest := httptest.NewRequest(http.MethodGet, "/api/v1/gc?ownersFor="+sessionID+"&ownerLimit=1", nil)
 	ownerRequest.SetBasicAuth("operator", "secret")
@@ -51,13 +56,15 @@ func TestAdminGCStatusPagesProtectionOwnersAndBlockedResponse(t *testing.T) {
 		OwnerSessionID  string   `json:"ownerSessionID"`
 		Owners          []string `json:"owners"`
 		OwnersNextToken string   `json:"ownersNextToken"`
+		ActiveWrites    int      `json:"activeWrites"`
 	}
 	if err := json.Unmarshal(ownerResponse.Body.Bytes(), &ownerPage); err != nil {
 		t.Fatal(err)
 	}
-	if ownerPage.OwnerSessionID != sessionID || len(ownerPage.Owners) != 1 || ownerPage.OwnersNextToken == "" {
+	if ownerPage.OwnerSessionID != sessionID || len(ownerPage.Owners) != 1 || ownerPage.OwnersNextToken == "" || ownerPage.ActiveWrites != 1 {
 		t.Fatalf("GC owner page = %#v", ownerPage)
 	}
+	releaseWrite()
 
 	blockedRequest := httptest.NewRequest(http.MethodPost, "/api/v1/gc", nil)
 	blockedRequest.SetBasicAuth("operator", "secret")

@@ -3,10 +3,12 @@ package diagnostics
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/support"
@@ -22,10 +24,12 @@ func New() (testkit.Case, error) {
 }
 
 type usage struct {
-	Domain      string `json:"domain"`
-	Name        string `json:"name"`
-	ObjectBytes int64  `json:"objectBytes"`
-	Objects     int64  `json:"objects"`
+	Domain         string `json:"domain"`
+	Name           string `json:"name"`
+	ObjectBytes    int64  `json:"objectBytes"`
+	Objects        int64  `json:"objects"`
+	LogicalBytes   *int64 `json:"logicalBytes"`
+	LogicalUnknown bool   `json:"logicalUnknown"`
 }
 
 type domain struct {
@@ -56,6 +60,10 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err != nil || status != http.StatusOK || collection["phase"] == nil || collection["totalObjects"] != nil || collection["percentComplete"] != nil {
 		return fmt.Errorf("independent collector status invalid: status=%d error=%v", status, err)
 	}
+	dependencyTasks, err := verifyDependencyTaskObservations(ctx, environment)
+	if err != nil {
+		return err
+	}
 	snapshot, err := awaitReport(ctx, environment)
 	if err != nil {
 		return err
@@ -65,6 +73,10 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		return err
 	}
 	groups, err := verifyUsage(ctx, environment, snapshot)
+	if err != nil {
+		return err
+	}
+	logicalBytes, err := verifyFixtureLogicalBytes(ctx, environment, snapshot)
 	if err != nil {
 		return err
 	}
@@ -79,7 +91,70 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err != nil || status != http.StatusOK || !reflect.DeepEqual(snapshot, retained) {
 		return fmt.Errorf("retained accounting changed across restart: status=%d error=%v", status, err)
 	}
-	return support.WriteResult(environment, map[string]any{"snapshotID": snapshot.SnapshotID, "domains": snapshot.Domains, "cost": snapshot.Cost, "objects": objects, "usageGroups": groups, "elapsedSeconds": time.Since(started).Seconds(), "restart": "immutable_report_preserved"})
+	details := map[string]any{"snapshotID": snapshot.SnapshotID, "domains": snapshot.Domains, "cost": snapshot.Cost, "objects": objects, "usageGroups": groups, "fixtureLogicalBytes": logicalBytes, "dependencyTaskObservations": dependencyTasks, "elapsedSeconds": time.Since(started).Seconds(), "restart": "immutable_report_preserved"}
+	if environment.ScenarioID == "feature-diagnostics-s3" {
+		seededRecovery, err := verifySeededStorageRecoveryS3(ctx, environment, snapshot)
+		if err != nil {
+			return err
+		}
+		details["seededS3Recovery"] = seededRecovery
+	}
+	return support.WriteResult(environment, details)
+}
+
+func verifyFixtureLogicalBytes(ctx context.Context, environment testkit.CaseContext, snapshot report) (int64, error) {
+	repository, err := support.DetailString(environment.DependencyResults["registry-roundtrip"], "repository")
+	if err != nil {
+		return 0, err
+	}
+	client := support.NewRegistryClient(environment)
+	manifestBytes, _, err := support.ReadManifest(ctx, client, repository, "minimal", support.OCIManifestMediaType)
+	if err != nil {
+		return 0, err
+	}
+	var manifest support.Manifest
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil || manifest.Config == nil {
+		return 0, fmt.Errorf("diagnostics fixture manifest is invalid: %v", err)
+	}
+	expected := int64(len(manifestBytes) + manifest.Config.Size)
+	for _, layer := range manifest.Layers {
+		expected += int64(layer.Size)
+	}
+	query := url.Values{"snapshotID": {snapshot.SnapshotID}, "domain": {"registry"}, "dimension": {"repository"}, "repository": {repository}}
+	query.Set("limit", "32")
+	var matching []usage
+	for {
+		var page struct {
+			SnapshotID string  `json:"snapshotID"`
+			Items      []usage `json:"items"`
+			NextToken  string  `json:"nextToken"`
+		}
+		status, err := read(ctx, environment, "/api/v1/storage/usage?"+query.Encode(), &page)
+		if err != nil || status != http.StatusOK || page.SnapshotID != snapshot.SnapshotID {
+			return 0, fmt.Errorf("fixture logical usage query failed: status=%d error=%v", status, err)
+		}
+		matching = append(matching, page.Items...)
+		if page.NextToken == "" {
+			break
+		}
+		query.Set("token", page.NextToken)
+	}
+	if len(matching) != 1 {
+		return 0, fmt.Errorf("fixture logical usage query returned %d rows, want exactly one", len(matching))
+	}
+	actual := matching[0]
+	minimumObjects := int64(2 + len(manifest.Layers))
+	if actual.Objects < minimumObjects || actual.LogicalUnknown || actual.LogicalBytes == nil || *actual.LogicalBytes != expected {
+		return 0, fmt.Errorf("fixture logical usage = physical objects:%d bytes:%s unknown:%t; want at least %d objects and logical bytes:%d", actual.Objects, nullableInt64(actual.LogicalBytes), actual.LogicalUnknown, minimumObjects, expected)
+	}
+	return expected, nil
+}
+
+func nullableInt64(value *int64) string {
+	if value == nil {
+		return "unknown"
+	}
+	return strconv.FormatInt(*value, 10)
 }
 
 func read(ctx context.Context, environment testkit.CaseContext, path string, result any) (int, error) {

@@ -11,6 +11,8 @@ func diagnosticReason(err error) string {
 	switch {
 	case err == nil:
 		return ""
+	case errors.Is(err, errImmutableBatchMismatch):
+		return "immutable_batch_mismatch"
 	case errors.Is(err, storage.ErrReplayDirectoryInUse):
 		return "replay_directory_in_use"
 	case errors.Is(err, inventory.ErrCurrentExpired), errors.Is(err, inventory.ErrExpired):

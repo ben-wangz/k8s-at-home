@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -80,18 +81,62 @@ type inventoryStatus struct {
 }
 
 type inventoryMetrics struct {
-	registryAttempts          float64
-	registryAttemptsObserved  bool
-	scanRounds                float64
-	scanRoundsObserved        bool
-	snapshotWrites            float64
-	snapshotWritesObserved    bool
-	snapshotWriteBytes        float64
-	snapshotBytesObserved     bool
-	storageOperations         float64
-	storageOperationsObserved bool
-	s3Attempts                float64
-	s3AttemptsObserved        bool
+	registryAttempts                 float64
+	registryAttemptsObserved         bool
+	scanRounds                       float64
+	scanRoundsObserved               bool
+	snapshotWrites                   float64
+	snapshotWritesObserved           bool
+	snapshotWriteBytes               float64
+	snapshotBytesObserved            bool
+	storageOperations                float64
+	storageOperationsObserved        bool
+	storageWorkByLabel               map[string]float64
+	refreshStorageOperations         float64
+	refreshStorageOperationsObserved bool
+	refreshStorageWorkByLabel        map[string]float64
+	s3Attempts                       float64
+	s3AttemptsObserved               bool
+	refreshS3Attempts                float64
+}
+
+func storageWorkDelta(before, after map[string]float64) []string {
+	keys := make(map[string]struct{}, len(before)+len(after))
+	for key := range before {
+		keys[key] = struct{}{}
+	}
+	for key := range after {
+		keys[key] = struct{}{}
+	}
+
+	ordered := make([]string, 0, len(keys))
+	for key := range keys {
+		ordered = append(ordered, key)
+	}
+	sort.Strings(ordered)
+	delta := make([]string, 0, len(ordered))
+	for _, key := range ordered {
+		value := after[key] - before[key]
+		if value != 0 {
+			delta = append(delta, fmt.Sprintf("%s delta=%g", key, value))
+		}
+	}
+	return delta
+}
+
+func addInventoryStorageWorkSample(result *inventoryMetrics, sample testkit.PrometheusSample) {
+	if sample.Labels["kind"] != "inventory_builder" {
+		return
+	}
+	key := fmt.Sprintf("operation=%s,key_class=%s,reason=%s,result=%s", sample.Labels["operation"], sample.Labels["key_class"], sample.Labels["reason"], sample.Labels["result"])
+	result.storageWorkByLabel[key] += sample.Value
+	result.storageOperations += sample.Value
+	result.storageOperationsObserved = true
+	if sample.Labels["reason"] == "inventory_refresh" {
+		result.refreshStorageWorkByLabel[key] += sample.Value
+		result.refreshStorageOperations += sample.Value
+		result.refreshStorageOperationsObserved = true
+	}
 }
 
 func (m inventoryMetrics) initialBaselineMissing() []string {
@@ -158,7 +203,6 @@ func readInventoryMetrics(ctx context.Context, environment testkit.CaseContext) 
 		{name: "registry_hub_registry_http_attempts_total", labels: map[string]string{"kind": "inventory_builder"}, value: &result.registryAttempts, seen: &result.registryAttemptsObserved},
 		{name: "registry_hub_inventory_snapshot_object_writes_total", labels: map[string]string{"kind": "inventory_builder", "purpose": "work", "reason": "inventory_snapshot_build"}, value: &result.snapshotWrites, seen: &result.snapshotWritesObserved},
 		{name: "registry_hub_inventory_snapshot_object_write_bytes_total", labels: map[string]string{"kind": "inventory_builder", "purpose": "work", "reason": "inventory_snapshot_build"}, value: &result.snapshotWriteBytes, seen: &result.snapshotBytesObserved},
-		{name: "registry_hub_storage_work_operations_total", labels: map[string]string{"kind": "inventory_builder"}, value: &result.storageOperations, seen: &result.storageOperationsObserved},
 	} {
 		total, found, err := testkit.PrometheusSum(metrics, target.name, target.labels)
 		if err != nil {
@@ -170,7 +214,20 @@ func readInventoryMetrics(ctx context.Context, environment testkit.CaseContext) 
 		*target.value = total
 		*target.seen = true
 	}
+	storageWork, err := testkit.PrometheusSamples(metrics, "registry_hub_storage_work_operations_total")
+	if err != nil {
+		return inventoryMetrics{}, err
+	}
+	result.storageWorkByLabel = map[string]float64{}
+	result.refreshStorageWorkByLabel = map[string]float64{}
+	for _, sample := range storageWork {
+		addInventoryStorageWorkSample(&result, sample)
+	}
 	result.s3Attempts, result.s3AttemptsObserved, err = testkit.PrometheusSum(metrics, "registry_hub_s3_http_attempts_total", map[string]string{"domain": "state", "kind": "inventory_builder"})
+	if err != nil {
+		return inventoryMetrics{}, err
+	}
+	result.refreshS3Attempts, _, err = testkit.PrometheusSum(metrics, "registry_hub_s3_http_attempts_total", map[string]string{"domain": "state", "kind": "inventory_builder", "reason": "inventory_refresh"})
 	if err != nil {
 		return inventoryMetrics{}, err
 	}

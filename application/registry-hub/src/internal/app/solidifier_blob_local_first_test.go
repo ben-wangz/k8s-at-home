@@ -71,6 +71,61 @@ func TestBlobWorkerUsesDistributionWhenCacheWasCleaned(t *testing.T) {
 	}
 }
 
+func TestBlobWorkerReplaysAnchoredRootAfterVerification(t *testing.T) {
+	f := newStagedAcceptanceFixture(t, 1<<20)
+	_, blob, _ := publishAnchoredTestPlatform(f, "recovery-after-blob-verified")
+	root := completedAnchoredRootForBlob(t, f, blob.Digest)
+	ctx := context.Background()
+	generation, err := f.service.generation(ctx, root.Authority, root.Repository, blob.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent, _, err := f.service.records.EnsureBlobIntent(ctx, tasks.BlobIdentity{
+		Authority: root.Authority, Repository: root.Repository, Digest: blob.Digest,
+	}, generation.Generation, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.service.records.LinkBlobDemand(ctx, intent.ID, intent.ID); err != nil {
+		t.Fatal(err)
+	}
+	cached, err := f.service.cache.GetAnyRetained(ctx, root.Authority, root.Repository, blob.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = cached.Body.Close()
+	intent, err = f.service.records.SetBlobIntentReady(ctx, intent.ID, blob.MediaType, cached.DataVersion, blob.Size)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, _, err := f.service.tasks.EnqueueBlob(ctx, intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskLease, err := f.service.tasks.Leases().Acquire(ctx, "tasks/"+task.ID, "post-verification-root-replay-test", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.service.tasks.Leases().Release(ctx, taskLease)
+
+	err = f.processor.processBlob(ctx, &task, taskLease)
+	var yielded *tasks.Yield
+	if !errors.As(err, &yielded) || yielded.Status != tasks.VerifiedLocal {
+		t.Fatalf("blob worker result = %v (yield=%+v), want verified_local", err, yielded)
+	}
+	verified, err := f.service.records.GetBlobIntent(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified.State != tasks.IntentVerified {
+		t.Fatalf("blob intent state = %q, want verified", verified.State)
+	}
+	active := activeRootForReference(t, f, root.Reference)
+	if len(active) != 1 || active[0].ID == root.ID || active[0].RootDigest != root.RootDigest || active[0].Generation != root.Generation {
+		t.Fatalf("active roots after blob verification = %#v; want one replacement for the current root", active)
+	}
+}
+
 func TestBlobWorkerYieldsAfterDistributionAndCacheMiss(t *testing.T) {
 	ctx := context.Background()
 	service, manager, _ := newDiscoveryTestService(t, &scriptedUpstream{})

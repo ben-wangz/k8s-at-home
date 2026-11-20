@@ -92,7 +92,11 @@ func (s *solidifier) admitManifestScope(ctx context.Context, task *tasks.Task, t
 		if err != nil {
 			return false, temporary("protection_state", err)
 		}
-		directScope, scopeErr := protectionScopeID(task.Authority, task.Repository, blob.digest, task.Generation)
+		contentGeneration, scopeErr := s.blobContentGeneration(ctx, task, blob.digest)
+		if scopeErr != nil {
+			return false, temporary("generation", scopeErr)
+		}
+		directScope, scopeErr := protectionScopeID(task.Authority, task.Repository, blob.digest, contentGeneration)
 		if scopeErr != nil {
 			return false, permanent("task_state", scopeErr)
 		}

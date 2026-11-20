@@ -110,12 +110,21 @@ func TestBlobStorageFailureWarnsAndDoesNotFallBackUpstream(t *testing.T) {
 	if len(remote.calls) != 0 {
 		t.Fatalf("storage failure triggered %d upstream requests, want 0", len(remote.calls))
 	}
-	var record map[string]any
-	if err := json.Unmarshal(output.Bytes(), &record); err != nil {
-		t.Fatalf("decode structured log: %v", err)
+	decoder := json.NewDecoder(&output)
+	var storageWarning bool
+	for {
+		var record map[string]any
+		if err := decoder.Decode(&record); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			t.Fatalf("decode structured logs: %v", err)
+		}
+		if record["level"] == "WARN" && record["error_class"] == "storage" {
+			storageWarning = true
+		}
 	}
-	if record["level"] != "WARN" || record["error_class"] != "storage" {
-		t.Fatalf("storage failure log = %#v, want WARN storage", record)
+	if !storageWarning {
+		t.Fatalf("storage failure logs = %s, want a WARN storage record", output.String())
 	}
 }
 

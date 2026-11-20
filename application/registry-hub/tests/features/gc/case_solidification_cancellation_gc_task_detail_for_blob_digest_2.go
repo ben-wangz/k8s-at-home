@@ -2,6 +2,7 @@ package gc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/support"
 	"github.com/ben-wangz/registry-hub-tests/internal/testkit"
@@ -62,6 +63,61 @@ func taskDetailForReference(ctx context.Context, environment testkit.CaseContext
 		return result, nil
 	}
 	return nil, fmt.Errorf("no matching task for reference %s", reference)
+}
+
+func waitForNewRootCompletion(ctx context.Context, environment testkit.CaseContext, repository, reference string, since time.Time, previousID, previousRound string) (map[string]any, error) {
+	deadline := time.NewTimer(2 * time.Minute)
+	defer deadline.Stop()
+	for {
+		task, err := taskDetailForNewRoot(ctx, environment, repository, reference, since, previousID, previousRound)
+		if err == nil {
+			status := testkit.String(task["status"])
+			if status == "solidified" {
+				if task["rootPublished"] != true {
+					return nil, fmt.Errorf("repulled root task did not publish its root")
+				}
+				return task, nil
+			}
+			if status == "failed" || status == "cancelled" {
+				return nil, fmt.Errorf("repulled root task ended in %s", status)
+			}
+		} else if !strings.Contains(err.Error(), "no matching root task") {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-deadline.C:
+			return nil, fmt.Errorf("repulled root did not reach solidified state")
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+func taskDetailForNewRoot(ctx context.Context, environment testkit.CaseContext, repository, reference string, since time.Time, previousID, previousRound string) (map[string]any, error) {
+	query := url.Values{
+		"authority": {"github.com"}, "repository": {repositoryPath(repository)},
+		"since": {since.Add(-time.Second).Format(time.RFC3339)}, "limit": {"100"},
+	}
+	response, err := support.AdminRequest(ctx, environment, http.MethodGet, "/api/v1/tasks?"+query.Encode(), nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	var page map[string]any
+	if _, err := support.DecodeJSON(response, 4<<20, &page); err != nil {
+		return nil, err
+	}
+	for _, raw := range testkit.Slice(page["items"]) {
+		item := testkit.Map(raw)
+		if testkit.String(item["kind"]) != "root" || testkit.String(item["reference"]) != reference {
+			continue
+		}
+		if testkit.String(item["id"]) == previousID && testkit.String(item["roundID"]) == previousRound {
+			continue
+		}
+		return taskDetailByID(ctx, environment, testkit.String(item["id"]))
+	}
+	return nil, fmt.Errorf("no matching root task for reference %s", reference)
 }
 
 func hasQuiescentUnanchoredSession(task map[string]any) (bool, error) {
@@ -125,8 +181,9 @@ func requireNoProtectionBlockers(status map[string]any) error {
 	for _, raw := range testkit.Slice(status["sessions"]) {
 		session := testkit.Map(raw)
 		state := testkit.String(session["state"])
-		if state == "protected" || state == "anchoring" || state == "stop_requested" || state == "quiescing" || state == "quiesced" || state == "recovery_required" {
-			return fmt.Errorf("solidification protection session %s remains in %s after cancellation", testkit.String(session["id"]), state)
+		if isProtectionBlockingState(state) {
+			evidence, _ := json.Marshal(summarizeProtectionSession(session))
+			return fmt.Errorf("solidification protection session %s remains in %s after cancellation; evidence: %s", testkit.String(session["id"]), state, evidence)
 		}
 	}
 	return nil

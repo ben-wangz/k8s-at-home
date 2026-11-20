@@ -47,6 +47,7 @@ type adminTaskCleanupResponse struct {
 type adminGCStatusResponse struct {
 	Gate            gateRecord                `json:"gate"`
 	Run             gcRun                     `json:"run"`
+	ActiveWrites    int                       `json:"activeWrites"`
 	Sessions        []protectionSessionStatus `json:"sessions"`
 	NextToken       string                    `json:"nextToken"`
 	OwnerSessionID  string                    `json:"ownerSessionID,omitempty"`

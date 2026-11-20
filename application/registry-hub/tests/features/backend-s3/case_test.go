@@ -55,7 +55,7 @@ func TestCompareObjectSnapshotsAllowsBackgroundProgressWithoutLosingCheckpoints(
 		"background/v1/statistics-checkpoints/protection.json", "background/v1/statistics/tasks.json",
 		"background/v1/maintenance-checkpoints/storage_inventory.json", "background/v1/queue-checkpoints/execution.json",
 		"background/v1/source-checkpoints/source_tasks.json", "background/v1/scans/activation.json", "background/v1/status/notify.json",
-		"diagnostics/v1/storage/checkpoint.json", "diagnostics/v1/workers/protection_recovery.json",
+		"diagnostics/v1/storage/checkpoint.json", "diagnostics/v1/archive-projections/receipt.json", "diagnostics/v1/workers/protection_recovery.json",
 		"diagnostics/v1/event-budgets/20261102.json", "inventory/v1/checkpoint.json", "inventory/v1/lifecycle/root.json",
 		"inventory/v1/projection-revisions/root.json", "system/gc/state.json", "downloads/v1/quota.json",
 		"inventory/v1/latest-work/root.json", "inventory/v1/retention.json", "inventory/v1/work-retention.json",
@@ -64,6 +64,7 @@ func TestCompareObjectSnapshotsAllowsBackgroundProgressWithoutLosingCheckpoints(
 		"solidification/blobs/intents/intent.json",
 		"system/solidification/sessions/session.json",
 		"inventory/v1/fragment-retention.json", "inventory/v1/fragments/image/image.json", "inventory/v1/fragments/content/content.json",
+		"inventory/v1/dirty-images/image.json",
 	} {
 		t.Run(relative, func(t *testing.T) {
 			key := backendS3Prefix + "/" + relative
@@ -88,6 +89,27 @@ func TestCompareObjectSnapshotsAllowsTransientCoordinationCleanup(t *testing.T) 
 	}
 	if err := compareObjectSnapshots(before, nil); err != nil {
 		t.Fatalf("completed coordination state must be reclaimable: %v", err)
+	}
+}
+
+func TestCompareObjectSnapshotsAllowsTerminalDemandOwnerCleanup(t *testing.T) {
+	rootID, intentID := "root-task", "blob-intent"
+	rootOwner := backendS3Prefix + "/solidification/blobs/root-owners/" + rootID + "/demand.json"
+	intentOwner := backendS3Prefix + "/solidification/blobs/owners/" + intentID + "/demand.json"
+	taskState := backendS3Prefix + "/tasks/state/" + rootID + ".json"
+	before := map[string]string{rootOwner: "root:10", intentOwner: "intent:10", taskState: "task:10"}
+	after := map[string]string{taskState: "task:10"}
+	if err := compareObjectSnapshotsAfterTerminalDemandCleanup(before, after, rootID, []string{intentID}); err != nil {
+		t.Fatalf("terminal cleanup of this root's demand indexes was rejected: %v", err)
+	}
+
+	if err := compareObjectSnapshotsAfterTerminalDemandCleanup(before, after, "another-root", []string{"another-intent"}); err == nil {
+		t.Fatal("cleanup of unrelated demand indexes was accepted")
+	}
+
+	changed := map[string]string{rootOwner: "root:11", intentOwner: "intent:11", taskState: "task:10"}
+	if err := compareObjectSnapshotsAfterTerminalDemandCleanup(before, changed, rootID, []string{intentID}); err == nil {
+		t.Fatal("changed terminal demand indexes were accepted")
 	}
 }
 
@@ -133,5 +155,24 @@ func TestCompareObjectSnapshotsDistinguishesStagingAndPublishedAssociations(t *t
 		if err := compareObjectSnapshots(map[string]string{key: "before:10"}, map[string]string{key: "after:20"}); err == nil {
 			t.Fatalf("immutable or unknown staging object mutation accepted: %s", suffix)
 		}
+	}
+}
+
+func TestCompareObjectSnapshotsAllowsUnpublishedAssemblyProgress(t *testing.T) {
+	prefix := backendS3Prefix + "/inventory/v1/snapshots/report/"
+	assemblyKey := prefix + "assembly.json"
+	manifestKey := prefix + "manifest.json"
+	before := map[string]string{assemblyKey: "before:9805"}
+	after := map[string]string{assemblyKey: "after:206"}
+	if err := compareObjectSnapshots(before, after); err != nil {
+		t.Fatalf("unpublished assembly progress was rejected: %v", err)
+	}
+	if err := compareObjectSnapshots(before, nil); err == nil {
+		t.Fatal("missing unpublished assembly checkpoint was accepted")
+	}
+
+	before[manifestKey], after[manifestKey] = "manifest:10", "manifest:10"
+	if err := compareObjectSnapshots(before, after); err == nil {
+		t.Fatal("published assembly mutation was accepted")
 	}
 }

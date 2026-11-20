@@ -175,6 +175,12 @@ func (g *writeGate) State() gateRecord {
 	return state
 }
 
+func (g *writeGate) activeCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.active
+}
+
 func (g *writeGate) readinessSnapshot() (<-chan struct{}, gateRecord) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/support"
 	"github.com/ben-wangz/registry-hub-tests/internal/testkit"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -56,6 +57,20 @@ func verifySolidificationCancellationGC(ctx context.Context, environment testkit
 	if err := requireNoProtectionBlockers(gate); err != nil {
 		return nil, err
 	}
+	if err := waitForRegistryService(ctx, registry); err != nil {
+		return nil, fmt.Errorf("Registry Service did not recover after backend restart: %w", err)
+	}
+	oldRootTask := testkit.Map(tasks["rootTask"])
+	oldBlobTask := testkit.Map(tasks["blobTask"])
+	deleteResponse, err := registry.Delete(ctx, repository, "/blobs/"+manifest.Config.Digest)
+	if err != nil {
+		return nil, err
+	}
+	deleteStatus := deleteResponse.StatusCode
+	deleteResponse.Body.Close()
+	if deleteStatus != http.StatusAccepted {
+		return nil, fmt.Errorf("authorized Hub blob DELETE returned %d, want 202", deleteStatus)
+	}
 	gcStarted, err := startGC(ctx, environment)
 	if err != nil {
 		return nil, err
@@ -74,10 +89,27 @@ func verifySolidificationCancellationGC(ctx context.Context, environment testkit
 	if err := cleanupGCJob(ctx, environment, testkit.String(gcJob["name"]), testkit.String(gcJob["uid"])); err != nil {
 		return nil, err
 	}
+	if err := waitForRegistryService(ctx, registry); err != nil {
+		return nil, fmt.Errorf("Registry Service did not recover after post-cancellation GC: %w", err)
+	}
 	readSince := time.Now().UTC()
 	upstreamBefore, err := fixtureBlobRequestCount(ctx, environment, manifest.Config.Digest)
 	if err != nil {
 		return nil, err
+	}
+	podmanPull, err := podmanPullPinnedImage(ctx, environment, registry.Basic, repository, testkit.String(oldRootTask["rootDigest"]))
+	if err != nil {
+		evidence := podmanPullFailureDiagnostics(ctx, environment, registry, repository, manifest, readSince, err)
+		encoded, _ := json.Marshal(evidence)
+		return nil, fmt.Errorf("%w; failure evidence: %s", err, encoded)
+	}
+	repulledManifest, manifestHeaders, err := support.ReadManifest(ctx, registry, repository, reference, support.OCIManifestMediaType)
+	if err != nil || !bytes.Equal(repulledManifest, manifestBytes) {
+		return nil, fmt.Errorf("post-GC root manifest read did not preserve the pinned fixture: %v", err)
+	}
+	rootDigest := support.Digest(repulledManifest)
+	if manifestHeaders.Get("Docker-Content-Digest") != rootDigest {
+		return nil, fmt.Errorf("post-GC manifest digest header %q does not match %q", manifestHeaders.Get("Docker-Content-Digest"), rootDigest)
 	}
 	refetched, err := support.ReadBlob(ctx, registry, repository, manifest.Config.Digest)
 	if err != nil {
@@ -85,6 +117,12 @@ func verifySolidificationCancellationGC(ctx context.Context, environment testkit
 	}
 	if !bytes.Equal(refetched, clientBytes) {
 		return nil, fmt.Errorf("post-GC client blob read returned unexpected bytes")
+	}
+	for _, layer := range manifest.Layers {
+		layerBytes, err := support.ReadBlob(ctx, registry, repository, layer.Digest)
+		if err != nil || len(layerBytes) != layer.Size || support.Digest(layerBytes) != layer.Digest {
+			return nil, fmt.Errorf("post-GC layer %s did not pass client digest verification: %v", layer.Digest, err)
+		}
 	}
 	upstreamAfter, err := fixtureBlobRequestCount(ctx, environment, manifest.Config.Digest)
 	if err != nil {
@@ -102,15 +140,30 @@ func verifySolidificationCancellationGC(ctx context.Context, environment testkit
 		return nil, err
 	}
 	newBlobTaskID := testkit.String(newBlobTask["id"])
-	newBlobTask, err = cancelAndWaitForTask(ctx, environment, newBlobTaskID)
+	oldBlobGeneration, newBlobGeneration := testkit.Int(oldBlobTask["generation"]), testkit.Int(newBlobTask["generation"])
+	if newBlobGeneration <= oldBlobGeneration || testkit.String(newBlobTask["roundID"]) == testkit.String(oldBlobTask["roundID"]) {
+		return nil, fmt.Errorf("authorized DELETE did not create a new blob generation and round: %d -> %d", oldBlobGeneration, newBlobGeneration)
+	}
+	newRootTask, err := waitForNewRootCompletion(ctx, environment, repository, reference, readSince,
+		testkit.String(oldRootTask["id"]), testkit.String(oldRootTask["roundID"]))
 	if err != nil {
-		return nil, err
+		diagnosticCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		evidence := rootCompletionFailureDiagnostics(diagnosticCtx, environment, repository, reference, readSince,
+			testkit.String(oldRootTask["id"]), testkit.String(oldRootTask["roundID"]), manifest, podmanPull, newBlobTask, err)
+		encoded, _ := json.Marshal(evidence)
+		return nil, fmt.Errorf("%w; root completion failure evidence: %s", err, encoded)
 	}
 	returnStatus, err := gcStatus(ctx, environment)
 	if err != nil {
 		return nil, err
 	}
 	if err := requireNoProtectionBlockers(returnStatus); err != nil {
+		return nil, err
+	}
+	directDistributionRecovery, err := verifyDirectDistributionCleanupRecovery(ctx, environment, registry, repository, reference,
+		manifestBytes, clientBytes, manifest, newRootTask, newBlobTask)
+	if err != nil {
 		return nil, err
 	}
 	return map[string]any{
@@ -126,8 +179,15 @@ func verifySolidificationCancellationGC(ctx context.Context, environment testkit
 		"gcAfterCancelID":             testkit.String(gcFinished["id"]), "unanchoredBlobDigest": manifest.Config.Digest,
 		"distributionBlobMissesAfterGC": distributionMisses, "upstreamBlobRequestsBefore": upstreamBefore,
 		"upstreamBlobRequestsAfter": upstreamAfter, "cacheAndDistributionMissRecoveredFromUpstream": true,
+		"hubAuthorizedDeleteStatus": deleteStatus, "deletePrincipal": "writer",
+		"podmanDigestPull":  podmanPull,
+		"oldBlobGeneration": oldBlobGeneration, "newBlobGeneration": newBlobGeneration,
 		"newSolidificationRoundAfterRefetch": true, "newBlobTaskID": newBlobTaskID,
-		"newBlobTaskStatusAfterCleanup": testkit.String(newBlobTask["status"]),
+		"newBlobTaskStatusAfterRefetch": testkit.String(newBlobTask["status"]),
+		"repulledRootTaskID":            testkit.String(newRootTask["id"]), "repulledRootRoundID": testkit.String(newRootTask["roundID"]),
+		"repulledRootDigest": rootDigest, "repulledRootPublished": newRootTask["rootPublished"],
+		"repulledRootTaskStatus":            testkit.String(newRootTask["status"]),
+		"directDistributionCleanupRecovery": directDistributionRecovery,
 	}, nil
 }
 

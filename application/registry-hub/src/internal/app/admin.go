@@ -194,7 +194,7 @@ func (s *Service) gcStatus(ctx context.Context, token string, limit int, ownersF
 	if err != nil {
 		return adminGCStatusResponse{}, err
 	}
-	status := adminGCStatusResponse{Gate: s.gate.State(), Run: s.gc.Snapshot(), Sessions: sessions, NextToken: next}
+	status := adminGCStatusResponse{Gate: s.gate.State(), Run: s.gc.Snapshot(), ActiveWrites: s.gate.activeCount(), Sessions: sessions, NextToken: next}
 	if ownersFor != "" {
 		owners, ownersNext, err := s.gate.ListProtectionSessionOwners(ctx, ownersFor, ownerToken, ownerLimit)
 		if err != nil {

@@ -113,6 +113,10 @@ type storageCollection struct {
 	Usage                  map[string]storageUsage `json:"usage"`
 	UsageRuns              int                     `json:"usageRuns"`
 	UsageMerge             storageUsageMerge       `json:"usageMerge"`
+	UsagePending           *storageUsagePending    `json:"usagePending,omitempty"`
+	AutomaticRestarts      int                     `json:"automaticRestarts,omitempty"`
+	RecoveredFromBuildID   string                  `json:"recoveredFromBuildID,omitempty"`
+	RecoveryReason         string                  `json:"recoveryReason,omitempty"`
 	NextScanAt             time.Time               `json:"nextScanAt"`
 	PendingRows            []storageObject         `json:"pendingRows,omitempty"`
 	PendingSummary         storageUsage            `json:"pendingSummary"`

@@ -102,6 +102,14 @@ func solidifiedTask(task map[string]any, taskID, digest string) bool {
 }
 
 func compareObjectSnapshots(before, after map[string]string, reclaimableCacheDataKeys ...string) error {
+	return compareObjectSnapshotsWithPolicy(before, after, "", nil, reclaimableCacheDataKeys...)
+}
+
+func compareObjectSnapshotsAfterTerminalDemandCleanup(before, after map[string]string, rootTaskID string, intentIDs []string, reclaimableCacheDataKeys ...string) error {
+	return compareObjectSnapshotsWithPolicy(before, after, rootTaskID, intentIDs, reclaimableCacheDataKeys...)
+}
+
+func compareObjectSnapshotsWithPolicy(before, after map[string]string, rootTaskID string, intentIDs []string, reclaimableCacheDataKeys ...string) error {
 	reclaimedCachePrefixes := make([]string, 0, len(reclaimableCacheDataKeys))
 	for _, dataKey := range reclaimableCacheDataKeys {
 		prefix, ok := reclaimableCacheIdentityPrefix(dataKey)
@@ -112,19 +120,69 @@ func compareObjectSnapshots(before, after map[string]string, reclaimableCacheDat
 			reclaimedCachePrefixes = append(reclaimedCachePrefixes, prefix)
 		}
 	}
+	terminalOwnerPrefixes := terminalDemandOwnerPrefixes(rootTaskID, intentIDs)
 	for key, value := range before {
 		if transientBackendObject(key) || hasPrefix(key, reclaimedCachePrefixes) {
 			continue
 		}
 		current, exists := after[key]
 		if !exists {
+			if hasPrefix(key, terminalOwnerPrefixes) {
+				continue
+			}
 			return fmt.Errorf("backend S3 object %s disappeared across restart", key)
 		}
-		if current != value && !mutableBackendObject(key) && !mutableUnpublishedAssociation(key, before) {
+		if current != value && !mutableBackendObject(key) && !mutableUnpublishedAssociation(key, before) && !mutableUnpublishedAssembly(key, before) {
 			return fmt.Errorf("backend S3 object %s changed across restart", key)
 		}
 	}
 	return nil
+}
+
+func terminalDemandOwnerPrefixes(rootTaskID string, intentIDs []string) []string {
+	prefixes := make([]string, 0, len(intentIDs)+1)
+	if rootTaskID != "" {
+		prefixes = append(prefixes, backendS3Prefix+"/solidification/blobs/root-owners/"+rootTaskID+"/")
+	}
+	for _, intentID := range intentIDs {
+		if intentID != "" {
+			prefixes = append(prefixes, backendS3Prefix+"/solidification/blobs/owners/"+intentID+"/")
+		}
+	}
+	return prefixes
+}
+
+func rootDependencyIntentIDs(ctx context.Context, environment testkit.CaseContext, rootTaskID string) ([]string, error) {
+	response, err := support.AdminRequest(ctx, environment, http.MethodGet,
+		"/api/v1/tasks/"+url.PathEscape(rootTaskID)+"/dependencies?limit=32", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode != http.StatusOK {
+		response.Body.Close()
+		return nil, fmt.Errorf("root task dependencies returned %s", response.Status)
+	}
+	var page struct {
+		Items []struct {
+			IntentID string `json:"intentID"`
+		} `json:"items"`
+	}
+	if _, err := support.DecodeJSON(response, 4<<20, &page); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(page.Items))
+	seen := make(map[string]bool, len(page.Items))
+	for _, item := range page.Items {
+		if item.IntentID != "" && !seen[item.IntentID] {
+			seen[item.IntentID] = true
+			ids = append(ids, item.IntentID)
+		}
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("solidified root task %s has no dependency intent IDs", rootTaskID)
+	}
+	return ids, nil
 }
 
 func reclaimableCacheIdentityPrefix(dataKey string) (string, bool) {

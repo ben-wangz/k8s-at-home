@@ -32,6 +32,10 @@ var ErrCancelled = errors.New("task was cancelled")
 
 var ErrRootPublishing = errors.New("task root publication has started")
 
+var ErrProtectionAdmissionConflict = errors.New("task protection admission changed during progress commit")
+
+var ErrActiveRootDemand = errors.New("an active root task conflicts with the requested recovery")
+
 const (
 	taskSchemaPrevious     = 1
 	taskSchemaLegacy       = 2
@@ -165,7 +169,7 @@ func validWaitResourceKey(key string) bool {
 	if len(key) > 1024 || strings.ContainsAny(key, "\r\n\x00") {
 		return false
 	}
-	return strings.HasPrefix(key, "objects/") || strings.HasPrefix(key, "protection/")
+	return strings.HasPrefix(key, "objects/") || strings.HasPrefix(key, "protection/") || strings.HasPrefix(key, "blob-intent/")
 }
 
 func validWaitReason(reason string) bool {

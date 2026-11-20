@@ -16,7 +16,23 @@ func (s *Service) ensureBlobIntent(ctx context.Context, routed route.Route) (tas
 }
 
 func (s *Service) ensureBlobIntentForIdentity(ctx context.Context, identity tasks.BlobIdentity) (tasks.BlobIntent, error) {
-	generation, err := s.generation(ctx, identity.Authority, identity.Repository, identity.Digest)
+	if s.records == nil {
+		return tasks.BlobIntent{}, errors.New("solidification intent store is unavailable")
+	}
+	current, currentErr := s.records.GetBlobIntentByIdentity(ctx, identity)
+	if currentErr != nil && !errors.Is(currentErr, storage.ErrNotFound) {
+		return tasks.BlobIntent{}, currentErr
+	}
+	if currentErr == nil && (current.State == tasks.IntentFailed || current.State == tasks.IntentCancelled) && current.ProtectionSessionID != "" {
+		settled, settleErr := s.clearReleasedTerminalBlobIntentProtection(ctx, current)
+		if settleErr != nil {
+			return tasks.BlobIntent{}, blobIntentCleanupWait(settleErr)
+		}
+		if !settled {
+			return tasks.BlobIntent{}, blobIntentCleanupWait(nil)
+		}
+	}
+	generation, err := s.prepareBlobDemandGeneration(ctx, identity)
 	if err != nil {
 		return tasks.BlobIntent{}, err
 	}

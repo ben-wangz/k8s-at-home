@@ -3,17 +3,22 @@ package app
 import (
 	"context"
 	"errors"
+	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
+	"strings"
 	"time"
 )
 
 func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Lease, kind, prefix string, step sourceSweepStep, end sourceSweepEnd) {
 	initial, cancel := context.WithTimeout(ctx, 5*time.Second)
+	initial = inventory.WithWriteGuard(initial, func(check context.Context) error {
+		return lease.NewManager(s.store).Validate(check, holder)
+	})
 	p, _, err := inventory.Read[sourceSweepCheckpoint](initial, s.store, sourceSweepKey(kind))
-	cancel()
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {
+		cancel()
 		s.backgroundEvent(kind, "checkpoint_read_failed", err)
 		return
 	}
@@ -30,10 +35,19 @@ func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Le
 	if p.Status.RunID == "" {
 		p.Status.RunID = requestID()
 	}
+	if err := importSourceSweepBackoff(initial, s, kind, &p, 16); err != nil {
+		cancel()
+		s.backgroundEvent(kind, "retry_migration_failed", err)
+		return
+	}
+	cancel()
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	var signalCheck time.Time
 	var lastSave time.Time
+	var lastRetryDispatch time.Time
+	var lastRetryStatus time.Time
+	var retryTurn uint64
 	for ctx.Err() == nil {
 		select {
 		case <-ctx.Done():
@@ -55,8 +69,70 @@ func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Le
 		if p.Status.WaitReason == "protection_recovery" && !s.recoveryBlocked() {
 			p.NextRound = time.Time{}
 		}
-		if time.Now().Before(p.NextRound) {
+		scanDue := !time.Now().Before(p.NextRound)
+		if sourceSweepUsesDurableRetry(kind) {
+			due, dueErr := dueSourceRetryExists(ctx, s.store, kind)
+			if dueErr != nil {
+				s.backgroundEvent(kind, "retry_index_read_failed", dueErr)
+				continue
+			}
+			retryTurn++
+			if due && (!scanDue || retryTurn%4 == 0 || time.Since(lastRetryDispatch) >= time.Second) {
+				bounded, release, ok := s.beginSourceSweepUnit(ctx, kind)
+				if !ok {
+					continue
+				}
+				guarded := inventory.WithWriteGuard(bounded, func(check context.Context) error { return lease.NewManager(s.store).Validate(check, holder) })
+				processed, retryErr := s.dispatchDueSourceSweepRetry(guarded, holder, kind, &p, step)
+				lastRetryDispatch = time.Now()
+				if retryErr != nil {
+					s.backgroundEvent(kind, "retry_dispatch_failed", retryErr)
+				}
+				var checkpointErr error
+				if processed {
+					statusCtx, statusCancel := s.backgroundCheckpoint(ctx, kind)
+					if lastRetryStatus.IsZero() || time.Since(lastRetryStatus) >= 5*time.Second {
+						if err := s.updateSourceRetryStatus(statusCtx, kind, &p); err != nil {
+							checkpointErr = err
+						} else {
+							lastRetryStatus = time.Now()
+						}
+					}
+					if checkpointErr == nil {
+						markSourceRetryRoundSuccess(&p)
+						p.Status.CheckpointAt = time.Now().UTC()
+						checkpointErr = s.saveSourceSweep(statusCtx, holder, kind, p)
+					}
+					statusCancel()
+				}
+				release()
+				if checkpointErr != nil {
+					s.backgroundEvent(kind, "checkpoint_failed", checkpointErr)
+					return
+				}
+				if processed {
+					continue
+				}
+			}
+		}
+		if !scanDue {
 			continue
+		}
+		if kind == "diagnostic_retention_events" && p.EventRoundEndDate == "" {
+			partitionCtx, partitionCancel := context.WithTimeout(ctx, 5*time.Second)
+			partitionCtx = inventory.WithWriteGuard(partitionCtx, func(check context.Context) error {
+				return lease.NewManager(s.store).Validate(check, holder)
+			})
+			if err := s.initializeDiagnosticEventRound(partitionCtx, prefix, &p, time.Now().UTC()); err != nil {
+				partitionCancel()
+				s.backgroundEvent(kind, "partition_read_failed", err)
+				continue
+			}
+			partitionCancel()
+		}
+		scanPrefix := prefix
+		if kind == "diagnostic_retention_events" && p.EventPartitionDate != "" {
+			scanPrefix = prefix + p.EventPartitionDate + "/"
 		}
 		bounded, release, ok := s.beginSourceSweepUnit(ctx, kind)
 		if !ok {
@@ -64,15 +140,49 @@ func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Le
 		}
 		guarded := inventory.WithWriteGuard(bounded, func(ctx context.Context) error { return lease.NewManager(s.store).Validate(ctx, holder) })
 		p.Status.LastHeartbeatAt = time.Now().UTC()
-		if recoveryWriter(kind) && s.recoveryBlocked() {
+		p.Status.Complete = false
+		canScan := true
+		if err := importSourceSweepBackoff(guarded, s, kind, &p, 16); err != nil {
+			s.failSourceScan(guarded, kind, scanPrefix, &p, err)
+			canScan = false
+		}
+		if err := s.repairSourceRetryIndexes(guarded, kind, &p, 16); err != nil {
+			s.failSourceScan(guarded, kind, scanPrefix, &p, err)
+			canScan = false
+		}
+		if !canScan {
+			// Retry records are committed before the source cursor can advance.
+		} else if recoveryWriter(kind) && s.recoveryBlocked() {
 			s.sourceDependencyWait(guarded, kind, &p, errRecoveryPaused)
 		} else {
 			if p.Status.WaitReason == "protection_recovery" {
 				p.Status.WaitReason, p.Status.DependencyGeneration = "", ""
 			}
-			s.sourceSweepBatch(guarded, kind, prefix, &p, step)
+			s.sourceSweepBatch(guarded, kind, scanPrefix, &p, step)
 		}
 		if p.Cursor.Done && p.Status.WaitReason == "" && sourceBudgetAvailable(guarded) {
+			if kind == "diagnostic_retention_events" && p.EventPartitionDate != "none" && p.EventPartitionDate < p.EventRoundEndDate {
+				date, parseErr := time.Parse("20060102", p.EventPartitionDate)
+				if parseErr != nil {
+					s.failSourceScan(guarded, kind, scanPrefix, &p, parseErr)
+				} else {
+					p.EventPartitionDate = date.Add(24 * time.Hour).Format("20060102")
+					p.Cursor = inventory.Cursor{}
+					p.NextRound = time.Now().UTC()
+					p.Status.LastCursorProgressAt = p.NextRound
+					p.Status.Processed, p.Status.NextScanAt = p.Cursor.Entities, p.NextRound
+					checkpointCtx, checkpointCancel := s.backgroundCheckpoint(ctx, kind)
+					p.Status.CheckpointAt = time.Now().UTC()
+					checkpointErr := s.saveSourceSweep(checkpointCtx, holder, kind, p)
+					checkpointCancel()
+					release()
+					if checkpointErr != nil {
+						s.backgroundEvent(kind, "checkpoint_failed", checkpointErr)
+						return
+					}
+					continue
+				}
+			}
 			if end != nil {
 				err = end(guarded, &p)
 			} else {
@@ -83,6 +193,16 @@ func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Le
 			} else {
 				s.failSourceScan(guarded, kind, prefix, &p, err)
 			}
+		}
+		if sourceSweepUsesDurableRetry(kind) {
+			if lastRetryStatus.IsZero() || time.Since(lastRetryStatus) >= 5*time.Second {
+				if err := s.updateSourceRetryStatus(guarded, kind, &p); err != nil {
+					s.failSourceScan(guarded, kind, prefix, &p, err)
+				} else {
+					lastRetryStatus = time.Now()
+				}
+			}
+			markSourceRetryRoundSuccess(&p)
 		}
 		p.Status.Processed, p.Status.NextScanAt = p.Cursor.Entities, p.NextRound
 		var checkpointErr error
@@ -108,10 +228,35 @@ func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Le
 	}
 }
 
+func (s *Service) initializeDiagnosticEventRound(ctx context.Context, prefix string, p *sourceSweepCheckpoint, startedAt time.Time) error {
+	p.EventRoundEndDate = startedAt.Add(-diagnostics.Retention).Format("20060102")
+	entries, _, err := s.store.List(ctx, prefix, "", 1)
+	if err != nil {
+		p.EventRoundEndDate = ""
+		return err
+	}
+	if len(entries) == 0 {
+		p.EventPartitionDate = "none"
+		return nil
+	}
+	date := strings.TrimPrefix(entries[0].Key, prefix)
+	if slash := strings.IndexByte(date, '/'); slash >= 0 {
+		date = date[:slash]
+	}
+	if _, err := time.Parse("20060102", date); err != nil || date > p.EventRoundEndDate {
+		p.EventPartitionDate = "none"
+	} else {
+		p.EventPartitionDate = date
+	}
+	return nil
+}
+
 func (s *Service) sourceSweepBatch(ctx context.Context, kind, prefix string, p *sourceSweepCheckpoint, step sourceSweepStep) {
 	limit := 1
 	if kind == "quota_waiters" {
 		limit = 16
+	} else if sourceSweepUsesDurableRetry(kind) {
+		limit = 8
 	}
 	for unit := 0; unit < limit && sourceBudgetAvailable(ctx); unit++ {
 		if !s.sourceSweepEntity(ctx, kind, prefix, p, step) {
@@ -121,6 +266,7 @@ func (s *Service) sourceSweepBatch(ctx context.Context, kind, prefix string, p *
 }
 
 func (s *Service) completeSourceRound(kind string, p *sourceSweepCheckpoint) {
+	completedRound := p.Round
 	for id, b := range p.Backoff {
 		if b.Round != p.Round {
 			delete(p.Backoff, id)
@@ -130,11 +276,15 @@ func (s *Service) completeSourceRound(kind string, p *sourceSweepCheckpoint) {
 	status.Complete, status.ObservedAt = len(p.Backoff) == 0 && !p.RoundFailed, time.Now().UTC()
 	status.LastScanCompletedAt = status.ObservedAt
 	s.metrics.recordBackgroundScanRound(kind, status.Complete)
-	if status.Complete {
+	if status.Complete && (!sourceSweepUsesDurableRetry(kind) || status.PendingRetries == 0) {
+		status.LastSuccessfulRound = completedRound
 		recordScanRecovery(kind, "source_scan", status, &p.DiagnosticOutbox, "")
 		status.LastSuccessAt, status.ErrorRecovered, status.NextAttemptAt = status.ObservedAt, !status.ErrorAt.IsZero(), time.Time{}
 	}
 	p.Round++
+	if kind == "diagnostic_retention_events" {
+		p.EventPartitionDate, p.EventRoundEndDate = "", ""
+	}
 	retry := p.RoundFailed || len(p.Backoff) > 0
 	p.RoundFailed, p.Cursor = false, inventory.Cursor{}
 	if retry {
@@ -143,4 +293,14 @@ func (s *Service) completeSourceRound(kind string, p *sourceSweepCheckpoint) {
 		p.IdleRounds++
 	}
 	p.NextRound = time.Now().Add(sourceSweepNextDelay(kind, p.IdleRounds, retry))
+}
+
+func markSourceRetryRoundSuccess(p *sourceSweepCheckpoint) {
+	if p.Status.PendingRetries == 0 && p.Status.Complete && p.Round > 0 && p.Status.LastSuccessfulRound < p.Round-1 {
+		now := time.Now().UTC()
+		p.Status.LastSuccessfulRound = p.Round - 1
+		p.Status.LastSuccessAt = now
+		p.Status.ErrorRecovered = !p.Status.ErrorAt.IsZero()
+		p.Status.NextAttemptAt = time.Time{}
+	}
 }

@@ -98,7 +98,11 @@
     },
     {
       "id": "feature-gc.solidification-gc-repull",
-      "description": "Verify real GC removes the unanchored blob and a later client pull recovers it from upstream."
+      "description": "Verify authorized Hub deletion and GC allow a clean Podman digest pull to recover content and complete a new root task."
+    },
+    {
+      "id": "feature-gc.solidification-distribution-cleanup",
+      "description": "Verify direct Distribution blob deletion is detected and a clean Podman digest pull restores verified content."
     }
   ],
   "outputs": [

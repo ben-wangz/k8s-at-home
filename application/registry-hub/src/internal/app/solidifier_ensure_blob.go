@@ -43,7 +43,7 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 	if err := s.tasks.CheckActive(ctx, task, taskLease); err != nil {
 		return err
 	}
-	if err := s.service.checkContentGeneration(ctx, task.Authority, task.Repository, blob.digest); err != nil {
+	if err := s.service.checkTaskGeneration(ctx, task); err != nil {
 		return permanent("generation", err)
 	}
 	internalRepository := s.internalName(task.Authority, task.Repository)
@@ -114,7 +114,7 @@ func (s *solidifier) ensureBlob(ctx context.Context, task *tasks.Task, taskLease
 	if err := s.tasks.CheckActive(ctx, task, taskLease); err != nil {
 		return err
 	}
-	if err := s.service.checkContentGeneration(ctx, task.Authority, task.Repository, blob.digest); err != nil {
+	if err := s.service.checkTaskGeneration(ctx, task); err != nil {
 		return permanent("generation", err)
 	}
 	permitID, releasePermit, err := s.service.acquireProtectionWritePermit(ctx, protectionSessionID)

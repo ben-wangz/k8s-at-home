@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"path/filepath"
 	"time"
 
@@ -23,6 +24,7 @@ func New() (testkit.Case, error) {
 }
 
 func Run(ctx context.Context, environment testkit.CaseContext) error {
+	clientStatus := http.StatusOK
 	if _, err := testkit.Command(ctx, "helm", "status", environment.Release, "--namespace", environment.Namespace); err != nil {
 		return err
 	}
@@ -39,6 +41,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 			if err := verifyBackendImages(object, environment.ImageReference); err != nil {
 				return err
 			}
+			clientStatus = expectedClientRegistryStatus(object)
 		}
 	}
 	if err := verifyInitializationJob(ctx, environment); err != nil {
@@ -53,10 +56,24 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err != nil {
 		return fmt.Errorf("client Registry service is not reachable: %w", err)
 	}
-	if err := testkit.ExpectStatus(response, 200); err != nil {
+	if err := testkit.ExpectStatus(response, clientStatus); err != nil {
 		return err
 	}
-	return writeResult(environment, map[string]any{"clientRegistryStatus": 200, "defaultStorageClass": storageClass})
+	return writeResult(environment, map[string]any{"clientRegistryStatus": clientStatus, "defaultStorageClass": storageClass})
+}
+
+func expectedClientRegistryStatus(deployment map[string]any) int {
+	podSpec := testkit.Map(testkit.Map(deployment["spec"])["template"])
+	spec := testkit.Map(podSpec["spec"])
+	for _, rawContainer := range testkit.Slice(spec["containers"]) {
+		container := testkit.Map(rawContainer)
+		for _, rawEnv := range testkit.Slice(container["env"]) {
+			if testkit.String(testkit.Map(rawEnv)["name"]) == "REGISTRY_HUB_CLIENT_AUTH_CONFIG" {
+				return http.StatusUnauthorized
+			}
+		}
+	}
+	return http.StatusOK
 }
 
 func verifyBackendImages(deployment map[string]any, expected string) error {

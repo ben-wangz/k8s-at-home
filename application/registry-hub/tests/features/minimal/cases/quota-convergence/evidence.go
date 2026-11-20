@@ -64,6 +64,42 @@ func convergenceTiming(blob, root map[string]any) (map[string]any, error) {
 	return evidence, nil
 }
 
+func taskTimelineEvidence(task map[string]any) map[string]any {
+	evidence := map[string]any{}
+	for _, key := range []string{"id", "kind", "reference", "status", "phase", "waitReason", "errorClass", "retryable", "retryCount", "generation", "roundID", "attemptID", "attemptStartedAt", "attemptFinishedAt", "nextAttemptAt", "quotaWaitAt", "protectionAssociatedAt", "executableAt", "lastProgressAt", "createdAt", "updatedAt", "rootPublished", "quotaWait"} {
+		if value, found := task[key]; found {
+			evidence[key] = value
+		}
+	}
+	return evidence
+}
+
+func quotaRuntimeEvidence(ctx context.Context, environment testkit.CaseContext, blob, root map[string]any) map[string]any {
+	evidence := map[string]any{
+		"blobTask": taskTimelineEvidence(blob),
+		"rootTask": taskTimelineEvidence(root),
+	}
+	for _, path := range []string{"/api/v1/workers/quota_waiters", "/api/v1/workers/quota_wake", "/api/v1/workers/solidification", "/api/v1/background/quota_wake?limit=20"} {
+		response, err := support.AdminRequest(ctx, environment, http.MethodGet, path, nil, nil)
+		if err != nil {
+			evidence[path+"Error"] = err.Error()
+			continue
+		}
+		var document map[string]any
+		_, decodeErr := support.DecodeJSON(response, 4<<20, &document)
+		if decodeErr != nil {
+			evidence[path+"Error"] = decodeErr.Error()
+			continue
+		}
+		if response.StatusCode != http.StatusOK {
+			evidence[path+"Error"] = fmt.Sprintf("HTTP %d: %v", response.StatusCode, document)
+			continue
+		}
+		evidence[path] = document
+	}
+	return evidence
+}
+
 func cancelBlocker(ctx context.Context, environment testkit.CaseContext, id string) error {
 	response, err := support.AdminRequest(ctx, environment, http.MethodPost, "/api/v1/tasks/"+url.PathEscape(id)+"/cancel", nil, nil)
 	if err != nil {

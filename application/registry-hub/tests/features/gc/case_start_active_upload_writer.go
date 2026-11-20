@@ -40,6 +40,36 @@ func startActiveUploadWriter(ctx context.Context, registry *support.RegistryClie
 	return &activeUploadWriter{writer: writer, result: result, last: payload[first:]}, nil
 }
 
+func waitForActiveUploadAdmission(ctx context.Context, environment testkit.CaseContext, result <-chan activeUploadResult) error {
+	deadline := time.NewTimer(15 * time.Second)
+	defer deadline.Stop()
+	poll := time.NewTicker(100 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		select {
+		case writeResult := <-result:
+			return fmt.Errorf("active upload completed before GC started: status=%d err=%v", writeResult.status, writeResult.err)
+		default:
+		}
+		status, err := gcStatus(ctx, environment)
+		if err != nil {
+			return err
+		}
+		if testkit.Int(status["activeWrites"]) > 0 {
+			return nil
+		}
+		select {
+		case writeResult := <-result:
+			return fmt.Errorf("active upload completed before GC started: status=%d err=%v", writeResult.status, writeResult.err)
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return fmt.Errorf("Registry did not admit the active upload within 15 seconds")
+		case <-poll.C:
+		}
+	}
+}
+
 func verifyGCWaitsForActiveWriter(ctx context.Context, environment testkit.CaseContext, result <-chan activeUploadResult) error {
 	deadline := time.NewTimer(750 * time.Millisecond)
 	defer deadline.Stop()

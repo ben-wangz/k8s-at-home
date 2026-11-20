@@ -55,6 +55,11 @@ func (environment Environment) OwnedResources(ctx context.Context, id, release, 
 		}
 		generated = append(generated, identity)
 	}
+	gcJobs, err := environment.gcJobsForInstance(ctx, fullname)
+	if err != nil {
+		return nil, nil, err
+	}
+	generated = append(generated, gcJobs...)
 	return pvcs, generated, nil
 }
 
@@ -75,6 +80,9 @@ func (environment Environment) Destroy(ctx context.Context, registration Registr
 		if err := deleteGeneratedObject(ctx, registration.ID, registration.Fullname, resource); err != nil {
 			return nil, err
 		}
+	}
+	if err := environment.deleteGCJobsForInstance(ctx, registration.ID, registration.Fullname); err != nil {
+		return nil, err
 	}
 	if err := environment.ensureReleaseResourcesGone(ctx, registration.Release); err != nil {
 		return nil, err
@@ -146,6 +154,8 @@ func (environment Environment) listIdentities(ctx context.Context, resource, sel
 
 func canonicalResourceKind(kind string) string {
 	switch kind {
+	case "Job":
+		return "job"
 	case "Secret":
 		return "secret"
 	case "ConfigMap":
@@ -199,7 +209,7 @@ func deleteOwnedPVC(ctx context.Context, release string, identity testkit.Resour
 }
 
 func deleteGeneratedObject(ctx context.Context, runID, fullname string, identity testkit.ResourceIdentity) error {
-	if identity.Kind != "secret" && identity.Kind != "configmap" && identity.Kind != "service" && identity.Kind != "pod" {
+	if identity.Kind != "secret" && identity.Kind != "configmap" && identity.Kind != "service" && identity.Kind != "pod" && identity.Kind != "job" {
 		return fmt.Errorf("generated object %s has an unsupported kind", identity.Name)
 	}
 	if identity.Name == "" || identity.UID == "" {
@@ -214,8 +224,18 @@ func deleteGeneratedObject(ctx context.Context, runID, fullname string, identity
 	}
 	metadata := testkit.Map(object["metadata"])
 	labels := testkit.Map(metadata["labels"])
-	if testkit.String(metadata["uid"]) != identity.UID ||
-		testkit.String(labels["registry-hub.io/instance"]) != fullname {
+	if testkit.String(metadata["uid"]) != identity.UID {
+		return fmt.Errorf("generated object %s ownership changed; refusing deletion", identity.Name)
+	}
+	if identity.Kind == "job" {
+		if err := validateGCJobOwnership(object, fullname); err != nil {
+			return fmt.Errorf("generated job %s ownership changed; refusing deletion: %w", identity.Name, err)
+		}
+		_, err = testkit.Command(ctx, "kubectl", "-n", Namespace, "delete", "job", identity.Name,
+			"--preconditions=uid="+identity.UID, "--cascade=foreground", "--wait=true", "--timeout=60s")
+		return err
+	}
+	if testkit.String(labels["registry-hub.io/instance"]) != fullname {
 		return fmt.Errorf("generated object %s ownership changed; refusing deletion", identity.Name)
 	}
 	managedBy := testkit.String(labels["registry-hub.io/managed-by"])
@@ -228,6 +248,81 @@ func deleteGeneratedObject(ctx context.Context, runID, fullname string, identity
 	}
 	_, err = testkit.Command(ctx, "kubectl", "-n", Namespace, "delete", identity.Kind, identity.Name, "--wait=true", "--timeout=60s")
 	return err
+}
+
+func (environment Environment) gcJobsForInstance(ctx context.Context, fullname string) ([]testkit.ResourceIdentity, error) {
+	objects, err := testkit.KubectlJSON(ctx, Namespace, "get", "jobs", "-l", "app.kubernetes.io/name=registry-hub,app.kubernetes.io/component=gc")
+	if err != nil {
+		return nil, err
+	}
+	result := make([]testkit.ResourceIdentity, 0)
+	for _, raw := range testkit.Slice(objects["items"]) {
+		object := testkit.Map(raw)
+		identity, owned, err := gcJobIdentity(object, fullname)
+		if err != nil {
+			return nil, err
+		}
+		if owned {
+			result = append(result, identity)
+		}
+	}
+	return result, nil
+}
+
+func (environment Environment) deleteGCJobsForInstance(ctx context.Context, runID, fullname string) error {
+	jobs, err := environment.gcJobsForInstance(ctx, fullname)
+	if err != nil {
+		return err
+	}
+	for _, job := range jobs {
+		if err := deleteGeneratedObject(ctx, runID, fullname, job); err != nil {
+			return err
+		}
+	}
+	remaining, err := environment.gcJobsForInstance(ctx, fullname)
+	if err != nil {
+		return err
+	}
+	if len(remaining) > 0 {
+		return fmt.Errorf("test instance %s still owns GC job %s", fullname, remaining[0].Name)
+	}
+	return nil
+}
+
+func gcJobIdentity(object map[string]any, fullname string) (testkit.ResourceIdentity, bool, error) {
+	metadata := testkit.Map(object["metadata"])
+	labels := testkit.Map(metadata["labels"])
+	spec := testkit.Map(object["spec"])
+	template := testkit.Map(spec["template"])
+	podSpec := testkit.Map(template["spec"])
+	if testkit.String(podSpec["serviceAccountName"]) != fullname {
+		return testkit.ResourceIdentity{}, false, nil
+	}
+	if testkit.String(labels["app.kubernetes.io/name"]) != "registry-hub" ||
+		testkit.String(labels["app.kubernetes.io/component"]) != "gc" {
+		return testkit.ResourceIdentity{}, false, fmt.Errorf("job using test service account %s has unexpected labels", fullname)
+	}
+	name := testkit.String(metadata["name"])
+	gcID := testkit.String(labels["registry-hub.io/gc-id"])
+	if gcID == "" || name != "registry-hub-gc-"+gcID {
+		return testkit.ResourceIdentity{}, false, fmt.Errorf("job using test service account %s has an invalid GC identity", fullname)
+	}
+	identity, err := resourceIdentity(object)
+	if err != nil {
+		return testkit.ResourceIdentity{}, false, err
+	}
+	return identity, true, nil
+}
+
+func validateGCJobOwnership(object map[string]any, fullname string) error {
+	_, owned, err := gcJobIdentity(object, fullname)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return fmt.Errorf("job does not reference test service account %s", fullname)
+	}
+	return nil
 }
 
 func (environment Environment) ensureReleaseResourcesGone(ctx context.Context, release string) error {

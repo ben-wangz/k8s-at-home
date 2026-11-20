@@ -70,11 +70,11 @@ func scenarioRegistry() map[string]ScenarioDefinition {
 		},
 		"feature-diagnostics": {
 			ID: "feature-diagnostics", ConfigPath: "tests/features/diagnostics/config.yaml",
-			CaseIDs: []string{"default-render", "installation", "admin-auth", "initialization-secrets", "registry-roundtrip", "image-inventory", "feature-diagnostics"},
+			CaseIDs: []string{"default-render", "installation", "admin-auth", "initialization-secrets", "registry-roundtrip", "image-inventory", "upstream-mirror", "feature-diagnostics"},
 		},
 		"feature-diagnostics-s3": {
 			ID: "feature-diagnostics-s3", ConfigPath: "tests/features/diagnostics-s3/config.yaml",
-			CaseIDs: []string{"default-render", "installation", "admin-auth", "initialization-secrets", "registry-roundtrip", "image-inventory", "feature-diagnostics"}, BackendS3: true,
+			CaseIDs: []string{"default-render", "installation", "admin-auth", "initialization-secrets", "registry-roundtrip", "image-inventory", "upstream-mirror", "feature-diagnostics"}, BackendS3: true,
 		},
 		"feature-registry-s3": {
 			ID: "feature-registry-s3", ConfigPath: "tests/features/registry-s3/config.yaml",
@@ -90,7 +90,7 @@ func scenarioRegistry() map[string]ScenarioDefinition {
 		},
 		"feature-gc": {
 			ID: "feature-gc", ConfigPath: "tests/features/gc/config.yaml",
-			CaseIDs: []string{"default-render", "installation", "feature-gc"},
+			CaseIDs: []string{"default-render", "installation", "feature-gc"}, ClientAuthCatalog: true,
 		},
 	}
 }

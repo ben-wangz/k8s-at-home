@@ -41,6 +41,10 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err != nil {
 		return err
 	}
+	inventoryMetrics, err := exerciseInventorySnapshotMetrics(ctx, environment)
+	if err != nil {
+		return err
+	}
 	metrics, err := readMetrics(ctx, environment)
 	if err != nil {
 		return err
@@ -83,7 +87,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if logLines == 0 {
 		return fmt.Errorf("backend emitted no JSON log lines")
 	}
-	return support.WriteResult(environment, map[string]any{"logLines": logLines, "noAuthWarning": warningSeen, "metricNames": metricNames, "disabledGCMetricState": "no execution samples", "disabledFeatureMetrics": "no samples", "secretScan": "clear"})
+	return support.WriteResult(environment, map[string]any{"logLines": logLines, "noAuthWarning": warningSeen, "metricNames": metricNames, "inventorySnapshotMetrics": inventoryMetrics, "disabledGCMetricState": "no execution samples", "disabledFeatureMetrics": "no samples", "secretScan": "clear"})
 }
 
 func backendLogs(ctx context.Context, environment testkit.CaseContext) ([]byte, error) {

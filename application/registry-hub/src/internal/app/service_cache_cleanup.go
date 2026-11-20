@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"errors"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
+	"registry-hub/internal/workqueue"
 	"strings"
 	"sync"
 	"time"
@@ -53,13 +55,55 @@ func (s *Service) runCacheCleanup(ctx context.Context) {
 	var group sync.WaitGroup
 	for _, worker := range workers {
 		group.Add(1)
-		go func() { defer group.Done(); s.runSourceSweep(ctx, worker.kind, worker.prefix, worker.step) }()
+		go func() {
+			defer group.Done()
+			if worker.kind != "receipt_cleanup" {
+				s.runSourceSweep(ctx, worker.kind, worker.prefix, worker.step)
+				return
+			}
+			s.runSourceSweepWithState(ctx, worker.kind, worker.prefix, func(ctx context.Context, entry storage.Entry, p *sourceSweepCheckpoint) error {
+				if strings.Contains(entry.Key, "/execution/") || entry.ModTime == 0 || time.Since(time.Unix(0, entry.ModTime)) < 30*24*time.Hour {
+					incrementSweepCount(p, "skipped", 1)
+					return nil
+				}
+				kind, id, ok := receiptWorkIdentity(entry.Key)
+				if !ok {
+					incrementSweepCount(p, "skipped", 1)
+					return nil
+				}
+				job, _, err := inventory.Read[workqueue.Job](ctx, s.store, workqueue.Key(kind, id))
+				if err == nil {
+					if job.ID != id || job.Kind != kind {
+						return storage.ErrCorruptObject
+					}
+					incrementSweepCount(p, "skipped", 1)
+					return nil
+				}
+				if !errors.Is(err, storage.ErrNotFound) {
+					return err
+				}
+				if err := s.deleteDiagnosticObservation(ctx, entry); err != nil {
+					return err
+				}
+				incrementSweepCount(p, "deleted", 1)
+				return nil
+			}, nil)
+		}()
 	}
 	for _, worker := range []func(context.Context){s.runStorageOrphanCleanup, s.runDownloadQuotaCleanup} {
 		group.Add(1)
 		go func() { defer group.Done(); worker(ctx) }()
 	}
 	group.Wait()
+}
+
+func receiptWorkIdentity(key string) (string, string, bool) {
+	relative := strings.TrimPrefix(key, "background/v1/receipts/")
+	parts := strings.SplitN(relative, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || !strings.HasSuffix(parts[1], ".json") {
+		return "", "", false
+	}
+	return parts[0], strings.TrimSuffix(parts[1], ".json"), true
 }
 
 func (s *Service) acquireSlot(ctx context.Context, slot chan struct{}) (func(), bool) {

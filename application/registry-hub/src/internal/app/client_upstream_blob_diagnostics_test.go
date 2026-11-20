@@ -56,6 +56,28 @@ func TestUpstreamBlobFailureLogUsesBoundedRequestFields(t *testing.T) {
 	}
 }
 
+func TestBlobResponseOutcomeTracksShortAndFailedCopies(t *testing.T) {
+	for _, test := range []struct {
+		name, state, stage, cause string
+		written, expected         int64
+		copyErr                   error
+	}{
+		{name: "complete", state: "copy_complete", written: 4, expected: 4},
+		{name: "short", state: "length_mismatch", stage: "blob_response_copy", cause: "length_mismatch", written: 3, expected: 4},
+		{name: "copy error", state: "copy_error", stage: "blob_response_copy", cause: "copy_error", written: 2, expected: 4, copyErr: io.ErrUnexpectedEOF},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			meta := &requestMeta{}
+			request := httptest.NewRequest(http.MethodGet, "/v2/team/image/blobs/sha256:abc", nil)
+			request = request.WithContext(context.WithValue(request.Context(), requestMetaKey{}, meta))
+			recordBlobResponseOutcome(request, test.written, test.expected, test.copyErr)
+			if meta.responseBodyBytes != test.written || meta.responseBodyState != test.state || meta.failureStage != test.stage || meta.failureCause != test.cause {
+				t.Fatalf("response outcome = %#v, want bytes=%d state=%q stage=%q cause=%q", meta, test.written, test.state, test.stage, test.cause)
+			}
+		})
+	}
+}
+
 func TestUpstreamBlobFailureStagePreservesDownloadPersistenceStage(t *testing.T) {
 	err := withUpstreamBlobStage("cache_fill", &download.PersistenceError{Stage: "state_commit", Err: storage.ErrTimeout})
 	if got := upstreamBlobFailureStage(err, "fallback"); got != "state_commit" {

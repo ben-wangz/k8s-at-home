@@ -7,9 +7,31 @@ import (
 	"strings"
 )
 
+type PrometheusSample struct {
+	Name   string
+	Labels map[string]string
+	Value  float64
+}
+
 func PrometheusSum(metrics []byte, name string, expectedLabels map[string]string) (float64, bool, error) {
 	var total float64
 	found := false
+	samples, err := PrometheusSamples(metrics, name)
+	if err != nil {
+		return 0, false, err
+	}
+	for _, sample := range samples {
+		if !matchesLabels(sample.Labels, expectedLabels) {
+			continue
+		}
+		total += sample.Value
+		found = true
+	}
+	return total, found, nil
+}
+
+func PrometheusSamples(metrics []byte, name string) ([]PrometheusSample, error) {
+	samples := []PrometheusSample{}
 	scanner := bufio.NewScanner(strings.NewReader(string(metrics)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -18,26 +40,25 @@ func PrometheusSum(metrics []byte, name string, expectedLabels map[string]string
 		}
 		field, rawValue, err := prometheusSampleLine(line)
 		if err != nil {
-			return 0, false, err
+			return nil, err
 		}
 		metricName, labels, err := prometheusSample(field)
 		if err != nil {
-			return 0, false, err
+			return nil, err
 		}
-		if metricName != name || !matchesLabels(labels, expectedLabels) {
+		if metricName != name {
 			continue
 		}
 		value, err := strconv.ParseFloat(rawValue, 64)
 		if err != nil {
-			return 0, false, fmt.Errorf("parse Prometheus sample %s: %w", name, err)
+			return nil, fmt.Errorf("parse Prometheus sample %s: %w", name, err)
 		}
-		total += value
-		found = true
+		samples = append(samples, PrometheusSample{Name: metricName, Labels: labels, Value: value})
 	}
 	if err := scanner.Err(); err != nil {
-		return 0, false, err
+		return nil, err
 	}
-	return total, found, nil
+	return samples, nil
 }
 
 func prometheusSampleLine(line string) (string, string, error) {

@@ -109,6 +109,11 @@ func (s *solidifier) finalizeReusedAnchoredManifest(ctx context.Context, task *t
 	if err := s.requireStableObservationEpoch(ctx, task, manifest.ref.digest, manifestGeneration, epoch); err != nil {
 		return false, err
 	}
+	if rootTaskHasProtection(task, sessionID) {
+		if err := s.removeRootProtectionSession(ctx, task, taskLease, sessionID); err != nil {
+			return false, err
+		}
+	}
 	return true, nil
 }
 

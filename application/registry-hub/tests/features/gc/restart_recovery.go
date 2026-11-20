@@ -36,7 +36,7 @@ func verifyGCRestartRecovery(ctx context.Context, environment testkit.CaseContex
 	if err != nil {
 		return evidence, err
 	}
-	if err := verifyGCWriteAdmission(ctx, registry, repository); err != nil {
+	if err := verifyGCWriteAdmission(ctx, registry, repository, "1", "5"); err != nil {
 		return evidence, fmt.Errorf("unknown GC state did not keep writes closed: %w", err)
 	}
 	if err := verifyGCReadAdmission(ctx, registry, repository, retained); err != nil {

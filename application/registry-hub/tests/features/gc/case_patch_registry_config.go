@@ -21,14 +21,22 @@ func patchRegistryConfig(ctx context.Context, environment testkit.CaseContext, v
 	return err
 }
 
-func verifyGCWriteAdmission(ctx context.Context, registry *support.RegistryClient, repository string) error {
+func verifyGCWriteAdmission(ctx context.Context, registry *support.RegistryClient, repository string, retryAfterValues ...string) error {
 	response, err := registry.Request(ctx, http.MethodPost, registry.Endpoint(repository, "/blobs/uploads/"), nil, nil)
 	if err != nil {
 		return err
 	}
-	if response.StatusCode != http.StatusServiceUnavailable || response.Header.Get("Retry-After") != "5" {
+	gotRetryAfter := response.Header.Get("Retry-After")
+	validRetryAfter := false
+	for _, retryAfter := range retryAfterValues {
+		if gotRetryAfter == retryAfter {
+			validRetryAfter = true
+			break
+		}
+	}
+	if response.StatusCode != http.StatusServiceUnavailable || !validRetryAfter {
 		response.Body.Close()
-		return fmt.Errorf("write during GC returned %s with Retry-After %q", response.Status, response.Header.Get("Retry-After"))
+		return fmt.Errorf("write during GC returned %s with Retry-After %q, want 503 with Retry-After in %v", response.Status, gotRetryAfter, retryAfterValues)
 	}
 	var envelope struct {
 		Errors []struct {

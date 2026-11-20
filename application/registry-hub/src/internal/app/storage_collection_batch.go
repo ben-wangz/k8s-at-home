@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,9 +22,13 @@ func (s *Service) storageCollectionQuantum(ctx context.Context, owner lease.Leas
 	ctx = context.WithValue(ctx, storageReadCacheKey{}, newStorageReadCache())
 	for step := 0; step < 8; step++ {
 		if step > 0 && (time.Since(started)+reserve > storageCollectionQuantumTarget || !storageQuantumTime(ctx, reserve)) {
+			before, err := json.Marshal(state)
+			if err != nil {
+				return progress, err
+			}
 			state.BudgetYields++
 			state.LastYieldReason = "execution_budget"
-			if err := s.checkpointStorageCollection(ctx, owner, state); err != nil {
+			if err := s.checkpointStorageCollectionTransition(ctx, owner, state, before); err != nil {
 				return progress, err
 			}
 			break
@@ -52,7 +57,7 @@ func (s *Service) storageCollectionQuantum(ctx context.Context, owner lease.Leas
 		if err == nil {
 			state.ProgressAt = time.Now().UTC()
 		}
-		if checkpointErr := s.checkpointStorageCollection(ctx, owner, state); checkpointErr != nil {
+		if checkpointErr := s.checkpointStorageCollectionTransition(ctx, owner, state, before); checkpointErr != nil {
 			return progress, errors.Join(err, checkpointErr)
 		}
 		if s.metrics != nil && s.metrics.storageCollection != nil {
@@ -76,6 +81,10 @@ func storageQuantumTime(ctx context.Context, reserve time.Duration) bool {
 }
 
 func (s *Service) checkpointStorageCollection(ctx context.Context, owner lease.Lease, state *storageCollection) error {
+	return s.checkpointStorageCollectionTransition(ctx, owner, state, nil)
+}
+
+func (s *Service) checkpointStorageCollectionTransition(ctx context.Context, owner lease.Lease, state *storageCollection, before []byte) error {
 	started := time.Now()
 	defer func() {
 		if s.metrics != nil && s.metrics.storageCollection != nil {
@@ -97,7 +106,27 @@ func (s *Service) checkpointStorageCollection(ctx context.Context, owner lease.L
 	if len(data) > 4<<20 && (state.SourceListed || !state.Pending) {
 		return storage.ErrCorruptObject
 	}
-	return inventory.Update(bounded, s.store, storageInventoryPrefix+"checkpoint.json", func(value *storageCollection) error { *value = *state; return nil })
+	return inventory.Update(bounded, s.store, storageInventoryPrefix+"checkpoint.json", func(value *storageCollection) error {
+		current, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		if sameStorageCollectionTransition(*value, *state) {
+			return nil
+		}
+		if before != nil && !bytes.Equal(current, before) {
+			return storage.ErrConditionFailed
+		}
+		*value = *state
+		return nil
+	})
+}
+
+func sameStorageCollectionTransition(left, right storageCollection) bool {
+	left.CheckpointAt, right.CheckpointAt = time.Time{}, time.Time{}
+	leftData, leftErr := json.Marshal(left)
+	rightData, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftData, rightData)
 }
 
 func (s *Service) prepareStoragePage(ctx context.Context, state *storageCollection, store storage.Store, domain string) error {

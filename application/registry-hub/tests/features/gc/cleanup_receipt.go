@@ -20,7 +20,10 @@ func waitForCleanupReceipt(ctx context.Context, environment testkit.CaseContext,
 	for {
 		query := url.Values{"state": {"done"}, "taskID": {taskID}, "limit": {"32"}}
 		for pages := 0; pages < 100; pages++ {
-			response, err := support.AdminRequest(ctx, environment, http.MethodGet, "/api/v1/background/terminal_cleanup?"+query.Encode(), nil, nil)
+			path := "/api/v1/background/terminal_cleanup?" + query.Encode()
+			response, err := retryCleanupReceiptUnavailable(ctx, func(requestCtx context.Context) (*http.Response, error) {
+				return support.AdminRequest(requestCtx, environment, http.MethodGet, path, nil, nil)
+			})
 			if err != nil {
 				return nil, err
 			}
@@ -54,9 +57,29 @@ func waitForCleanupReceipt(ctx context.Context, environment testkit.CaseContext,
 	}
 }
 
+func retryCleanupReceiptUnavailable(ctx context.Context, request func(context.Context) (*http.Response, error)) (*http.Response, error) {
+	for {
+		response, err := request(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if response.StatusCode != http.StatusServiceUnavailable {
+			return response, nil
+		}
+		response.Body.Close()
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("cleanup receipt endpoint remained unavailable (503): %w", ctx.Err())
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
 func verifyCleanupReceipt(ctx context.Context, environment testkit.CaseContext, listed map[string]any) (map[string]any, error) {
 	path := testkit.String(listed["statusURL"])
-	response, err := support.AdminRequest(ctx, environment, http.MethodGet, path, nil, nil)
+	response, err := retryCleanupReceiptUnavailable(ctx, func(requestCtx context.Context) (*http.Response, error) {
+		return support.AdminRequest(requestCtx, environment, http.MethodGet, path, nil, nil)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +146,10 @@ func verifyCleanupSummariesAfterRestart(ctx context.Context, environment testkit
 		}
 		select {
 		case <-bounded.Done():
-			return fmt.Errorf("restart did not restore a recovered gate without protection blockers: %w", errors.Join(blocked, bounded.Err()))
+			diagnosticCtx, diagnosticCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer diagnosticCancel()
+			failure := errors.Join(blocked, bounded.Err())
+			return fmt.Errorf("restart did not restore a recovered gate without protection blockers: %w; failure evidence: %s", failure, protectionCleanupFailureMessage(diagnosticCtx, environment, status, cancelled, failure))
 		case <-time.After(500 * time.Millisecond):
 		}
 	}

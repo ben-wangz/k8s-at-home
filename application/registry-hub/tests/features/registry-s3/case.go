@@ -110,6 +110,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if _, err := testkit.Command(ctx, "kubectl", "-n", environment.Namespace, "rollout", "status", "deployment/"+environment.Fullname+"-registry", "--timeout=5m"); err != nil {
 		return err
 	}
+	registry = support.NewRegistryClient(environment)
 	if err := verifyArtifact(ctx, registry, repository, "s3-roundtrip", manifest, manifestDigest, largeBlob, largeBlobDigest); err != nil {
 		return fmt.Errorf("artifact did not survive Registry restart: %w", err)
 	}

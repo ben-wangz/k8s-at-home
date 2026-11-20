@@ -27,3 +27,14 @@ func TestPrometheusSumHandlesSpacesInsideLabelValues(t *testing.T) {
 		t.Fatalf("PrometheusSum() = (%v, %v, %v), want (4, true, nil)", total, found, err)
 	}
 }
+
+func TestPrometheusSamplesPreserveAllLabels(t *testing.T) {
+	metrics := []byte("registry_hub_storage_work_operations_total{kind=\"inventory_builder\",reason=\"inventory refresh\",operation=\"get\"} 4\n")
+	samples, err := PrometheusSamples(metrics, "registry_hub_storage_work_operations_total")
+	if err != nil || len(samples) != 1 {
+		t.Fatalf("PrometheusSamples() = (%v, %v), want one sample", samples, err)
+	}
+	if samples[0].Labels["reason"] != "inventory refresh" || samples[0].Labels["operation"] != "get" || samples[0].Value != 4 {
+		t.Fatalf("PrometheusSamples() = %+v, want labels and value preserved", samples[0])
+	}
+}

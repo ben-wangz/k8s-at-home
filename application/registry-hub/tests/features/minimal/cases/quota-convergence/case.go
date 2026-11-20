@@ -83,8 +83,9 @@ func Run(ctx context.Context, environment testkit.CaseContext) (runErr error) {
 		return err
 	}
 	timing, err := convergenceTiming(finished, root)
+	diagnostics := quotaRuntimeEvidence(ctx, environment, finished, root)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w; runtime evidence: %v", err, diagnostics)
 	}
 	for digest, expected := range map[string]int{configID: 0, layerID: 1} {
 		requests, err := upstreammirror.CountFixturePath(ctx, environment, "/v2/registry-hub-test/fixture/blobs/"+digest)
@@ -92,5 +93,5 @@ func Run(ctx context.Context, environment testkit.CaseContext) (runErr error) {
 			return fmt.Errorf("cached blob fetched %d times: %s: %w", requests, digest, err)
 		}
 	}
-	return support.WriteResult(environment, map[string]any{"timing": timing, "unrelatedTasks": count, "unrelatedTaskSource": "historical_completed_records", "ordinarySlots": 2, "measurementTaskWorkers": 4, "setupTaskWorkers": 1, "rootTask": root["id"], "layerTask": finished["id"], "upstreamLayerRequests": 1, "configSource": "inline_verified_cache"})
+	return support.WriteResult(environment, map[string]any{"timing": timing, "runtimeEvidence": diagnostics, "unrelatedTasks": count, "unrelatedTaskSource": "historical_completed_records", "ordinarySlots": 2, "measurementTaskWorkers": 4, "setupTaskWorkers": 1, "rootTask": root["id"], "layerTask": finished["id"], "upstreamLayerRequests": 1, "configSource": "inline_verified_cache"})
 }

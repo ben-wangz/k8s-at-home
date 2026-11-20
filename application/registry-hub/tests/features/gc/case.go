@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/support"
 	upstreammirror "github.com/ben-wangz/registry-hub-tests/features/minimal/cases/upstream-mirror"
@@ -37,6 +38,12 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		return fmt.Errorf("prepare controlled upstream fixture: %w", err)
 	}
 	registry := support.NewRegistryClient(environment)
+	clientAuth, err := clientAuthWriter(ctx, environment)
+	if err != nil {
+		return err
+	}
+	registry.Basic = &clientAuth
+	upstreamRegistry.Basic = &clientAuth
 	if err := useBackendPodForGC(ctx, environment, registry); err != nil {
 		return err
 	}
@@ -68,6 +75,9 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		return err
 	}
 	defer activeWriter.writer.Close()
+	if err := waitForActiveUploadAdmission(ctx, environment, activeWriter.result); err != nil {
+		return err
+	}
 	configRestoreRequired := true
 	defer func() {
 		if configRestoreRequired {
@@ -85,7 +95,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err := verifyGCWaitsForActiveWriter(ctx, environment, activeWriter.result); err != nil {
 		return err
 	}
-	if err := verifyGCWriteAdmission(ctx, registry, repository); err != nil {
+	if err := verifyGCWriteAdmission(ctx, registry, repository, "5"); err != nil {
 		return err
 	}
 	if err := verifyGCReadAdmission(ctx, registry, repository, retained); err != nil {
@@ -103,7 +113,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err != nil {
 		return err
 	}
-	if err := verifyGCWriteAdmission(ctx, registry, repository); err != nil {
+	if err := verifyGCWriteAdmission(ctx, registry, repository, "5"); err != nil {
 		return fmt.Errorf("failed GC did not keep writes closed: %w", err)
 	}
 	if err := verifyGCReadAdmission(ctx, registry, repository, retained); err != nil {
@@ -195,6 +205,28 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		"readDuringGCStatus":     http.StatusOK,
 		"solidificationCancelGC": solidificationGC,
 	})
+}
+
+func clientAuthWriter(ctx context.Context, environment testkit.CaseContext) (testkit.BasicCredential, error) {
+	secret, data, err := support.GetSecret(ctx, environment.Namespace, environment.Release+"-external-client-auth")
+	if err != nil {
+		return testkit.BasicCredential{}, err
+	}
+	if secret.Labels["registry-hub.io/test-id"] != environment.RunID ||
+		secret.Labels["registry-hub.io/instance"] != environment.Fullname ||
+		secret.Labels["registry-hub.io/managed-by"] != "registry-hub-test-fixture" {
+		return testkit.BasicCredential{}, fmt.Errorf("GC client auth Secret ownership is invalid")
+	}
+	var auth support.AdminAuth
+	if err := json.Unmarshal(data["config.json"], &auth); err != nil {
+		return testkit.BasicCredential{}, err
+	}
+	if len(auth.Basic) != 3 || auth.Basic[2].Username != "writer" || len(auth.Basic[2].Password) < 32 ||
+		len(auth.Basic[2].Permissions) != 3 || auth.Basic[2].Permissions[0] != "pull" ||
+		auth.Basic[2].Permissions[1] != "push" || auth.Basic[2].Permissions[2] != "delete" {
+		return testkit.BasicCredential{}, fmt.Errorf("GC client auth writer does not have pull, push, and delete permissions")
+	}
+	return testkit.BasicCredential{Username: auth.Basic[2].Username, Password: auth.Basic[2].Password}, nil
 }
 
 type activeUploadWriter struct {

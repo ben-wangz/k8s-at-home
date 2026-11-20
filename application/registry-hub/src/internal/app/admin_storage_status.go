@@ -18,40 +18,45 @@ type storageReportStatus struct {
 }
 
 type storageCollectionStatus struct {
-	Cost                storageCollectionCost           `json:"cost"`
-	BudgetYields        uint64                          `json:"budgetYields"`
-	LastYieldReason     string                          `json:"lastYieldReason,omitempty"`
-	ObservedAt          time.Time                       `json:"observedAt"`
-	CheckpointAt        time.Time                       `json:"checkpointAt"`
-	EvidenceSource      string                          `json:"evidenceSource"`
-	BuildID             string                          `json:"buildID"`
-	Phase               string                          `json:"phase"`
-	StartedAt           time.Time                       `json:"startedAt"`
-	ProgressAt          time.Time                       `json:"progressAt"`
-	LastCompletedAt     time.Time                       `json:"lastCompletedAt"`
-	NextScanAt          time.Time                       `json:"nextScanAt"`
-	NextRetryAt         time.Time                       `json:"nextRetryAt"`
-	ElapsedSeconds      float64                         `json:"elapsedSeconds"`
-	Domains             map[string]storageDomainSummary `json:"domains"`
-	EntriesExamined     *int64                          `json:"entriesExamined"`
-	ObjectsCommitted    *int64                          `json:"objectsCommitted"`
-	TotalObjects        *int64                          `json:"totalObjects"`
-	TotalBytes          *int64                          `json:"totalBytes"`
-	PercentComplete     *float64                        `json:"percentComplete"`
-	CounterReason       string                          `json:"counterReason,omitempty"`
-	OutputPages         int                             `json:"outputPages"`
-	AttributionObjects  *int64                          `json:"attributionObjects"`
-	UsagePhase          string                          `json:"usagePhase"`
-	UsageLevel          int                             `json:"usageLevel"`
-	UsageCompletedPairs int                             `json:"usageCompletedPairs"`
-	ExecutionUnits      uint64                          `json:"executionUnits"`
-	PreviousReport      *storageReportStatus            `json:"previousReport"`
-	ErrorClass          string                          `json:"errorClass,omitempty"`
-	ErrorAt             time.Time                       `json:"errorAt"`
-	RecoveredAt         time.Time                       `json:"recoveredAt"`
-	Backoff             bool                            `json:"backoff"`
-	Worker              *workerStatus                   `json:"worker,omitempty"`
-	ReadErrors          map[string]string               `json:"readErrors,omitempty"`
+	Cost                 storageCollectionCost           `json:"cost"`
+	BudgetYields         uint64                          `json:"budgetYields"`
+	LastYieldReason      string                          `json:"lastYieldReason,omitempty"`
+	ObservedAt           time.Time                       `json:"observedAt"`
+	CheckpointAt         time.Time                       `json:"checkpointAt"`
+	EvidenceSource       string                          `json:"evidenceSource"`
+	BuildID              string                          `json:"buildID"`
+	Phase                string                          `json:"phase"`
+	StartedAt            time.Time                       `json:"startedAt"`
+	ProgressAt           time.Time                       `json:"progressAt"`
+	LastCompletedAt      time.Time                       `json:"lastCompletedAt"`
+	NextScanAt           time.Time                       `json:"nextScanAt"`
+	NextRetryAt          time.Time                       `json:"nextRetryAt"`
+	ElapsedSeconds       float64                         `json:"elapsedSeconds"`
+	Domains              map[string]storageDomainSummary `json:"domains"`
+	EntriesExamined      *int64                          `json:"entriesExamined"`
+	ObjectsCommitted     *int64                          `json:"objectsCommitted"`
+	TotalObjects         *int64                          `json:"totalObjects"`
+	TotalBytes           *int64                          `json:"totalBytes"`
+	PercentComplete      *float64                        `json:"percentComplete"`
+	CounterReason        string                          `json:"counterReason,omitempty"`
+	OutputPages          int                             `json:"outputPages"`
+	AttributionObjects   *int64                          `json:"attributionObjects"`
+	UsagePhase           string                          `json:"usagePhase"`
+	UsageLevel           int                             `json:"usageLevel"`
+	UsageCompletedPairs  int                             `json:"usageCompletedPairs"`
+	UsageBatchPending    bool                            `json:"usageBatchPending"`
+	UsageBatchRun        *storageUsageRun                `json:"usageBatchRun,omitempty"`
+	AutomaticRestarts    int                             `json:"automaticRestarts"`
+	RecoveredFromBuildID string                          `json:"recoveredFromBuildID,omitempty"`
+	RecoveryReason       string                          `json:"recoveryReason,omitempty"`
+	ExecutionUnits       uint64                          `json:"executionUnits"`
+	PreviousReport       *storageReportStatus            `json:"previousReport"`
+	ErrorClass           string                          `json:"errorClass,omitempty"`
+	ErrorAt              time.Time                       `json:"errorAt"`
+	RecoveredAt          time.Time                       `json:"recoveredAt"`
+	Backoff              bool                            `json:"backoff"`
+	Worker               *workerStatus                   `json:"worker,omitempty"`
+	ReadErrors           map[string]string               `json:"readErrors,omitempty"`
 }
 
 func (s *Service) serveStorageStatus(writer http.ResponseWriter, request *http.Request, ctx context.Context) {
@@ -127,6 +132,12 @@ func (status *storageCollectionStatus) applyCollection(state storageCollection, 
 	status.EntriesExamined, status.AttributionObjects = state.EntriesExamined, state.AttributionObjects
 	status.OutputPages = state.Snapshot.Pages
 	status.UsagePhase, status.UsageLevel, status.UsageCompletedPairs = state.UsageMerge.Phase, state.UsageMerge.Level, state.UsageMerge.Pair
+	status.UsageBatchPending, status.AutomaticRestarts = state.UsagePending != nil, state.AutomaticRestarts
+	status.RecoveredFromBuildID, status.RecoveryReason = state.RecoveredFromBuildID, state.RecoveryReason
+	if state.UsagePending != nil {
+		run := state.UsagePending.Run
+		status.UsageBatchRun = &run
+	}
 	if !status.StartedAt.IsZero() {
 		status.ElapsedSeconds = max(0, now.Sub(status.StartedAt).Seconds())
 	}

@@ -100,6 +100,9 @@ func (r *protectionRecovery) checkRemainingDemand(ctx context.Context) error {
 func (r *protectionRecovery) terminalSessionStep(ctx context.Context, task tasks.Task) error {
 	c := &r.checkpoint
 	if c.SessionIndex >= len(c.SessionIDs) {
+		if err := r.clearInactiveTerminalBlobProtection(ctx, task); err != nil {
+			return err
+		}
 		c.Step = "terminal_finish"
 		return nil
 	}
@@ -149,6 +152,7 @@ func (r *protectionRecovery) terminalSessionStep(ctx context.Context, task tasks
 		}
 		return nil
 	}
+
 	switch session.State {
 	case "anchored":
 		err = g.ReleaseProtection(ctx, id, "anchored")
@@ -171,4 +175,25 @@ func (r *protectionRecovery) terminalSessionStep(ctx context.Context, task tasks
 	c.SessionIndex++
 	c.Half = 0
 	return nil
+}
+
+func (r *protectionRecovery) clearInactiveTerminalBlobProtection(ctx context.Context, task tasks.Task) error {
+	if task.Kind != tasks.BlobKind {
+		return nil
+	}
+	intent, err := r.service.records.GetBlobIntent(ctx, task.ID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if intent.ProtectionSessionID == "" {
+		return nil
+	}
+	_, active, err := r.service.gate.protectionSession(ctx, intent.ProtectionSessionID)
+	if err != nil || active {
+		return err
+	}
+	return r.service.records.ClearBlobIntentProtectionSession(ctx, intent.ID, intent.ProtectionSessionID)
 }

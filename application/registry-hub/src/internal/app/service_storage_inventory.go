@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"registry-hub/internal/diagnostics"
@@ -50,18 +51,47 @@ func (s *Service) runStorageInventory(ctx context.Context) {
 		if err != nil && !errors.Is(err, storage.ErrNotFound) {
 			return maintenanceProgress{}, err
 		}
+		legacyOutput, err := s.legacyStorageUsageOutputExists(guarded, state)
+		if err != nil {
+			return maintenanceProgress{}, err
+		}
+		if legacyOutput {
+			previousID := state.Snapshot.SnapshotID
+			state, err = s.replaceStorageCollection(guarded, ownership, state, "legacy_immutable_usage_output_without_checkpoint")
+			if err != nil {
+				return maintenanceProgress{}, err
+			}
+			s.backgroundEvent("storage_inventory", "legacy_usage_batch_rebuild", fmt.Errorf("restarted build %s because its next immutable usage output has no matching checkpoint", previousID))
+		}
 		if time.Now().Before(state.NextScanAt) {
 			return maintenanceProgress{NextScanAt: state.NextScanAt}, nil
 		}
 		if state.Snapshot.SnapshotID == "" {
+			before, err := json.Marshal(state)
+			if err != nil {
+				return maintenanceProgress{}, err
+			}
 			completed := state.LastCompletedAt
 			state = newStorageCollection()
 			state.LastCompletedAt = completed
+			if err := s.checkpointStorageCollectionTransition(guarded, ownership, &state, before); err != nil {
+				return maintenanceProgress{}, err
+			}
 		}
 		if state.Domain == 1 && registryStore == nil {
 			registryStore, registryErr = s.registryInspectionStore(ctx)
 		}
-		return s.storageCollectionQuantum(guarded, ownership, &state, registryStore, registryErr)
+		progress, err := s.storageCollectionQuantum(guarded, ownership, &state, registryStore, registryErr)
+		if !errors.Is(err, errImmutableBatchMismatch) {
+			return progress, err
+		}
+		previousID := state.Snapshot.SnapshotID
+		state, replaceErr := s.replaceStorageCollection(guarded, ownership, state, "immutable_usage_batch_mismatch")
+		if replaceErr != nil {
+			return progress, replaceErr
+		}
+		s.backgroundEvent("storage_inventory", "usage_batch_rebuild", fmt.Errorf("restarted build %s after an immutable usage batch mismatch", previousID))
+		return maintenanceProgress{EntityProgress: true}, nil
 	})
 }
 

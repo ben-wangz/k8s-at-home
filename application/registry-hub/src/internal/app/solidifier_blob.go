@@ -25,33 +25,20 @@ func (s *solidifier) processBlob(ctx context.Context, task *tasks.Task, taskLeas
 	if intent.State == tasks.IntentAnchored {
 		return nil
 	}
-	if err := s.service.checkContentGeneration(ctx, task.Authority, task.Repository, task.BlobDigest); err != nil {
+	if err := s.service.checkTaskGeneration(ctx, task); err != nil {
 		return permanent("generation", err)
 	}
-	protection, err := s.admitBlobProtection(ctx, task, intent)
-	if errors.Is(err, ErrProtectionAnchored) {
-		_, stateErr := s.service.records.SetBlobIntentState(ctx, task.ID, tasks.IntentAnchored, "", "")
-		return stateErr
-	}
-	if err != nil {
-		return err
-	}
-	task.ScopeID = protection.scopeID
-	task.SessionIDs = []string{protection.sessionID}
-	task.RequestedBytes = protection.reservedBytes
-	task.ReservedBytes = protection.reservedBytes
-	task.GCProtected = true
-	task.ProtectionSessionID = protection.sessionID
-	task.ProtectionOwnerID = protection.ownerID
-	if reserved, exists := s.gate.ProtectedCacheReservation(task.ID); exists {
-		task.ProtectedCacheBytes = reserved
-	} else {
-		task.ProtectedCacheBytes = 0
-	}
-	if err := s.tasks.SaveProgress(ctx, task, taskLease); err != nil {
+	if err := s.admitAndSaveBlobProtection(ctx, task, taskLease, intent); err != nil {
 		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 	}
-	if err := s.service.records.SetBlobIntentProtectionSession(ctx, task.ID, protection.sessionID); err != nil {
+	intent, err = s.service.records.GetBlobIntent(ctx, task.ID)
+	if err != nil {
+		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_read")
+	}
+	if intent.State == tasks.IntentAnchored {
+		return nil
+	}
+	if err := s.service.records.SetBlobIntentProtectionSession(ctx, task.ID, task.ProtectionSessionID); err != nil {
 		return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 	}
 	if _, err := s.service.records.SetBlobIntentState(ctx, task.ID, tasks.IntentRunning, "", ""); err != nil {
@@ -99,6 +86,9 @@ func (s *solidifier) processBlob(ctx context.Context, task *tasks.Task, taskLeas
 		return temporary("storage", err)
 	}
 	s.service.wakeBlobDemandRoots(ctx, task.ID)
+	if err := s.service.replayAnchoredRootsForRecoveredBlob(ctx, task.Authority, task.Repository, task.BlobDigest); err != nil {
+		return temporary("root_replay", err)
+	}
 	return tasks.WaitFor(tasks.VerifiedLocal, "awaiting_manifest_anchor")
 }
 

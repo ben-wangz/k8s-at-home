@@ -48,14 +48,14 @@ func notificationMatches(source blobNotification, intent tasks.BlobIntent) bool 
 	return source.IntentID == intent.ID && source.State == intent.State && source.Generation == intent.Generation && source.CacheVersion == intent.CacheVersion && source.DemandRevision == intent.DemandRevision
 }
 
-func (s *Service) cleanupNotificationIndex(ctx context.Context, entry storage.Entry) error {
+func (s *Service) cleanupNotificationIndex(ctx context.Context, entry storage.Entry) (bool, error) {
 	link, _, err := inventory.Read[notificationWorkLink](ctx, s.store, entry.Key)
 	if err != nil {
-		return err
+		return false, err
 	}
 	_, err = (workqueue.Queue{Store: s.store}).Read(ctx, "notify", link.WorkID)
 	if errors.Is(err, storage.ErrNotFound) {
-		return s.deleteDiagnosticObservation(ctx, entry)
+		return true, s.deleteDiagnosticObservation(ctx, entry)
 	}
-	return err
+	return false, err
 }

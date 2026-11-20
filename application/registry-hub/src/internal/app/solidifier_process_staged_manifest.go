@@ -16,7 +16,7 @@ func (s *solidifier) processStagedManifest(ctx context.Context, task *tasks.Task
 	if manifest.scopeBytes > maxBytes {
 		return false, permanent("capacity_limit", errors.New("manifest scope exceeds the unanchored Distribution byte limit"))
 	}
-	cacheReadyByDigest, intentByDigest, err := s.prepareManifestBlobs(ctx, task, manifest)
+	cacheReadyByDigest, intentByDigest, err := s.prepareManifestBlobs(ctx, task, taskLease, manifest)
 	if err != nil {
 		return false, err
 	}

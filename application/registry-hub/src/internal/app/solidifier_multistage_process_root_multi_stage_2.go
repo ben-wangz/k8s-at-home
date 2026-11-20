@@ -43,7 +43,7 @@ func (s *solidifier) processRootMultiStage(ctx context.Context, task *tasks.Task
 			return withSolidificationFailureStage(temporary("task_state", err), "task_progress_commit")
 		}
 	}
-	if err := s.assignStagedBlobScopes(ctx, task, graph); err != nil {
+	if err := s.assignStagedBlobScopes(ctx, task, taskLease, graph); err != nil {
 		return err
 	}
 	selection, err := s.selectGraphWork(ctx, task, graph)

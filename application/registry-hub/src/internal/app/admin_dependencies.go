@@ -32,6 +32,16 @@ type dependencyView struct {
 	EvidenceSource       string            `json:"evidenceSource"`
 	ReadErrors           map[string]string `json:"readErrors,omitempty"`
 	IntentURL            string            `json:"intentURL,omitempty"`
+	TaskURL              string            `json:"taskURL,omitempty"`
+	IntentState          string            `json:"intentState,omitempty"`
+	TaskObservation      string            `json:"taskObservation,omitempty"`
+	TaskStatus           string            `json:"taskStatus,omitempty"`
+	TaskWaitReason       string            `json:"taskWaitReason,omitempty"`
+	WaitResourceKey      string            `json:"waitResourceKey,omitempty"`
+	TaskUpdatedAt        time.Time         `json:"taskUpdatedAt,omitempty"`
+	AttemptStartedAt     time.Time         `json:"attemptStartedAt,omitempty"`
+	TaskNextAttemptAt    time.Time         `json:"taskNextAttemptAt,omitempty"`
+	TaskLastProgressAt   time.Time         `json:"taskLastProgressAt,omitempty"`
 	ActivationWorkerURL  string            `json:"activationWorkerURL,omitempty"`
 	NotificationWork     *responsibleWork  `json:"notificationWork,omitempty"`
 	NotificationCoverage string            `json:"notificationCoverage,omitempty"`

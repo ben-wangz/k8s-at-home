@@ -73,6 +73,8 @@ func (runtime *fixtureRuntime) serveGitHubMinimalManifest(writer http.ResponseWr
 		writeManifest(writer, runtime.discoveryManifestBytes, runtime.discoveryManifestDigest)
 	case runtime.replacementReference:
 		writeManifestWithoutDigest(writer, runtime.manifestBytes)
+	case runtime.gcCancellationManifest.ManifestDigest:
+		writeManifestRepresentation(writer, runtime.gcCancellationManifest.Manifest, "application/vnd.oci.image.manifest.v1+json", runtime.gcCancellationManifest.ManifestDigest)
 	case "minimal-inline-data":
 		writeManifestRepresentation(writer, runtime.inlineManifest.Manifest, "application/vnd.oci.image.manifest.v1+json", runtime.inlineManifest.ManifestDigest)
 	case "minimal-invalid-inline-data":

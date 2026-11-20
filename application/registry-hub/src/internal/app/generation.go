@@ -132,6 +132,29 @@ func (s *Service) checkTaskGeneration(ctx context.Context, task *tasks.Task) err
 	return nil
 }
 
+func (s *Service) prepareBlobDemandGeneration(ctx context.Context, identity tasks.BlobIdentity) (generationRecord, error) {
+	current, err := s.generation(ctx, identity.Authority, identity.Repository, identity.Digest)
+	if err != nil {
+		return generationRecord{}, err
+	}
+	if !current.Tombstone {
+		return current, nil
+	}
+
+	leaseCtx, release, err := acquireContentLease(ctx, s.tasks.Leases(), identity.Authority, identity.Repository, identity.Digest, requestID())
+	if err != nil {
+		return generationRecord{}, err
+	}
+	current, err = s.generation(leaseCtx, identity.Authority, identity.Repository, identity.Digest)
+	if err == nil && current.Tombstone {
+		current, err = s.advanceGeneration(leaseCtx, identity.Authority, identity.Repository, identity.Digest, false)
+	}
+	if releaseErr := release(); err != nil || releaseErr != nil {
+		return generationRecord{}, errors.Join(err, releaseErr)
+	}
+	return current, nil
+}
+
 func (s *Service) checkContentGeneration(ctx context.Context, authority, repository, digest string) error {
 	record, err := s.generation(ctx, authority, repository, digest)
 	if err != nil {

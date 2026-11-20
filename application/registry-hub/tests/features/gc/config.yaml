@@ -1,3 +1,7 @@
+backend:
+  clientAuth:
+    existingSecret: __RUN_CLIENT_AUTH_SECRET__
+    key: config.json
 gc:
   enabled: true
   uniqueWriterConfirmed: true

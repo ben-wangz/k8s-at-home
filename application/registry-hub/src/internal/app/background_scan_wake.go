@@ -27,6 +27,9 @@ func newBackgroundScanWakeChannels() map[string]chan struct{} {
 		"source_tasks", "source_downloads", "source_cache", "source_demands", "task_reconciliation", "activation",
 		"statistics_tasks", "statistics_cache", "statistics_intents", "statistics_protection",
 		"history_tasks", "history_intents", "history_work", "history_receipts", "history_downloads", "history_uploads", "history_upload_receipts",
+		"diagnostic_retention_events", "diagnostic_retention_event_budgets", "diagnostic_retention_collected", "diagnostic_retention_notification_work",
+		"diagnostic_retention_transfers", "diagnostic_retention_transfer_sessions", "diagnostic_retention_upload_receipts", "diagnostic_retention_transfer_progress",
+		"diagnostic_retention_storage_snapshots", "diagnostic_retention_storage_records", "diagnostic_retention_legacy",
 	} {
 		channels[kind] = make(chan struct{}, 1)
 	}
@@ -62,6 +65,25 @@ func (s *Service) signalBackgroundScans(key string) {
 		s.signalBackgroundScan("history_uploads")
 	case strings.HasPrefix(key, "diagnostics/v1/upload-receipts/"):
 		s.signalBackgroundScan("history_upload_receipts")
+		s.signalBackgroundScan("diagnostic_retention_upload_receipts")
+	case strings.HasPrefix(key, "diagnostics/v1/events/"):
+		s.signalBackgroundScan("diagnostic_retention_events")
+	case strings.HasPrefix(key, "diagnostics/v1/event-budgets/"):
+		s.signalBackgroundScan("diagnostic_retention_event_budgets")
+	case strings.HasPrefix(key, "diagnostics/v1/collected/"):
+		s.signalBackgroundScan("diagnostic_retention_collected")
+	case strings.HasPrefix(key, "diagnostics/v1/notification-work/"):
+		s.signalBackgroundScan("diagnostic_retention_notification_work")
+	case strings.HasPrefix(key, "diagnostics/v1/transfers/"):
+		s.signalBackgroundScan("diagnostic_retention_transfers")
+	case strings.HasPrefix(key, "diagnostics/v1/transfer-sessions/"):
+		s.signalBackgroundScan("diagnostic_retention_transfer_sessions")
+	case strings.HasPrefix(key, "diagnostics/v1/transfer-progress/"):
+		s.signalBackgroundScan("diagnostic_retention_transfer_progress")
+	case strings.HasPrefix(key, "inventory/v1/snapshots/"):
+		s.signalBackgroundScan("diagnostic_retention_storage_snapshots")
+	case strings.HasPrefix(key, "inventory/v1/retention/"):
+		s.signalBackgroundScan("diagnostic_retention_storage_records")
 	}
 }
 

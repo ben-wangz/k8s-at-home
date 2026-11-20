@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
 	"time"
@@ -32,15 +33,15 @@ func (s *Service) reconcileBlobIntentTasks(ctx context.Context) error {
 
 func (s *Service) reconcileBlobIntent(ctx context.Context, intent tasks.BlobIntent) error {
 	if intent.ProtectionSessionID != "" && terminalBlobIntentState(intent.State) {
-		_, active, sessionErr := s.gate.protectionSession(ctx, intent.ProtectionSessionID)
-		if sessionErr != nil {
-			return sessionErr
+		settled, err := s.clearReleasedTerminalBlobIntentProtection(ctx, intent)
+		if err != nil {
+			return err
 		}
-		if !active {
-			if err := s.records.ClearBlobIntentProtectionSession(ctx, intent.ID, intent.ProtectionSessionID); err != nil {
+		if settled {
+			intent, err = s.records.GetBlobIntent(ctx, intent.ID)
+			if err != nil {
 				return err
 			}
-			intent.ProtectionSessionID = ""
 		}
 	}
 	if intent.State == tasks.IntentWaitingCache || intent.State == tasks.IntentWaitingQuota {
@@ -87,6 +88,38 @@ func (s *Service) reconcileBlobIntent(ctx context.Context, intent tasks.BlobInte
 
 func terminalBlobIntentState(state tasks.BlobIntentState) bool {
 	return state == tasks.IntentAnchored || state == tasks.IntentFailed || state == tasks.IntentCancelled
+}
+
+func (s *Service) clearReleasedTerminalBlobIntentProtection(ctx context.Context, intent tasks.BlobIntent) (bool, error) {
+	if !terminalBlobIntentState(intent.State) || intent.ProtectionSessionID == "" {
+		return true, nil
+	}
+	if s.gate == nil {
+		return false, errors.New("write gate is unavailable")
+	}
+	_, active, err := s.gate.protectionSession(ctx, intent.ProtectionSessionID)
+	if err != nil || active {
+		return false, err
+	}
+	if err := s.gate.confirmInactiveProtectionSessionReleased(ctx, intent.ProtectionSessionID, "", ""); err != nil {
+		return false, err
+	}
+	if err := s.records.ClearBlobIntentProtectionSession(ctx, intent.ID, intent.ProtectionSessionID); err != nil {
+		return false, err
+	}
+	current, err := s.records.GetBlobIntent(ctx, intent.ID)
+	if err != nil {
+		return false, err
+	}
+	return current.ProtectionSessionID == "", nil
+}
+
+func blobIntentCleanupWait(cause error) error {
+	message := "previous blob intent cleanup is unresolved"
+	if cause != nil {
+		message = fmt.Sprintf("%s: %v", message, cause)
+	}
+	return fmt.Errorf("%w: %w: %s", tasks.ErrDemandAdmissionWaiting, storage.ErrConditionFailed, message)
 }
 
 func (s *Service) expireIdleBlobIntent(ctx context.Context, intent tasks.BlobIntent, now time.Time) error {
