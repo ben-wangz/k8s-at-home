@@ -42,6 +42,16 @@ func sourceSweepUsesDurableRetry(kind string) bool {
 	return kind == "history_receipts" || kind == "receipt_cleanup" || strings.HasPrefix(kind, "diagnostic_retention_")
 }
 
+func sourceSweepRetryKinds() []string {
+	var kinds []string
+	for _, kind := range backgroundScanKinds {
+		if sourceSweepUsesDurableRetry(kind) {
+			kinds = append(kinds, kind)
+		}
+	}
+	return kinds
+}
+
 func sourceRetryPartition(kind, key string) string {
 	if kind == "diagnostic_retention_events" {
 		parts := strings.Split(strings.TrimPrefix(key, "diagnostics/v1/events/"), "/")
@@ -132,9 +142,13 @@ func (s *Service) publishSourceRetryDue(ctx context.Context, retry sourceSweepRe
 	if errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrAlreadyExists) || errors.Is(err, storage.ErrUnknownCommit) {
 		stored, _, readErr := inventory.Read[sourceSweepRetryDue](ctx, s.store, key)
 		if readErr == nil && stored == index {
+			s.signalSourceRetry(retry.Kind)
 			return nil
 		}
 		return errors.Join(err, readErr)
+	}
+	if err == nil {
+		s.signalSourceRetry(retry.Kind)
 	}
 	return err
 }

@@ -80,6 +80,7 @@ type Service struct {
 	backgroundScheduler     *backgroundScheduler
 	backgroundReady         map[string]chan struct{}
 	backgroundWake          map[string]chan struct{}
+	backgroundRetryWake     map[string]chan struct{}
 	collectorSlots          chan struct{}
 	collectorPace           <-chan time.Time
 	backgroundPace          <-chan time.Time

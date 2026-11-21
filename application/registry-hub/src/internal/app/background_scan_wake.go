@@ -36,6 +36,23 @@ func newBackgroundScanWakeChannels() map[string]chan struct{} {
 	return channels
 }
 
+func newBackgroundRetryWakeChannels() map[string]chan struct{} {
+	channels := make(map[string]chan struct{})
+	for _, kind := range sourceSweepRetryKinds() {
+		channels[kind] = make(chan struct{}, 1)
+	}
+	return channels
+}
+
+func (s *Service) signalSourceRetry(kind string) {
+	if channel := s.backgroundRetryWake[kind]; channel != nil {
+		select {
+		case channel <- struct{}{}:
+		default:
+		}
+	}
+}
+
 func (s *Service) signalBackgroundScans(key string) {
 	switch {
 	case strings.HasPrefix(key, "tasks/state/"):
