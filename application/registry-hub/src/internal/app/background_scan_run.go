@@ -55,9 +55,9 @@ func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Le
 	}
 	var signalCheck time.Time
 	var lastSave time.Time
-	var lastRetryStatus time.Time
 	var retryAt time.Time
 	retryDispatch := sourceRetryDispatchState{backoff: time.Second}
+	retryStatus := sourceRetryStatusRefreshState{backoff: sourceRetryStatusRefreshInterval}
 	retryIndexRepair := sourceRetryIndexRepairState{nextAt: time.Now(), backoff: time.Second}
 	for ctx.Err() == nil {
 		select {
@@ -95,15 +95,23 @@ func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Le
 		}
 		scanDue := !time.Now().Before(p.NextRound)
 		if sourceSweepUsesDurableRetry(kind) {
-			processed, dispatchErr := s.dispatchScheduledSourceRetry(ctx, holder, kind, &p, step, retryAt, scanDue, &retryDispatch, &lastRetryStatus)
+			processed, dispatchErr := s.dispatchScheduledSourceRetry(ctx, holder, kind, &p, step, retryAt, scanDue, &retryDispatch)
 			if dispatchErr != nil {
 				return
 			}
 			if processed {
+				if err := s.refreshSourceRetryStatusIfDue(ctx, holder, kind, &p, &retryStatus); err != nil {
+					s.backgroundEvent(kind, "checkpoint_failed", err)
+					return
+				}
 				continue
 			}
 		}
 		if !scanDue {
+			if err := s.refreshSourceRetryStatusIfDue(ctx, holder, kind, &p, &retryStatus); err != nil {
+				s.backgroundEvent(kind, "checkpoint_failed", err)
+				return
+			}
 			s.runSourceRetryIndexRepairIfDue(ctx, holder, kind, &p, &retryIndexRepair)
 			continue
 		}
@@ -153,6 +161,10 @@ func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Le
 						s.backgroundEvent(kind, "checkpoint_failed", checkpointErr)
 						return
 					}
+					if err := s.refreshSourceRetryStatusIfDue(ctx, holder, kind, &p, &retryStatus); err != nil {
+						s.backgroundEvent(kind, "checkpoint_failed", err)
+						return
+					}
 					s.runSourceRetryIndexRepairIfDue(ctx, holder, kind, &p, &retryIndexRepair)
 					continue
 				}
@@ -167,16 +179,6 @@ func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Le
 			} else {
 				s.failSourceScan(guarded, kind, prefix, &p, err)
 			}
-		}
-		if sourceSweepUsesDurableRetry(kind) {
-			if lastRetryStatus.IsZero() || time.Since(lastRetryStatus) >= 5*time.Second {
-				if err := s.updateSourceRetryStatus(guarded, kind, &p); err != nil {
-					s.failSourceScan(guarded, kind, prefix, &p, err)
-				} else {
-					lastRetryStatus = time.Now()
-				}
-			}
-			markSourceRetryRoundSuccess(&p)
 		}
 		p.Status.Processed, p.Status.NextScanAt = p.Cursor.Entities, p.NextRound
 		var checkpointErr error
@@ -197,6 +199,10 @@ func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Le
 		})
 		if checkpointErr != nil {
 			s.backgroundEvent(kind, "checkpoint_failed", checkpointErr)
+			return
+		}
+		if err := s.refreshSourceRetryStatusIfDue(ctx, holder, kind, &p, &retryStatus); err != nil {
+			s.backgroundEvent(kind, "checkpoint_failed", err)
 			return
 		}
 		s.runSourceRetryIndexRepairIfDue(ctx, holder, kind, &p, &retryIndexRepair)

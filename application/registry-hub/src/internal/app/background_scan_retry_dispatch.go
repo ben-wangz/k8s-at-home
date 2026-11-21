@@ -151,57 +151,6 @@ func (s *Service) rescheduleSourceRetry(ctx context.Context, manager *lease.Mana
 	return nil
 }
 
-func (s *Service) updateSourceRetryStatus(ctx context.Context, kind string, p *sourceSweepCheckpoint) error {
-	p.Status.PendingRetries = 0
-	p.Status.OldestDueRetryAt = time.Time{}
-	p.Status.NextRetryAt = time.Time{}
-	token := ""
-	for {
-		entries, next, err := s.store.List(ctx, sourceRetryPrefix+kind+"/", token, 1000)
-		if err != nil {
-			return err
-		}
-		p.Status.PendingRetries += int64(len(entries))
-		if next == "" {
-			break
-		}
-		if next == token {
-			return storage.ErrUnavailable
-		}
-		token = next
-	}
-	dueEntries, _, err := s.store.List(ctx, sourceRetryDuePrefix+kind+"/", "", 1000)
-	if err != nil {
-		return err
-	}
-	now := time.Now().UTC()
-	for _, entry := range dueEntries {
-		index, _, err := inventory.Read[sourceSweepRetryDue](ctx, s.store, entry.Key)
-		if errors.Is(err, storage.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		retry, _, err := inventory.Read[sourceSweepRetry](ctx, s.store, sourceRetryRecordKey(kind, index.RetryID))
-		if errors.Is(err, storage.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if retry.State != "pending" || retry.Revision != index.Revision || retry.NextAttemptAt != index.DueAt {
-			continue
-		}
-		p.Status.NextRetryAt = retry.NextAttemptAt
-		if !retry.NextAttemptAt.After(now) {
-			p.Status.OldestDueRetryAt = retry.NextAttemptAt
-		}
-		break
-	}
-	return nil
-}
-
 func importSourceSweepBackoff(ctx context.Context, s *Service, kind string, p *sourceSweepCheckpoint, limit int) error {
 	if !sourceSweepUsesDurableRetry(kind) {
 		return nil

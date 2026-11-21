@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func (s *Service) dispatchScheduledSourceRetry(ctx context.Context, holder lease.Lease, kind string, p *sourceSweepCheckpoint, step sourceSweepStep, dueAt time.Time, scanDue bool, state *sourceRetryDispatchState, lastStatus *time.Time) (bool, error) {
+func (s *Service) dispatchScheduledSourceRetry(ctx context.Context, holder lease.Lease, kind string, p *sourceSweepCheckpoint, step sourceSweepStep, dueAt time.Time, scanDue bool, state *sourceRetryDispatchState) (bool, error) {
 	state.turn++
 	now := time.Now()
 	if dueAt.IsZero() || dueAt.After(now) || now.Before(state.after) || scanDue && state.turn%4 != 0 && time.Since(state.last) < time.Second {
@@ -41,19 +41,8 @@ func (s *Service) dispatchScheduledSourceRetry(ctx context.Context, holder lease
 	}
 	if processed {
 		statusCtx, cancel := s.backgroundCheckpoint(ctx, kind)
-		var checkpointErr error
-		if lastStatus.IsZero() || time.Since(*lastStatus) >= 5*time.Second {
-			if err := s.updateSourceRetryStatus(statusCtx, kind, p); err != nil {
-				checkpointErr = err
-			} else {
-				*lastStatus = time.Now()
-			}
-		}
-		if checkpointErr == nil {
-			markSourceRetryRoundSuccess(p)
-			p.Status.CheckpointAt = time.Now().UTC()
-			checkpointErr = s.saveSourceSweep(statusCtx, holder, kind, *p)
-		}
+		p.Status.CheckpointAt = time.Now().UTC()
+		checkpointErr := s.saveSourceSweep(statusCtx, holder, kind, *p)
 		cancel()
 		if checkpointErr != nil {
 			s.backgroundEvent(kind, "checkpoint_failed", checkpointErr)
