@@ -39,7 +39,7 @@ func resourceIdentity(object map[string]any) (testkit.ResourceIdentity, error) {
 }
 
 func knownFixtureName(release, name string) bool {
-	for _, suffix := range []string{"admin", "auth", "htpasswd", "tls", "http", "client-auth", "upstream-auth", "upstream-proxy", "backend-s3", "registry-s3", "registry-s3-tls", "referrers-probe", "referrers-migration-config", "referrers-migration-registry", "quota-seed"} {
+	for _, suffix := range []string{"admin", "auth", "htpasswd", "tls", "http", "client-auth", "history-admin", "upstream-auth", "upstream-proxy", "backend-s3", "registry-s3", "registry-s3-tls", "referrers-probe", "referrers-migration-config", "referrers-migration-registry", "quota-seed"} {
 		if name == release+"-external-"+suffix {
 			return true
 		}

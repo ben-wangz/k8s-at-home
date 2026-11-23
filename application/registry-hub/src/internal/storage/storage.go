@@ -41,13 +41,14 @@ type PutOptions struct {
 }
 
 type Entry struct {
-	Key               string
-	Version           string
-	Size              int64
-	ModTime           int64
-	ChecksumAlgorithm string
-	ChecksumValue     string
-	ChecksumScope     string
+	Key                 string
+	Version             string
+	MetadataFingerprint string
+	Size                int64
+	ModTime             int64
+	ChecksumAlgorithm   string
+	ChecksumValue       string
+	ChecksumScope       string
 }
 
 type Store interface {

@@ -67,7 +67,7 @@ func (s *Service) dispatchDueSourceSweepRetry(ctx context.Context, holder lease.
 		p.Status.Operations++
 		s.updateWorker(kind, func(status *workerStatus) { status.State = "retrying" })
 		source, sourceErr := s.store.Head(ctx, retry.SourceKey)
-		if errors.Is(sourceErr, storage.ErrNotFound) || sourceErr == nil && sourceEntryVersion(source) != retry.SourceVersion {
+		if errors.Is(sourceErr, storage.ErrNotFound) || sourceErr == nil && sourceEntryIdentity(source) != retry.SourceVersion {
 			return true, s.completeSourceRetry(ctx, manager, claim, entry, version, retry, recordVersion)
 		}
 		if sourceErr != nil {

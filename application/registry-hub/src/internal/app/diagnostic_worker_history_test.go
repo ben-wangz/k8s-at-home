@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/lease"
@@ -77,8 +78,36 @@ func TestSourceSweepRestoresFailureAndPersistsRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, event := range recovered.DiagnosticOutbox {
-		if _, err := f.service.store.Head(ctx, diagnostics.EventKey(event)); err != nil {
-			t.Fatalf("checkpointed event was not collected: %v", err)
+		if _, err := f.service.store.Head(ctx, diagnostics.EventKey(event)); err == nil {
+			continue
+		} else if !errors.Is(err, storage.ErrNotFound) {
+			t.Fatalf("read checkpointed legacy event: %v", err)
+		}
+		entries, _, err := storage.Scan(ctx, f.service.store, diagnostics.BatchPrefix, "", 32)
+		if err != nil {
+			t.Fatalf("list checkpointed event batches: %v", err)
+		}
+		collected := false
+		for _, entry := range entries {
+			batch, _, readErr := inventory.Read[diagnostics.EventBatch](ctx, f.service.store, entry.Key)
+			if readErr != nil {
+				t.Fatalf("read checkpointed event batch: %v", readErr)
+			}
+			if diagnostics.VerifyEventBatch(batch, entry.Key) != nil {
+				t.Fatalf("checkpointed event batch is invalid: %s", entry.Key)
+			}
+			for _, archived := range batch.Events {
+				if archived.ID == event.ID {
+					collected = true
+					break
+				}
+			}
+			if collected {
+				break
+			}
+		}
+		if !collected {
+			t.Fatalf("checkpointed event %s was not collected as a legacy object or batch event", event.ID)
 		}
 	}
 }

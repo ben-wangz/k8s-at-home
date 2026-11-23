@@ -12,9 +12,75 @@ import (
 	"path/filepath"
 	"registry-hub/internal/route"
 	"strings"
+	"time"
 )
 
 func (c Config) Validate() error {
+	diagnostics := c.Diagnostics
+	if diagnostics.OrdinaryEventFlushInterval != 0 && (diagnostics.OrdinaryEventFlushInterval < time.Second || diagnostics.OrdinaryEventFlushInterval > time.Hour) {
+		return errors.New("REGISTRY_HUB_DIAGNOSTIC_EVENT_FLUSH_SECONDS must be between 1 and 3600 seconds")
+	}
+	if diagnostics.CriticalEventFlushInterval != 0 && (diagnostics.CriticalEventFlushInterval < time.Second || diagnostics.CriticalEventFlushInterval > time.Minute) {
+		return errors.New("REGISTRY_HUB_DIAGNOSTIC_EVENT_CRITICAL_FLUSH_SECONDS must be between 1 and 60 seconds")
+	}
+	for _, retention := range []struct {
+		name  string
+		value time.Duration
+	}{
+		{"REGISTRY_HUB_DIAGNOSTIC_EVENT_RETENTION_SECONDS", diagnostics.EventRetention},
+		{"REGISTRY_HUB_DIAGNOSTIC_EVENT_BUDGET_RETENTION_SECONDS", diagnostics.EventBudgetRetention},
+		{"REGISTRY_HUB_DIAGNOSTIC_COLLECTION_RETENTION_SECONDS", diagnostics.CollectedReceiptRetention},
+		{"REGISTRY_HUB_RETRY_REQUEST_RETENTION_SECONDS", diagnostics.RetryRequestRetention},
+		{"REGISTRY_HUB_DIAGNOSTIC_TRANSFER_RETENTION_SECONDS", diagnostics.TransferObservationRetention},
+		{"REGISTRY_HUB_TRANSFER_EXPIRY_RETENTION_SECONDS", diagnostics.TransferExpiryRetention},
+		{"REGISTRY_HUB_TERMINAL_HISTORY_RETENTION_SECONDS", diagnostics.TerminalHistoryRetention},
+		{"REGISTRY_HUB_FULL_WORK_RECEIPT_RETENTION_SECONDS", diagnostics.FullWorkReceiptRetention},
+		{"REGISTRY_HUB_HISTORY_CLEANUP_PREVIEW_TTL_SECONDS", diagnostics.HistoryCleanupPreviewTTL},
+		{"REGISTRY_HUB_HISTORY_CLEANUP_RESULT_RETENTION_SECONDS", diagnostics.HistoryCleanupResultRetention},
+	} {
+		if retention.value != 0 && (retention.value < time.Second || retention.value > 365*24*time.Hour) {
+			return fmt.Errorf("%s must be between 1 and 31536000 seconds", retention.name)
+		}
+	}
+	if diagnostics.RetentionSweepInterval != 0 && (diagnostics.RetentionSweepInterval < time.Second || diagnostics.RetentionSweepInterval > 15*time.Minute) {
+		return errors.New("REGISTRY_HUB_HISTORY_RETENTION_SWEEP_INTERVAL_SECONDS must be between 1 and 900 seconds")
+	}
+	if diagnostics.HistorySweepInterval != 0 && (diagnostics.HistorySweepInterval < time.Second || diagnostics.HistorySweepInterval > 15*time.Minute) {
+		return errors.New("REGISTRY_HUB_HISTORY_SWEEP_INTERVAL_SECONDS must be between 1 and 900 seconds")
+	}
+	if diagnostics.HistorySweepMaxInterval != 0 && (diagnostics.HistorySweepMaxInterval < time.Second || diagnostics.HistorySweepMaxInterval > 15*time.Minute) {
+		return errors.New("REGISTRY_HUB_HISTORY_SWEEP_MAX_INTERVAL_SECONDS must be between 1 and 900 seconds")
+	}
+	if diagnostics.HistorySweepInterval != 0 && diagnostics.HistorySweepMaxInterval != 0 && diagnostics.HistorySweepMaxInterval < diagnostics.HistorySweepInterval {
+		return errors.New("REGISTRY_HUB_HISTORY_SWEEP_MAX_INTERVAL_SECONDS must be at least REGISTRY_HUB_HISTORY_SWEEP_INTERVAL_SECONDS")
+	}
+	if diagnostics.CollectedReceiptRetention != 0 && diagnostics.EventRetention != 0 && diagnostics.CollectedReceiptRetention < diagnostics.EventRetention {
+		return errors.New("diagnostic collection retention must be at least diagnostic event retention")
+	}
+	if diagnostics.EventBudgetRetention != 0 && diagnostics.EventRetention != 0 && diagnostics.EventBudgetRetention < diagnostics.EventRetention {
+		return errors.New("diagnostic event budget retention must be at least diagnostic event retention")
+	}
+	if diagnostics.FullWorkReceiptRetention != 0 && diagnostics.TerminalHistoryRetention != 0 && diagnostics.FullWorkReceiptRetention < diagnostics.TerminalHistoryRetention {
+		return errors.New("full work receipt retention must be at least terminal history retention")
+	}
+	if diagnostics.CollectedReceiptRetention != 0 && diagnostics.FullWorkReceiptRetention != 0 && diagnostics.CollectedReceiptRetention < diagnostics.FullWorkReceiptRetention {
+		return errors.New("diagnostic collection retention must be at least full work receipt retention")
+	}
+	if diagnostics.TransferObservationRetention != 0 && diagnostics.TerminalHistoryRetention != 0 && diagnostics.TransferObservationRetention < diagnostics.TerminalHistoryRetention {
+		return errors.New("transfer observation retention must be at least terminal history retention")
+	}
+	if diagnostics.TransferExpiryRetention != 0 && diagnostics.TerminalHistoryRetention != 0 && diagnostics.TransferExpiryRetention < diagnostics.TerminalHistoryRetention {
+		return errors.New("transfer expiry retention must be at least terminal history retention")
+	}
+	if c.Diagnostics.FullWorkReceiptCleanupEnabled && !c.Diagnostics.HistoryProjectionReadsEnabled {
+		return errors.New("REGISTRY_HUB_FULL_WORK_RECEIPT_CLEANUP_ENABLED requires REGISTRY_HUB_HISTORY_PROJECTION_READS_ENABLED=true")
+	}
+	if c.Diagnostics.FullWorkReceiptCleanupPreview && !c.Diagnostics.HistoryProjectionReadsEnabled {
+		return errors.New("REGISTRY_HUB_FULL_WORK_RECEIPT_CLEANUP_PREVIEW requires REGISTRY_HUB_HISTORY_PROJECTION_READS_ENABLED=true")
+	}
+	if c.Diagnostics.FullWorkReceiptCleanupPreview && c.Diagnostics.FullWorkReceiptCleanupEnabled {
+		return errors.New("REGISTRY_HUB_FULL_WORK_RECEIPT_CLEANUP_PREVIEW and REGISTRY_HUB_FULL_WORK_RECEIPT_CLEANUP_ENABLED cannot both be true")
+	}
 	if err := c.RegistryInspection.validate(c); err != nil {
 		return err
 	}

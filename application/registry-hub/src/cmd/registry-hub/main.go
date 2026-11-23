@@ -12,34 +12,46 @@ import (
 
 	"registry-hub/internal/app"
 	"registry-hub/internal/config"
+	"registry-hub/internal/logging"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	logHandler := logging.New(slog.NewJSONHandler(os.Stderr, nil), 1024)
+	logger := slog.New(logHandler)
+	closeLogger := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = logHandler.Close(ctx)
+	}
+	defer closeLogger()
 	slog.SetDefault(logger)
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "initialize":
 			if err := initializeInternal(); err != nil {
 				slog.Error("initialization failed", "error", err)
+				closeLogger()
 				os.Exit(1)
 			}
 			return
 		case "initialize-internal":
 			if err := initializeInternal(); err != nil {
 				slog.Error("internal initialization failed", "error", err)
+				closeLogger()
 				os.Exit(1)
 			}
 			return
 		case "wait-initialization":
 			if err := waitForInitialization(); err != nil {
 				slog.Error("initialization wait failed", "error", err)
+				closeLogger()
 				os.Exit(1)
 			}
 			return
 		case "wait-internal":
 			if err := waitForInitialization(); err != nil {
 				slog.Error("internal initialization wait failed", "error", err)
+				closeLogger()
 				os.Exit(1)
 			}
 			return
@@ -49,6 +61,7 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("configuration invalid", "error", err)
+		closeLogger()
 		os.Exit(2)
 	}
 	if cfg.ClientAuth.Empty() {
@@ -64,6 +77,7 @@ func main() {
 	service, err := app.New(cfg, logger)
 	if err != nil {
 		logger.Error("service initialization failed", "error", err)
+		closeLogger()
 		os.Exit(1)
 	}
 	defer service.Close()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"registry-hub/internal/auth"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
@@ -13,7 +14,11 @@ import (
 	"time"
 )
 
-type backgroundJobPage = diagnosticPage[backgroundJobView]
+type backgroundJobPage struct {
+	diagnosticPage[backgroundJobView]
+	HistoryBefore time.Time `json:"historyBefore"`
+	Coverage      string    `json:"coverage"`
+}
 
 var workQueryFields = []string{"kind", "state", "reason", "authority", "repository", "imageID", "taskID", "intentID", "transferID", "digest", "errorClass", "retryable"}
 
@@ -39,14 +44,27 @@ func (s *Service) serveBackground(writer http.ResponseWriter, request *http.Requ
 		writeInventoryError(writer, inventory.ErrInvalid)
 		return
 	}
-	q := workqueue.Queue{Store: s.store}
 	if len(parts) == 2 && request.Method == http.MethodGet && len(request.URL.Query()) == 0 {
-		job, err := q.Read(ctx, parts[0], parts[1])
-		if err != nil {
+		job, version, err := inventory.Read[workqueue.Job](ctx, s.store, workqueue.Key(parts[0], parts[1]))
+		if err == nil {
+			job.Version = version
+			writeJSON(writer, http.StatusOK, diagnosticJob(job))
+			return
+		}
+		if !errors.Is(err, storage.ErrNotFound) {
 			writeInventoryError(writer, err)
 			return
 		}
-		writeJSON(writer, http.StatusOK, diagnosticJob(job))
+		view, historyErr := s.terminalWorkHistoryDetail(ctx, parts[0], parts[1])
+		if historyErr == nil {
+			writeJSON(writer, http.StatusOK, view)
+			return
+		}
+		if errors.Is(historyErr, inventory.ErrExpired) {
+			writeAdminError(writer, http.StatusGone, "HISTORY_EXPIRED", "terminal work history is outside the configured retention window")
+			return
+		}
+		writeInventoryError(writer, historyErr)
 		return
 	}
 	if len(parts) == 3 && parts[2] == "retry" && request.Method == http.MethodPost && len(request.URL.Query()) == 0 {
@@ -77,14 +95,28 @@ func (s *Service) listBackground(writer http.ResponseWriter, request *http.Reque
 		}
 		kind = filter
 	}
-	if (values.Get("state") == "done" || values.Get("state") == "superseded") && cursor.Phase == 0 {
-		cursor.Phase = 1
-		cursor.Storage = ""
+	if kind != "" && values.Get("kind") == "" {
+		values.Set("kind", kind)
+	}
+	if cursor.Phase < 0 || cursor.Phase > 1 {
+		writeInventoryError(writer, inventory.ErrInvalid)
+		return
+	}
+	if cursor.HistorySource == "" {
+		if values.Get("token") != "" {
+			cursor.HistorySource = terminalWorkHistoryLegacySource
+		} else {
+			cursor.HistorySource = terminalWorkHistorySource(s.cfg.Diagnostics.HistoryProjectionReadsEnabled)
+		}
+	}
+	if cursor.HistoryBefore.IsZero() {
+		cursor.HistoryBefore = time.Now().UTC().Add(-s.diagnosticsConfig().TerminalHistoryRetention)
+	}
+	if cursor.Phase == 1 {
+		s.listTerminalBackground(writer, ctx, values, cursor, limit)
+		return
 	}
 	prefix := workqueue.Prefix + "jobs/"
-	if cursor.Phase == 1 {
-		prefix = workqueue.Prefix + "receipts/"
-	}
 	if kind != "" {
 		prefix += kind + "/"
 	}
@@ -93,7 +125,7 @@ func (s *Service) listBackground(writer http.ResponseWriter, request *http.Reque
 		writeInventoryError(writer, err)
 		return
 	}
-	page := backgroundJobPage{Items: []backgroundJobView{}, ObservedAt: time.Now().UTC(), Consistency: "live; deduplicate by kind/id/revision", Scanned: len(entries)}
+	page := backgroundJobPage{diagnosticPage: diagnosticPage[backgroundJobView]{Items: []backgroundJobView{}, ObservedAt: time.Now().UTC(), Consistency: "active work and archived terminal history; history is ordered by completion time", Scanned: len(entries)}}
 	for _, entry := range entries {
 		job, version, readErr := inventory.Read[workqueue.Job](ctx, s.store, entry.Key)
 		if errors.Is(readErr, storage.ErrNotFound) {
@@ -104,8 +136,14 @@ func (s *Service) listBackground(writer http.ResponseWriter, request *http.Reque
 			return
 		}
 		job.Version = version
-		if cursor.Phase == 0 && job.State == "done" {
-			continue
+		if job.State == "done" {
+			terminalAt := job.CompletedAt
+			if terminalAt.IsZero() {
+				terminalAt = time.Unix(0, entry.ModTime).UTC()
+			}
+			if terminalAt.IsZero() || !terminalAt.After(cursor.HistoryBefore) {
+				continue
+			}
 		}
 		view := diagnosticJob(job)
 		if matchesWork(view, values) {
@@ -114,13 +152,71 @@ func (s *Service) listBackground(writer http.ResponseWriter, request *http.Reque
 	}
 	cursor.Storage = next
 	if next == "" && cursor.Phase == 0 {
-		cursor.Phase = 1
-		next = "receipts"
+		cursor.Phase, cursor.Storage = 1, ""
+		page.HistoryBefore = cursor.HistoryBefore
 	}
 	if next != "" {
 		page.NextToken = s.diagnosticToken(cursor)
+		writeJSON(writer, http.StatusOK, page)
+		return
+	}
+	if cursor.Phase == 1 {
+		if len(page.Items) >= limit {
+			page.NextToken = s.diagnosticToken(cursor)
+		} else if err := s.appendTerminalWorkHistory(ctx, values, &cursor, limit-len(page.Items), &page); err != nil {
+			writeInventoryError(writer, err)
+			return
+		}
 	}
 	writeJSON(writer, http.StatusOK, page)
+}
+
+func (s *Service) listTerminalBackground(writer http.ResponseWriter, ctx context.Context, values url.Values, cursor diagnosticCursor, limit int) {
+	if cursor.HistorySource == "" {
+		if cursor.Storage != "" {
+			writeInventoryError(writer, inventory.ErrExpired)
+			return
+		}
+		cursor.HistorySource = terminalWorkHistorySource(s.cfg.Diagnostics.HistoryProjectionReadsEnabled)
+		cursor.HistoryBefore = time.Now().UTC().Add(-s.diagnosticsConfig().TerminalHistoryRetention)
+	}
+	if cursor.HistorySource != terminalWorkHistoryLegacySource && cursor.HistorySource != terminalWorkHistoryIndexSource {
+		writeInventoryError(writer, inventory.ErrInvalid)
+		return
+	}
+	page := backgroundJobPage{diagnosticPage: diagnosticPage[backgroundJobView]{Items: []backgroundJobView{}, ObservedAt: time.Now().UTC(), Consistency: "terminal work history ordered by completion time"}}
+	page.HistoryBefore = cursor.HistoryBefore
+	page.Coverage = "terminal work history retained for " + s.diagnosticsConfig().TerminalHistoryRetention.String() + "; completion markers preserve 410 expiry evidence"
+	if cursor.HistorySource == terminalWorkHistoryLegacySource {
+		page.Coverage += "; legacy receipt fallback remains enabled until projection backfill is verified"
+	}
+	if err := s.appendTerminalWorkHistory(ctx, values, &cursor, limit, &page); err != nil {
+		writeInventoryError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, page)
+}
+
+func (s *Service) appendTerminalWorkHistory(ctx context.Context, values url.Values, cursor *diagnosticCursor, limit int, page *backgroundJobPage) error {
+	rows, scanned, more, usedFallback, err := s.listTerminalWorkHistory(ctx, values, cursor, limit)
+	if err != nil {
+		return err
+	}
+	page.Scanned += scanned
+	for _, record := range rows {
+		page.Items = append(page.Items, record.View)
+	}
+	if usedFallback {
+		page.Coverage += "; legacy receipts are included while projection backfill continues"
+	}
+	if more {
+		if len(rows) > 0 && cursor.HistorySource == terminalWorkHistoryLegacySource {
+			last := rows[len(rows)-1]
+			cursor.HistoryAfter, cursor.HistoryKind, cursor.HistoryID, cursor.HistoryRevision = last.TerminalAt, last.Kind, last.ID, last.Revision
+		}
+		page.NextToken = s.diagnosticToken(*cursor)
+	}
+	return nil
 }
 
 func (s *Service) retryBackground(writer http.ResponseWriter, request *http.Request, ctx context.Context, kind, id string) {

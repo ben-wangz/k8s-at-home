@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"registry-hub/internal/artifact"
+	"registry-hub/internal/inventory"
 	"registry-hub/internal/tasks"
 	"registry-hub/internal/workqueue"
 	"testing"
@@ -94,29 +95,24 @@ func TestQuotaCoveredBlobWakesWithNoAdditionalCapacity(t *testing.T) {
 func TestQuotaTransitionReplayWakesTargetInFirstAdmission(t *testing.T) {
 	f, task := quotaCoveredFixture(t)
 	ctx := context.Background()
-	// A new service can reconstruct delivery solely from the committed task.
 	if err := f.service.enqueueQuotaTransition(ctx, task); err != nil {
 		t.Fatal(err)
 	}
 	entries, _, err := f.service.store.List(ctx, workqueue.Prefix+"jobs/quota_wake/", "", 100)
-	if err != nil || len(entries) != 1 {
-		t.Fatalf("missing durable wake: %v %v", entries, err)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("coalesced dispatch created per-revision queue receipts: %d %v", len(entries), err)
 	}
-	q := workqueue.Queue{Store: f.service.store}
-	job, _, err := readQuotaJob(ctx, f.service, entries[0].Key)
-	if err != nil {
-		t.Fatal(err)
+	key := quotaWakeDispatchKey(task.ID)
+	dispatch, _, err := inventory.Read[quotaWakeDispatch](ctx, f.service.store, key)
+	if err != nil || dispatch.LatestPendingRevision != task.QuotaWakeRevision || dispatch.LatestConfirmedRevision != 0 {
+		t.Fatalf("dispatch was not durably pending: %+v %v", dispatch, err)
 	}
-	job, err = q.Claim(ctx, job)
-	if err != nil {
-		t.Fatal(err)
+	if err := f.service.reconcileQuotaWakeDispatch(ctx, key); err != nil {
+		t.Fatalf("process coalesced dispatch: %v", err)
 	}
-	p, done, err := f.service.quotaWakeStep(ctx, &job)
-	if err != nil || !done {
-		t.Fatalf("wake needs another admission: %v %v", done, err)
-	}
-	if err = q.Finish(ctx, &job, p, done, nil); err != nil {
-		t.Fatal(err)
+	dispatch, _, err = inventory.Read[quotaWakeDispatch](ctx, f.service.store, key)
+	if err != nil || dispatch.LatestConfirmedRevision != task.QuotaWakeRevision {
+		t.Fatalf("dispatch confirmation was not persisted: %+v %v", dispatch, err)
 	}
 	current, _ := f.service.tasks.Get(ctx, task.ID)
 	if current.Status != tasks.Pending {
@@ -125,8 +121,9 @@ func TestQuotaTransitionReplayWakesTargetInFirstAdmission(t *testing.T) {
 	if err = f.service.enqueueQuotaTransition(ctx, task); err != nil {
 		t.Fatal(err)
 	}
-	if replay, _ := q.Read(ctx, job.Kind, job.ID); replay.State != "done" {
-		t.Fatal("duplicate delivery revived receipt")
+	dispatch, _, err = inventory.Read[quotaWakeDispatch](ctx, f.service.store, key)
+	if err != nil || dispatch.LatestPendingRevision != task.QuotaWakeRevision || dispatch.LatestConfirmedRevision != task.QuotaWakeRevision {
+		t.Fatalf("reconciliation regressed confirmed dispatch: %+v %v", dispatch, err)
 	}
 	if err = saveDemandRootStatus(ctx, f.service.tasks, task.ID, tasks.WaitingQuota, "distribution_quota"); err != nil {
 		t.Fatal(err)
@@ -138,22 +135,22 @@ func TestQuotaTransitionReplayWakesTargetInFirstAdmission(t *testing.T) {
 	if err = f.service.enqueueQuotaTransition(ctx, next); err != nil {
 		t.Fatal(err)
 	}
-	stale := workqueue.Job{Payload: job.Payload}
-	if _, done, err = f.service.quotaWakeStep(ctx, &stale); err != nil || !done || !stale.Superseded {
-		t.Fatalf("stale event not superseded: %+v %v", stale, err)
+	dispatch, _, err = inventory.Read[quotaWakeDispatch](ctx, f.service.store, key)
+	if err != nil || dispatch.LatestPendingRevision != next.QuotaWakeRevision || dispatch.LatestConfirmedRevision != task.QuotaWakeRevision {
+		t.Fatalf("new task revision was not coalesced: %+v %v", dispatch, err)
 	}
-}
-
-func readQuotaJob(ctx context.Context, s *Service, key string) (workqueue.Job, string, error) {
-	object, err := s.store.Get(ctx, key)
-	if err != nil {
-		return workqueue.Job{}, "", err
+	if err := f.service.reconcileQuotaWakeDispatch(ctx, key); err != nil {
+		t.Fatalf("process latest coalesced revision: %v", err)
 	}
-	defer object.Body.Close()
-	var job workqueue.Job
-	err = json.NewDecoder(object.Body).Decode(&job)
-	job.Version = object.Version
-	return job, object.Version, err
+	dispatch, _, err = inventory.Read[quotaWakeDispatch](ctx, f.service.store, key)
+	if err != nil || dispatch.LatestConfirmedRevision != next.QuotaWakeRevision {
+		t.Fatalf("latest revision was not confirmed: %+v %v", dispatch, err)
+	}
+	stalePayload, _ := json.Marshal(quotaWakeWork{TaskID: task.ID, Generation: task.Generation, RoundID: task.RoundID, Revision: task.QuotaWakeRevision, SessionID: task.ProtectionSessionID})
+	stale := workqueue.Job{Payload: stalePayload}
+	if _, done, staleErr := f.service.quotaWakeStep(ctx, &stale); staleErr != nil || !done || !stale.Superseded {
+		t.Fatalf("stale event not superseded: %+v %v", stale, staleErr)
+	}
 }
 
 func TestQuotaCoveredWakeRejectsCancellationAndOtherWaits(t *testing.T) {

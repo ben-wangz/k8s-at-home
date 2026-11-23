@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
+	"strings"
 	"testing"
 )
 
@@ -24,7 +25,9 @@ func TestStorageReportsDoNotMaterializeHistoricalOutput(t *testing.T) {
 		}
 		report := collectTestStorage(t, f.service, nil)
 		state := report.Domains["state"]
-		if *state.Objects != int64(len(entries)) || *state.ObjectBytes != bytes || len(state.SummaryOnlyCategories) != 1 {
+		if *state.Objects != int64(len(entries)) || *state.ObjectBytes != bytes ||
+			!containsStorageCategory(state.SummaryOnlyCategories, "storage_inventory_output") ||
+			!containsStorageCategory(state.SummaryOnlyCategories, "diagnostic_events") {
 			t.Fatalf("round %d lost physical totals or coverage: %+v", round, state)
 		}
 		for page := range report.Pages {
@@ -66,6 +69,69 @@ func TestStorageReportsDoNotMaterializeHistoricalOutput(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestStorageDiagnosticEventSummaryUsesListMetadataOnly(t *testing.T) {
+	f := newStagedAcceptanceFixture(t, 1<<20)
+	enableInventory(f)
+	ctx := context.Background()
+	objects := map[string]string{
+		"diagnostics/v1/events/20261121/one.json":          `{"event":"one"}`,
+		"diagnostics/v1/events/20261121/two.json":          `{"event":"two"}`,
+		"diagnostics/v2/event-batches/20261121/batch.json": `{"events":[{"event":"three"}]}`,
+		"diagnostics/v1/work-history/notify/one.json":      `{"history":"one"}`,
+		"diagnostics/v1/transfer-history/one.json":         `{"history":"transfer-one"}`,
+	}
+	var expectedEventBytes int64
+	var expectedEventObjects int64
+	for key, body := range objects {
+		if _, err := f.service.store.Put(ctx, key, strings.NewReader(body), int64(len(body)), storage.PutOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasPrefix(key, "diagnostics/v1/events/") || strings.HasPrefix(key, "diagnostics/v2/event-batches/") {
+			expectedEventBytes += int64(len(body))
+			expectedEventObjects++
+		}
+	}
+
+	counter := &storageDiagnosticGetCounter{Store: f.service.store}
+	f.service.store, f.service.inventory.Store = counter, counter
+	report := collectTestStorage(t, f.service, nil)
+	usage := report.Domains["state"].Categories["diagnostic_events"]
+	if usage.Objects != expectedEventObjects || usage.ObjectBytes != expectedEventBytes {
+		t.Fatalf("diagnostic event summary = %+v; want objects=%d bytes=%d", usage, expectedEventObjects, expectedEventBytes)
+	}
+	if counter.eventGets != 0 {
+		t.Fatalf("diagnostic event GET calls = %d; want 0", counter.eventGets)
+	}
+	if counter.historyGets != 0 || report.Domains["state"].Categories["terminal_work_history"].Objects != 1 || report.Domains["state"].Categories["terminal_transfer_history"].Objects != 1 {
+		t.Fatalf("history usage work=%+v transfer=%+v per-object GETs=%d; want one object per category and zero GETs", report.Domains["state"].Categories["terminal_work_history"], report.Domains["state"].Categories["terminal_transfer_history"], counter.historyGets)
+	}
+}
+
+type storageDiagnosticGetCounter struct {
+	storage.Store
+	eventGets   int
+	historyGets int
+}
+
+func (s *storageDiagnosticGetCounter) Get(ctx context.Context, key string) (storage.Object, error) {
+	if strings.HasPrefix(key, "diagnostics/v1/events/") || strings.HasPrefix(key, "diagnostics/v2/event-batches/") {
+		s.eventGets++
+	}
+	if strings.HasPrefix(key, terminalWorkHistoryPrefix) || strings.HasPrefix(key, terminalTransferHistoryPrefix) {
+		s.historyGets++
+	}
+	return s.Store.Get(ctx, key)
+}
+
+func containsStorageCategory(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestStorageSummaryOnlyInputDoesNotCreateUsageRunsPerPage(t *testing.T) {

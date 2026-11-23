@@ -26,6 +26,7 @@ type sourceSweepCheckpoint struct {
 	Round               uint64                   `json:"round"`
 	EventPartitionDate  string                   `json:"eventPartitionDate,omitempty"`
 	EventRoundEndDate   string                   `json:"eventRoundEndDate,omitempty"`
+	PreviewCountRound   uint64                   `json:"previewCountRound,omitempty"`
 	IdleRounds          int                      `json:"idleRounds,omitempty"`
 	RoundFailed         bool                     `json:"roundFailed"`
 	ScanRetries         int                      `json:"scanRetries"`

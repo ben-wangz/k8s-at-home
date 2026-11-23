@@ -14,6 +14,7 @@ import (
 func Load() (Config, error) {
 	var cfg Config
 	var parseErrors error
+	diagnosticDefaults := DefaultDiagnostics()
 	intValue := func(name string, fallback int64) int64 {
 		current := os.Getenv(name)
 		if current == "" {
@@ -33,6 +34,18 @@ func Load() (Config, error) {
 			seconds = fallback
 		}
 		return time.Duration(seconds) * time.Second
+	}
+	boolValue := func(name string) bool {
+		current := os.Getenv(name)
+		if current == "" {
+			return false
+		}
+		parsed, err := strconv.ParseBool(current)
+		if err != nil {
+			parseErrors = errors.Join(parseErrors, fmt.Errorf("parse %s as boolean: %w", name, err))
+			return false
+		}
+		return parsed
 	}
 	cfg.ClientAddr = value("REGISTRY_HUB_CLIENT_ADDR", ":5000")
 	cfg.AdminAddr = value("REGISTRY_HUB_ADMIN_ADDR", ":8081")
@@ -104,6 +117,26 @@ func Load() (Config, error) {
 		ContentAuditInterval:  secondsValue("REGISTRY_HUB_INVENTORY_CONTENT_AUDIT_SECONDS", 86400),
 		BatchSize:             int(intValue("REGISTRY_HUB_INVENTORY_BATCH_SIZE", 100)),
 		BatchTimeout:          secondsValue("REGISTRY_HUB_INVENTORY_BATCH_TIMEOUT_SECONDS", 60),
+	}
+	cfg.Diagnostics = Diagnostics{
+		OrdinaryEventFlushInterval:    secondsValue("REGISTRY_HUB_DIAGNOSTIC_EVENT_FLUSH_SECONDS", int64(diagnosticDefaults.OrdinaryEventFlushInterval/time.Second)),
+		CriticalEventFlushInterval:    secondsValue("REGISTRY_HUB_DIAGNOSTIC_EVENT_CRITICAL_FLUSH_SECONDS", int64(diagnosticDefaults.CriticalEventFlushInterval/time.Second)),
+		EventRetention:                secondsValue("REGISTRY_HUB_DIAGNOSTIC_EVENT_RETENTION_SECONDS", int64(diagnosticDefaults.EventRetention/time.Second)),
+		EventBudgetRetention:          secondsValue("REGISTRY_HUB_DIAGNOSTIC_EVENT_BUDGET_RETENTION_SECONDS", int64(diagnosticDefaults.EventBudgetRetention/time.Second)),
+		CollectedReceiptRetention:     secondsValue("REGISTRY_HUB_DIAGNOSTIC_COLLECTION_RETENTION_SECONDS", int64(diagnosticDefaults.CollectedReceiptRetention/time.Second)),
+		RetryRequestRetention:         secondsValue("REGISTRY_HUB_RETRY_REQUEST_RETENTION_SECONDS", int64(diagnosticDefaults.RetryRequestRetention/time.Second)),
+		TransferObservationRetention:  secondsValue("REGISTRY_HUB_DIAGNOSTIC_TRANSFER_RETENTION_SECONDS", int64(diagnosticDefaults.TransferObservationRetention/time.Second)),
+		TransferExpiryRetention:       secondsValue("REGISTRY_HUB_TRANSFER_EXPIRY_RETENTION_SECONDS", int64(diagnosticDefaults.TransferExpiryRetention/time.Second)),
+		TerminalHistoryRetention:      secondsValue("REGISTRY_HUB_TERMINAL_HISTORY_RETENTION_SECONDS", int64(diagnosticDefaults.TerminalHistoryRetention/time.Second)),
+		FullWorkReceiptRetention:      secondsValue("REGISTRY_HUB_FULL_WORK_RECEIPT_RETENTION_SECONDS", int64(diagnosticDefaults.FullWorkReceiptRetention/time.Second)),
+		HistoryCleanupPreviewTTL:      secondsValue("REGISTRY_HUB_HISTORY_CLEANUP_PREVIEW_TTL_SECONDS", int64(diagnosticDefaults.HistoryCleanupPreviewTTL/time.Second)),
+		HistoryCleanupResultRetention: secondsValue("REGISTRY_HUB_HISTORY_CLEANUP_RESULT_RETENTION_SECONDS", int64(diagnosticDefaults.HistoryCleanupResultRetention/time.Second)),
+		HistorySweepInterval:          secondsValue("REGISTRY_HUB_HISTORY_SWEEP_INTERVAL_SECONDS", int64(diagnosticDefaults.HistorySweepInterval/time.Second)),
+		HistorySweepMaxInterval:       secondsValue("REGISTRY_HUB_HISTORY_SWEEP_MAX_INTERVAL_SECONDS", int64(diagnosticDefaults.HistorySweepMaxInterval/time.Second)),
+		RetentionSweepInterval:        secondsValue("REGISTRY_HUB_HISTORY_RETENTION_SWEEP_INTERVAL_SECONDS", int64(diagnosticDefaults.RetentionSweepInterval/time.Second)),
+		HistoryProjectionReadsEnabled: boolValue("REGISTRY_HUB_HISTORY_PROJECTION_READS_ENABLED"),
+		FullWorkReceiptCleanupPreview: boolValue("REGISTRY_HUB_FULL_WORK_RECEIPT_CLEANUP_PREVIEW"),
+		FullWorkReceiptCleanupEnabled: boolValue("REGISTRY_HUB_FULL_WORK_RECEIPT_CLEANUP_ENABLED"),
 	}
 	cfg.Solidification = Solidification{
 		IdleTimeout:                    secondsValue("REGISTRY_HUB_SOLIDIFICATION_IDLE_TIMEOUT_SECONDS", 24*60*60),

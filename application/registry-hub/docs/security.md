@@ -81,11 +81,12 @@ Each credential must declare permissions. Use only the entries and permissions n
 | `delete` | Delete local Registry content. |
 | `task-admin` | Query and operate tasks, clean temporary state, and read metrics. |
 | `observe` | Read management diagnostics, inventory, GC/Referrer status, and metrics. |
+| `history-cleanup` | Create principal-bound history cleanup previews and submit cleanup operations. |
 | `work-retry` | Conditionally retry background work using revisions and an idempotency key. |
 | `referrer-prune` | Query and reconcile Referrers. |
 | `gc-admin` | Query, trigger, retry, recover, and reconcile GC state. |
 
-API documentation accepts any admin permission. Metrics accept `observe`; `task-admin` includes `observe` and `work-retry` for compatibility. Read-only access does not grant task, GC, cleanup or Referrer mutations. See [diagnostics.md](diagnostics.md) for conditional retry semantics.
+API documentation accepts any admin permission. Metrics accept `observe`; `task-admin` includes `observe` and `work-retry` for compatibility. Read-only access does not grant task, GC, history cleanup or Referrer mutations. The history cleanup permission is separate from `observe`; cleanup status and retention policy reads require `observe`. See [diagnostics.md](diagnostics.md) for cleanup and conditional retry semantics.
 
 Create a Secret from a protected local credential file:
 

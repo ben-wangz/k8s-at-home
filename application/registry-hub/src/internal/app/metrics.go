@@ -20,6 +20,7 @@ type metrics struct {
 	inventory                   *inventoryMetrics
 	backgroundDuration          *prometheus.HistogramVec
 	backgroundWait              *prometheus.HistogramVec
+	diagnosticWakeLatency       *prometheus.HistogramVec
 	registry                    *prometheus.Registry
 	requests                    *prometheus.CounterVec
 	requestLatency              *prometheus.HistogramVec
@@ -142,7 +143,7 @@ type observedStore struct {
 	diagnosticFailure func(context.Context, string, error, time.Time)
 	inventoryNotify   func()
 	inventoryChange   func(context.Context, string, string) error
-	backgroundNotify  func(string)
+	backgroundNotify  func(string, time.Time)
 	storage.Store
 	metrics *metrics
 	logger  *slog.Logger

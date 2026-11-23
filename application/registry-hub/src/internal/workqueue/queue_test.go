@@ -2,6 +2,7 @@ package workqueue
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -47,6 +48,64 @@ func TestExecutionReceiptPreservesOriginalFactAcrossReplay(t *testing.T) {
 	}
 	if _, err := q.Enqueue(ctx, "execution", "source", map[string]string{"digest": "two"}, original); !errors.Is(err, storage.ErrCorruptObject) {
 		t.Fatalf("changed source accepted: %v", err)
+	}
+}
+
+func TestCompletionMarkerPreservesIdempotencyAfterReceiptRemoval(t *testing.T) {
+	q := queueFixture(t)
+	ctx := context.Background()
+	original := time.Now().UTC().Add(-time.Hour)
+	payload := map[string]string{"digest": "one"}
+	job, err := q.Enqueue(ctx, "notify", "marker", payload, original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err = q.Claim(ctx, job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Finish(ctx, &job, map[string]int{"complete": 1}, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.PersistCompletionMarker(ctx, job); err != nil {
+		t.Fatalf("persist completion marker: %v", err)
+	}
+	if _, _, err := inventory.Read[CompletionMarker](ctx, q.Store, CompletionMarkerKey(job.Kind, job.ID)); err != nil {
+		t.Fatalf("missing completion marker: %v", err)
+	}
+	receipt, version, err := inventory.Read[Job](ctx, q.Store, ReceiptKey(job.Kind, job.ID))
+	if err != nil || receipt.State != "done" {
+		t.Fatalf("receipt=%+v err=%v", receipt, err)
+	}
+	if err := q.Store.DeleteIfMatch(ctx, ReceiptKey(job.Kind, job.ID), version); err != nil {
+		t.Fatal(err)
+	}
+	replay, err := q.Enqueue(ctx, "notify", "marker", payload, time.Now().UTC())
+	if err != nil || replay.State != "done" || replay.ID != job.ID || replay.CompletedAt.IsZero() {
+		t.Fatalf("completed replay=%+v err=%v", replay, err)
+	}
+	if _, err := q.Enqueue(ctx, "notify", "marker", map[string]string{"digest": "two"}, original); !errors.Is(err, storage.ErrCorruptObject) {
+		t.Fatalf("conflicting payload accepted after receipt removal: %v", err)
+	}
+}
+
+func TestClaimRejectsAndRetiresDuplicateCoveredByCompletionMarker(t *testing.T) {
+	q := queueFixture(t)
+	ctx := context.Background()
+	job, err := q.Enqueue(ctx, "notify", "late-duplicate", "payload", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal := job
+	terminal.State, terminal.CompletedAt, terminal.FinalSummary = "done", time.Now().UTC(), json.RawMessage(`{"done":true}`)
+	if err := q.writeCompletionMarker(ctx, terminal); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.Claim(ctx, job); !errors.Is(err, storage.ErrConditionFailed) {
+		t.Fatalf("late duplicate claimed: %v", err)
+	}
+	if _, err := q.Store.Head(ctx, Key(job.Kind, job.ID)); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("duplicate active job was not conditionally retired: %v", err)
 	}
 }
 

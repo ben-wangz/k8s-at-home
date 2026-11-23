@@ -42,9 +42,12 @@ func TestDiagnosticReceiptArchiveResumesOutboxAndSkipsCompletedVersion(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry := storage.Entry{Key: sourceKey, Version: sourceVersion}
+	entry, err := f.service.store.Head(ctx, sourceKey)
+	if err != nil || entry.Version != sourceVersion {
+		t.Fatalf("head source receipt = %+v, version=%q, error=%v", entry, sourceVersion, err)
+	}
 	fault := &receiptArchiveFaultStore{
-		Store: f.service.store, collectedKey: diagnostics.Prefix + "collected/" + diagnostics.ID(sourceKey) + ".json", failCollectedWrite: 2,
+		Store: f.service.store, collectedKey: diagnostics.Prefix + "collected/" + diagnostics.ID(sourceKey) + ".json", failCollectedWrite: 1,
 	}
 	f.service.store = fault
 
@@ -57,8 +60,12 @@ func TestDiagnosticReceiptArchiveResumesOutboxAndSkipsCompletedVersion(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.LastArchivedEventID != job.DiagnosticOutbox[3].ID || state.OutboxComplete || !state.NotificationIndexed || !state.TransferProjected {
+	if state.LastArchivedEventID != "" || state.OutboxComplete || !state.NotificationIndexed || !state.TransferProjected {
 		t.Fatalf("checkpoint did not preserve completed archive stages: %+v", state)
+	}
+	batches, _, err := fault.List(ctx, diagnostics.BatchPrefix, "", 10)
+	if err != nil || len(batches) != 1 {
+		t.Fatalf("durable event batches = %d, error = %v; want one batch before handoff confirmation", len(batches), err)
 	}
 
 	fault.failCollectedWrite = 0
@@ -72,9 +79,9 @@ func TestDiagnosticReceiptArchiveResumesOutboxAndSkipsCompletedVersion(t *testin
 	if !state.Complete || !state.OutboxComplete || state.LastArchivedEventID != job.DiagnosticOutbox[len(job.DiagnosticOutbox)-1].ID {
 		t.Fatalf("archive did not complete all outbox events: %+v", state)
 	}
-	events, _, err := fault.List(ctx, diagnostics.Prefix+"events/", "", 100)
-	if err != nil || len(events) != len(job.DiagnosticOutbox) {
-		t.Fatalf("archived events = %d, error = %v; want %d", len(events), err, len(job.DiagnosticOutbox))
+	batches, _, err = fault.List(ctx, diagnostics.BatchPrefix, "", 10)
+	if err != nil || len(batches) != 1 {
+		t.Fatalf("archived batches = %d, error = %v; want one idempotently reused batch", len(batches), err)
 	}
 
 	fault.rejectSourceGet = sourceKey
@@ -84,6 +91,59 @@ func TestDiagnosticReceiptArchiveResumesOutboxAndSkipsCompletedVersion(t *testin
 	}
 	if skipped.Status.Counts["skipped"] != 1 {
 		t.Fatalf("completed receipt skip count = %d, want 1", skipped.Status.Counts["skipped"])
+	}
+}
+
+func TestHistoryCleanupReceiptArchiveUsesFilesystemMetadataScan(t *testing.T) {
+	f := newStagedAcceptanceFixture(t, 1<<20)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	jobID := strings.Repeat("d", 32)
+	sourceKey := workqueue.ReceiptKey("history_cleanup", jobID)
+	payload, err := json.Marshal(historyCleanupJobPayload{PreviewID: strings.Repeat("e", 32), Principal: "history-operator", PolicyVersion: "history-cleanup-v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job := workqueue.Job{
+		SchemaVersion: 1, ID: jobID, Kind: "history_cleanup", State: "done", Payload: payload,
+		CreatedAt: now.Add(-time.Minute), CompletedAt: now,
+	}
+	diagnostics.Record(&job.DiagnosticOutbox, diagnostics.Event{
+		Component: "history_cleanup", Operation: "execute", EntityID: jobID,
+		Stage: "done", Result: "done", OccurredAt: now,
+	})
+	if err := inventory.Update(ctx, f.service.store, sourceKey, func(current *workqueue.Job) error {
+		*current = job
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, _, err := storage.Scan(ctx, f.service.store, sourceKey, "", 1)
+	if err != nil || len(entries) != 1 || entries[0].Version != "" || entries[0].MetadataFingerprint == "" {
+		t.Fatalf("filesystem metadata scan = %+v, error = %v", entries, err)
+	}
+	var progress sourceSweepCheckpoint
+	if more := f.service.sourceSweepEntity(ctx, "history_receipts", sourceKey, &progress, f.service.archiveDiagnosticReceipt); more {
+		t.Fatal("one-receipt history sweep unexpectedly had more entities")
+	}
+	if progress.Status.Counts["processed"] != 1 || progress.Status.Counts["archived"] != 1 {
+		t.Fatalf("history sweep status = %#v, want one archived receipt", progress.Status.Counts)
+	}
+
+	projectionKey := diagnostics.Prefix + "archive-projections/" + diagnostics.ID(sourceKey) + ".json"
+	projection, _, err := inventory.Read[diagnosticReceiptArchive](ctx, f.service.store, projectionKey)
+	if err != nil || !projection.Complete || projection.SourceFingerprint != entries[0].MetadataFingerprint {
+		t.Fatalf("receipt archive projection = %+v, error = %v", projection, err)
+	}
+	collectionKey := diagnostics.Prefix + "collected/" + diagnostics.ID(sourceKey) + ".json"
+	collected, _, err := inventory.Read[eventCollectionReceipt](ctx, f.service.store, collectionKey)
+	if err != nil || !diagnosticOutboxSettled(sourceKey, projection.SourceVersion, job.DiagnosticOutbox, collected) {
+		t.Fatalf("outbox collection receipt = %+v, error = %v", collected, err)
+	}
+	history, _, err := inventory.Read[terminalWorkHistoryRecord](ctx, f.service.store, terminalWorkHistoryKey(job.Kind, job.ID))
+	if err != nil || history.View.Job.State != "done" || !history.TerminalAt.Equal(now) {
+		t.Fatalf("terminal work history = %+v, error = %v", history, err)
 	}
 }
 

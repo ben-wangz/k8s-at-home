@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
@@ -80,20 +79,19 @@ func (s *Service) imageExecutionProjection(ctx context.Context, image inventory.
 		if indexed[id] {
 			continue
 		}
-		job, err := (workqueue.Queue{Store: s.store}).Read(ctx, "execution", id)
+		projection, fact, err := s.readExecutionProjection(ctx, id)
 		if err != nil {
 			view.ReadErrors[task.ID] = diagnosticReason(err)
 			continue
 		}
-		var fact inventoryExecutionFact
-		if json.Unmarshal(job.Payload, &fact) != nil || fact.TaskID != task.ID || fact.Digest != image.ResolvedDigest || fact.ContentGeneration != image.ContentGeneration || fact.Identity.Authority != image.Authority || fact.Identity.Repository != image.Repository {
+		if fact.TaskID != task.ID || fact.Digest != image.ResolvedDigest || fact.ContentGeneration != image.ContentGeneration || fact.Identity.Authority != image.Authority || fact.Identity.Repository != image.Repository {
 			view.ReadErrors[task.ID] = diagnosticReason(storage.ErrCorruptObject)
 			continue
 		}
-		view.Facts = append(view.Facts, executionProjectionFact{WorkID: id, TaskID: task.ID, SourceRevision: workqueue.SourceRevision(job), FirstStartedAt: job.CreatedAt, State: job.State, StatusURL: "/api/v1/background/execution/" + id})
-		view.ProjectionPending = view.ProjectionPending || job.State != "done"
-		if view.KnownFirstStartedAt == nil || job.CreatedAt.Before(*view.KnownFirstStartedAt) {
-			at := job.CreatedAt
+		view.Facts = append(view.Facts, projection)
+		view.ProjectionPending = view.ProjectionPending || projection.State != "done"
+		if view.KnownFirstStartedAt == nil || projection.FirstStartedAt.Before(*view.KnownFirstStartedAt) {
+			at := projection.FirstStartedAt
 			view.KnownFirstStartedAt = &at
 		}
 	}

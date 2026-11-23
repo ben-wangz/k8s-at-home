@@ -167,7 +167,11 @@ func (s *Store) put(ctx context.Context, key string, body io.Reader, size int64,
 	if err != nil {
 		return storage.Entry{}, err
 	}
-	return storage.Entry{Key: key, Version: hex.EncodeToString(hash.Sum(nil)), Size: written, ModTime: info.ModTime().UnixNano()}, nil
+	fingerprint, err := fileFingerprint(info)
+	if err != nil {
+		return storage.Entry{}, err
+	}
+	return storage.Entry{Key: key, Version: hex.EncodeToString(hash.Sum(nil)), MetadataFingerprint: fingerprint, Size: written, ModTime: info.ModTime().UnixNano()}, nil
 }
 
 func (s *Store) Delete(ctx context.Context, key string) (returnErr error) {

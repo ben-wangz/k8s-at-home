@@ -5,6 +5,7 @@ import (
 	clientauthcatalog "github.com/ben-wangz/registry-hub-tests/features/client-auth-catalog"
 	"github.com/ben-wangz/registry-hub-tests/features/diagnostics"
 	featuregc "github.com/ben-wangz/registry-hub-tests/features/gc"
+	historyretention "github.com/ben-wangz/registry-hub-tests/features/history-retention"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/admin-api"
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/admin-auth"
@@ -86,6 +87,7 @@ func Registry() ([]testkit.Case, error) {
 		upstreamauthtransport.New,
 		backends3.New,
 		diagnostics.New,
+		historyretention.New,
 		registrys3.New,
 		storageredirect.New,
 		referrersfallback.New,

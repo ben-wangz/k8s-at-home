@@ -116,6 +116,42 @@ spec:
               value: {{ .Values.backend.inventory.batchSize | quote }}
             - name: REGISTRY_HUB_INVENTORY_BATCH_TIMEOUT_SECONDS
               value: {{ .Values.backend.inventory.batchTimeoutSeconds | quote }}
+            - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_FLUSH_SECONDS
+              value: {{ .Values.backend.diagnostics.ordinaryEventFlushSeconds | quote }}
+            - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_CRITICAL_FLUSH_SECONDS
+              value: {{ .Values.backend.diagnostics.criticalEventFlushSeconds | quote }}
+            - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_RETENTION_SECONDS
+              value: {{ .Values.backend.diagnostics.eventRetentionSeconds | quote }}
+            - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_BUDGET_RETENTION_SECONDS
+              value: {{ .Values.backend.diagnostics.eventBudgetRetentionSeconds | quote }}
+            - name: REGISTRY_HUB_DIAGNOSTIC_COLLECTION_RETENTION_SECONDS
+              value: {{ .Values.backend.diagnostics.collectionRetentionSeconds | quote }}
+            - name: REGISTRY_HUB_RETRY_REQUEST_RETENTION_SECONDS
+              value: {{ .Values.backend.diagnostics.retryRequestRetentionSeconds | quote }}
+            - name: REGISTRY_HUB_DIAGNOSTIC_TRANSFER_RETENTION_SECONDS
+              value: {{ .Values.backend.diagnostics.transferRetentionSeconds | quote }}
+            - name: REGISTRY_HUB_TRANSFER_EXPIRY_RETENTION_SECONDS
+              value: {{ .Values.backend.diagnostics.transferExpiryRetentionSeconds | quote }}
+            - name: REGISTRY_HUB_TERMINAL_HISTORY_RETENTION_SECONDS
+              value: {{ .Values.backend.diagnostics.terminalHistoryRetentionSeconds | quote }}
+            - name: REGISTRY_HUB_FULL_WORK_RECEIPT_RETENTION_SECONDS
+              value: {{ .Values.backend.diagnostics.fullWorkReceiptRetentionSeconds | quote }}
+            - name: REGISTRY_HUB_HISTORY_CLEANUP_PREVIEW_TTL_SECONDS
+              value: {{ .Values.backend.diagnostics.historyCleanupPreviewTTLSeconds | quote }}
+            - name: REGISTRY_HUB_HISTORY_CLEANUP_RESULT_RETENTION_SECONDS
+              value: {{ .Values.backend.diagnostics.historyCleanupResultRetentionSeconds | quote }}
+            - name: REGISTRY_HUB_HISTORY_SWEEP_INTERVAL_SECONDS
+              value: {{ .Values.backend.diagnostics.historySweepIntervalSeconds | quote }}
+            - name: REGISTRY_HUB_HISTORY_SWEEP_MAX_INTERVAL_SECONDS
+              value: {{ .Values.backend.diagnostics.historySweepMaxIntervalSeconds | quote }}
+            - name: REGISTRY_HUB_HISTORY_RETENTION_SWEEP_INTERVAL_SECONDS
+              value: {{ .Values.backend.diagnostics.retentionSweepIntervalSeconds | quote }}
+            - name: REGISTRY_HUB_HISTORY_PROJECTION_READS_ENABLED
+              value: {{ .Values.backend.diagnostics.historyProjectionReadsEnabled | quote }}
+            - name: REGISTRY_HUB_FULL_WORK_RECEIPT_CLEANUP_PREVIEW
+              value: {{ .Values.backend.diagnostics.fullWorkReceiptCleanupPreview | quote }}
+            - name: REGISTRY_HUB_FULL_WORK_RECEIPT_CLEANUP_ENABLED
+              value: {{ .Values.backend.diagnostics.fullWorkReceiptCleanupEnabled | quote }}
             - name: REGISTRY_HUB_SOLIDIFICATION_IDLE_TIMEOUT_SECONDS
               value: {{ .Values.backend.solidification.idleTimeoutSeconds | quote }}
             - name: REGISTRY_HUB_SOLIDIFICATION_MAX_WAITING_ROOTS

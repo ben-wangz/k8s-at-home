@@ -14,7 +14,7 @@ backend:
   image:
     registry: ghcr.io
     repository: ben-wangz/k8s-at-home-registry-hub-backend
-    tag: 0.2.27
+    tag: 0.2.28
     digest: ""
     pullPolicy: IfNotPresent
   serviceAccount:
@@ -42,6 +42,25 @@ backend:
     contentAuditSeconds: 86400
     batchSize: 100
     batchTimeoutSeconds: 60
+  diagnostics:
+    ordinaryEventFlushSeconds: 60
+    criticalEventFlushSeconds: 5
+    eventRetentionSeconds: 604800
+    eventBudgetRetentionSeconds: 691200
+    collectionRetentionSeconds: 2592000
+    retryRequestRetentionSeconds: 2592000
+    transferRetentionSeconds: 2592000
+    transferExpiryRetentionSeconds: 2592000
+    terminalHistoryRetentionSeconds: 172800
+    fullWorkReceiptRetentionSeconds: 259200
+    historyCleanupPreviewTTLSeconds: 600
+    historyCleanupResultRetentionSeconds: 604800
+    historySweepIntervalSeconds: 15
+    historySweepMaxIntervalSeconds: 300
+    retentionSweepIntervalSeconds: 15
+    historyProjectionReadsEnabled: false
+    fullWorkReceiptCleanupPreview: false
+    fullWorkReceiptCleanupEnabled: false
   registryInspection:
     config:
       backend: disabled

@@ -8,7 +8,6 @@ import (
 	"registry-hub/internal/storage"
 	"registry-hub/internal/tasks"
 	"registry-hub/internal/workqueue"
-	"strconv"
 	"time"
 )
 
@@ -34,9 +33,7 @@ func (s *Service) enqueueQuotaTransition(ctx context.Context, task tasks.Task) e
 	if task.QuotaWakeRevision == 0 {
 		return nil
 	}
-	w := quotaWakeWork{TaskID: task.ID, Generation: task.Generation, RoundID: task.RoundID, Revision: task.QuotaWakeRevision, SessionID: task.ProtectionSessionID}
-	_, err := s.backgroundQueue().Enqueue(ctx, "quota_wake", workqueue.ID(task.ID, task.RoundID, strconv.FormatUint(task.Generation, 10), strconv.FormatUint(task.QuotaWakeRevision, 10), task.ProtectionSessionID), w, task.UpdatedAt)
-	return err
+	return s.updateQuotaWakeDispatch(ctx, task)
 }
 
 func (s *Service) quotaWakeStep(ctx context.Context, job *workqueue.Job) (any, bool, error) {

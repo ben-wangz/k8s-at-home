@@ -63,6 +63,9 @@ type systemStatus struct {
 	Capabilities            map[string]string    `json:"capabilities"`
 	SourceCoverage          string               `json:"sourceCoverage"`
 	DiagnosticEventsDropped uint64               `json:"diagnosticEventsDropped"`
+	DiagnosticSourceDrops   uint64               `json:"diagnosticSourceWakeDrops"`
+	DiagnosticSourceErrors  uint64               `json:"diagnosticSourceWakeErrors"`
+	LogRecordsDropped       uint64               `json:"logRecordsDropped"`
 	Capacity                *capacityStatus      `json:"capacity"`
 	ReferrerRepairsInFlight int                  `json:"referrerRepairsInFlight"`
 	ReferrerRepairPending   bool                 `json:"referrerRepairPending"`
@@ -72,7 +75,10 @@ type systemStatus struct {
 func (s *Service) systemStatus(ctx context.Context) (systemStatus, error) {
 	_ = s.readRecoveryDiagnostics(ctx)
 	build, err := s.inventoryStatus(ctx)
-	status := systemStatus{Version: buildinfo.Version, StartedAt: s.startedAt, InstanceID: s.instanceID, Ready: s.ready.Load(), Inventory: build, SourceCoverage: "non_atomic_sweeps; queue emptiness does not establish source coverage", Capabilities: map[string]string{}, DiagnosticEventsDropped: s.diagnosticEventsDropped.Load()}
+	status := systemStatus{Version: buildinfo.Version, StartedAt: s.startedAt, InstanceID: s.instanceID, Ready: s.ready.Load(), Inventory: build, SourceCoverage: "non_atomic_sweeps; queue emptiness does not establish source coverage", Capabilities: map[string]string{}, DiagnosticEventsDropped: s.diagnosticEventsDropped.Load(), DiagnosticSourceDrops: s.diagnosticSourceDrops.Load(), DiagnosticSourceErrors: s.diagnosticSourceErrors.Load()}
+	if s.logRecordsDropped != nil {
+		status.LogRecordsDropped = s.logRecordsDropped()
+	}
 	status.Capacity = s.diagnosticCapacity()
 	if status.Capacity != nil {
 		status.Capabilities["gc"] = status.Capacity.GCState

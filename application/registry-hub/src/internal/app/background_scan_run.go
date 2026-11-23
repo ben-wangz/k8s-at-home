@@ -139,6 +139,9 @@ func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Le
 			if p.Status.WaitReason == "protection_recovery" {
 				p.Status.WaitReason, p.Status.DependencyGeneration = "", ""
 			}
+			if kind == "receipt_cleanup_preview" {
+				resetReceiptCleanupPreviewCounts(&p)
+			}
 			s.sourceSweepBatch(guarded, kind, scanPrefix, &p, step)
 		}
 		if p.Cursor.Done && p.Status.WaitReason == "" && sourceBudgetAvailable(guarded) {

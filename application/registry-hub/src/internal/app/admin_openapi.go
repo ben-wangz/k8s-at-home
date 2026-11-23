@@ -186,6 +186,7 @@ func (s *Service) registerAdminOpenAPIOperations(api huma.API) []huma.Operation 
 	operations := append(adminOpenAPIOperations(api), adminInventoryOperations(api)...)
 	operations = append(operations, adminBackgroundOperations(api)...)
 	operations = append(operations, adminDiagnosticOperations(api)...)
+	operations = append(operations, adminHistoryCleanupOperations(api)...)
 	for index := range operations {
 		operation := &operations[index]
 		api.OpenAPI().AddOperation(operation)

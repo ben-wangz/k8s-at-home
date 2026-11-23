@@ -10,6 +10,7 @@ import (
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
+	"sort"
 	"strings"
 	"time"
 )
@@ -138,7 +139,7 @@ func (s *Service) prepareStoragePage(ctx context.Context, state *storageCollecti
 		namespace = diagnostics.ID(domain, s.cfg.RegistryInspection.Backend, s.cfg.RegistryInspection.FilesystemRoot, s.cfg.RegistryInspection.S3.Endpoint, s.cfg.RegistryInspection.S3.Bucket, s.cfg.RegistryInspection.S3.Prefix)
 	}
 	rows, size, offset := []storageObject{}, 2, state.SourceOffset
-	summary := storageUsage{Domain: domain, Category: "storage_inventory_output", Dimension: "category", Name: "storage_inventory_output", Mask: 1, LogicalUnknown: true, Attribution: "category summary only; internal collection output has no object detail"}
+	summaries := map[string]storageUsage{}
 	started := time.Now()
 	for offset < len(state.SourceEntries) && len(rows) < 32 {
 		if offset > state.SourceOffset && (time.Since(started) > 2*time.Second || !storageQuantumTime(ctx, time.Second)) {
@@ -149,15 +150,20 @@ func (s *Service) prepareStoragePage(ctx context.Context, state *storageCollecti
 			offset++
 			continue
 		}
-		internalOutput := domain == "state" && strings.HasPrefix(entry.Key, storageInventoryPrefix)
-		if internalOutput && storageSummaryOnly(state) {
+		category := storageCategory(domain, entry.Key)
+		if domain == "state" && storageSummaryOnlyCategory(state, category) {
+			summary, ok := summaries[category]
+			if !ok {
+				summary = storageUsage{Domain: domain, Category: category, Dimension: "category", Name: category, Mask: 1, LogicalUnknown: true, Attribution: "category summary only; per-object detail, attribution, and reclaimability are unknown"}
+			}
 			summary.ObjectBytes += entry.Size
 			summary.Objects++
+			summaries[category] = summary
 			offset++
 			continue
 		}
 		var object storageObject
-		if internalOutput {
+		if domain == "state" && strings.HasPrefix(entry.Key, storageInventoryPrefix) {
 			object = s.inspectStorageObjectMetadata(ctx, domain, namespace, entry)
 		} else {
 			object = s.inspectStorageObject(ctx, domain, namespace, entry)
@@ -193,7 +199,15 @@ func (s *Service) prepareStoragePage(ctx context.Context, state *storageCollecti
 		state.ListPageSize, state.ListSuccesses = max(1, state.ListPageSize/2), 0
 	}
 	state.PendingRows, state.PendingNext, state.Pending, state.PendingOffset = rows, state.SourceNext, true, offset
-	state.PendingSummary = summary
+	state.PendingSummaries = nil
+	categories := make([]string, 0, len(summaries))
+	for category := range summaries {
+		categories = append(categories, category)
+	}
+	sort.Strings(categories)
+	for _, category := range categories {
+		state.PendingSummaries = append(state.PendingSummaries, summaries[category])
+	}
 	return nil
 }
 

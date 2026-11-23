@@ -35,7 +35,7 @@ func inventoryChangeKey(key string) string {
 
 func (s *observedStore) inventoryChanged(ctx context.Context, key, version string, err error) {
 	if s.backgroundNotify != nil && (err == nil || errors.Is(err, storage.ErrUnknownCommit)) {
-		s.backgroundNotify(key)
+		s.backgroundNotify(key, time.Now().UTC())
 	}
 	if err != nil && !errors.Is(err, storage.ErrUnknownCommit) || !inventoryChangeEligible(ctx, key) {
 		return

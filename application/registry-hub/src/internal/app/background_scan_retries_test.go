@@ -56,7 +56,7 @@ func TestDueSourceRetryDispatchesAndFencesSourceVersion(t *testing.T) {
 			if err := f.service.enqueueSourceSweepRetry(ctx, kind, entry, errors.New("temporary_failure"), 1, next); err != nil {
 				t.Fatal(err)
 			}
-			retryID := sourceRetryID(kind, "default", entry.Key, sourceEntryVersion(entry))
+			retryID := sourceRetryID(kind, "default", entry.Key, sourceEntryIdentity(entry))
 			oldDueKey := sourceRetryDueKey(kind, next, retryID, 1)
 			if mode == "superseded" {
 				if _, err := f.service.store.Put(ctx, entry.Key, bytes.NewReader([]byte("replacement")), int64(len("replacement")), storage.PutOptions{}); err != nil {
@@ -184,7 +184,7 @@ func TestDiagnosticEventRetryRetainsDatePartition(t *testing.T) {
 	if err := f.service.enqueueSourceSweepRetry(ctx, "diagnostic_retention_events", entry, errors.New("temporary_failure"), 1, time.Now().UTC().Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	id := sourceRetryID("diagnostic_retention_events", "20261120", key, sourceEntryVersion(entry))
+	id := sourceRetryID("diagnostic_retention_events", "20261120", key, sourceEntryIdentity(entry))
 	retry, _, err := inventory.Read[sourceSweepRetry](ctx, f.service.store, sourceRetryRecordKey("diagnostic_retention_events", id))
 	if err != nil || retry.Partition != "20261120" || retry.ID != id {
 		t.Fatalf("diagnostic event retry = %#v err=%v, want partition-scoped ID", retry, err)

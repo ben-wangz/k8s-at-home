@@ -54,6 +54,8 @@ func (s *Service) handleAdmin(writer http.ResponseWriter, request *http.Request)
 		ctx = context.WithValue(ctx, diagnosticReadKey{}, true)
 	}
 	switch {
+	case strings.HasPrefix(request.URL.Path, "/api/v1/history/cleanup") || request.URL.Path == "/api/v1/history/retention":
+		s.serveHistoryCleanup(writer, request, ctx, principal)
 	case diagnosticAdminPath(request.URL.Path):
 		s.serveDiagnostics(writer, request, ctx)
 	case request.URL.Path == "/api/v1/background" || strings.HasPrefix(request.URL.Path, "/api/v1/background/"):

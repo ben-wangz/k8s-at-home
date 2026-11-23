@@ -120,6 +120,7 @@ type storageCollection struct {
 	NextScanAt             time.Time               `json:"nextScanAt"`
 	PendingRows            []storageObject         `json:"pendingRows,omitempty"`
 	PendingSummary         storageUsage            `json:"pendingSummary"`
+	PendingSummaries       []storageUsage          `json:"pendingSummaries,omitempty"`
 	OutputUsage            storageUsage            `json:"outputUsage"`
 	PendingNext            string                  `json:"pendingNext,omitempty"`
 	Pending                bool                    `json:"pending"`

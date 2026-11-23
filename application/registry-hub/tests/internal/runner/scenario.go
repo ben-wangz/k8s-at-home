@@ -16,6 +16,7 @@ type ScenarioDefinition struct {
 	BackendS3         bool
 	RegistryS3        bool
 	StorageRedirect   bool
+	HistoryAdmin      bool
 }
 
 func scenarioRegistry() map[string]ScenarioDefinition {
@@ -75,6 +76,10 @@ func scenarioRegistry() map[string]ScenarioDefinition {
 		"feature-diagnostics-s3": {
 			ID: "feature-diagnostics-s3", ConfigPath: "tests/features/diagnostics-s3/config.yaml",
 			CaseIDs: []string{"default-render", "installation", "admin-auth", "initialization-secrets", "registry-roundtrip", "image-inventory", "upstream-mirror", "feature-diagnostics"}, BackendS3: true,
+		},
+		"feature-history-retention": {
+			ID: "feature-history-retention", ConfigPath: "tests/features/history-retention/config.yaml",
+			CaseIDs: []string{"feature-history-retention"}, HistoryAdmin: true,
 		},
 		"feature-registry-s3": {
 			ID: "feature-registry-s3", ConfigPath: "tests/features/registry-s3/config.yaml",

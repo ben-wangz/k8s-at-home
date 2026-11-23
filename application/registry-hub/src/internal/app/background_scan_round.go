@@ -2,14 +2,13 @@ package app
 
 import (
 	"context"
-	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/inventory"
 	"strings"
 	"time"
 )
 
 func (s *Service) initializeDiagnosticEventRound(ctx context.Context, prefix string, p *sourceSweepCheckpoint, startedAt time.Time) error {
-	p.EventRoundEndDate = startedAt.Add(-diagnostics.Retention).Format("20060102")
+	p.EventRoundEndDate = startedAt.Add(-s.diagnosticsConfig().EventRetention).Format("20060102")
 	entries, _, err := s.store.List(ctx, prefix, "", 1)
 	if err != nil {
 		p.EventRoundEndDate = ""
@@ -72,7 +71,7 @@ func (s *Service) completeSourceRound(kind string, p *sourceSweepCheckpoint) {
 	} else {
 		p.IdleRounds++
 	}
-	p.NextRound = time.Now().Add(sourceSweepNextDelay(kind, p.IdleRounds, retry))
+	p.NextRound = time.Now().Add(s.sourceSweepDelay(kind, p.IdleRounds, retry))
 }
 
 func markSourceRetryRoundSuccess(p *sourceSweepCheckpoint) {

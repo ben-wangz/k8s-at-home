@@ -46,7 +46,7 @@ func (s *Service) inspectReclaimEvidence(ctx context.Context, entry storage.Entr
 			object.ReclaimState, object.ReclaimReason = "blocked", "durable_execution_evidence_has_no_display_history_ttl"
 			return
 		}
-		if !job.ProgressAt.IsZero() && time.Since(job.ProgressAt) > 30*24*time.Hour {
+		if !job.ProgressAt.IsZero() && time.Since(job.ProgressAt) > s.diagnosticsConfig().FullWorkReceiptRetention {
 			object.ReclaimState, object.ReclaimReason = "candidate", "receipt_retention_elapsed; cleaner_revalidates_version"
 		} else {
 			object.ReclaimState, object.ReclaimReason = "blocked", "receipt_retention_not_elapsed"
@@ -54,14 +54,13 @@ func (s *Service) inspectReclaimEvidence(ctx context.Context, entry storage.Entr
 		return
 	}
 	if object.Category == "diagnostic_events" {
-		event, _, err := storageCollectionRead[diagnostics.Event](ctx, s.store, entry.Key)
-		if err != nil {
-			object.ReclaimReason = "event_" + diagnosticReason(err)
-			return
+		object.Cleaner = "diagnostic_retention_events"
+		if strings.HasPrefix(entry.Key, diagnostics.BatchPrefix) {
+			object.Cleaner = "diagnostic_retention_event_batches"
 		}
-		object.Cleaner, object.CleanerURL = "diagnostic_retention", "/api/v1/workers/diagnostic_retention"
+		object.CleanerURL = "/api/v1/workers/" + object.Cleaner
 		object.ReclaimState, object.ReclaimReason = "blocked", "event_retention_not_elapsed"
-		if !event.OccurredAt.IsZero() && time.Since(event.OccurredAt) > diagnostics.Retention {
+		if entry.ModTime > 0 && time.Since(time.Unix(0, entry.ModTime)) > s.diagnosticsConfig().EventRetention {
 			object.ReclaimState, object.ReclaimReason = "candidate", "event_retention_elapsed; cleaner_revalidates_version"
 		}
 		return

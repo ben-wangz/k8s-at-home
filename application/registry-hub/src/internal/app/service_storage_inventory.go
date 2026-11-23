@@ -105,8 +105,8 @@ func newStorageCollection() storageCollection {
 		state.Snapshot.Domains[domain] = storageDomainSummary{Domain: domain, State: "collecting", Categories: map[string]storageUsage{}, Coverage: []string{"visible current objects only", "S3 noncurrent versions, delete markers and multipart uploads are unknown", "filesystem staging and lock files are excluded"}}
 	}
 	domain := state.Snapshot.Domains["state"]
-	domain.SummaryOnlyCategories = []string{"storage_inventory_output"}
-	domain.Coverage = append(domain.Coverage, "storage_inventory_output contributes category totals without object details or associations")
+	domain.SummaryOnlyCategories = []string{"storage_inventory_output", "diagnostic_events", "terminal_work_history", "terminal_transfer_history"}
+	domain.Coverage = append(domain.Coverage, "storage_inventory_output contributes category totals without object details or associations", "diagnostic_events contributes LIST metadata totals without per-object detail, attribution, or reclaimability", "terminal_work_history and terminal_transfer_history, including their ordered indexes, contribute LIST metadata totals without per-object detail or attribution")
 	state.Snapshot.Domains["state"] = domain
 	return state
 }
@@ -140,6 +140,11 @@ func (s *Service) advanceStorageCollection(ctx context.Context, state *storageCo
 		}
 		state.SourceOffset = state.PendingOffset
 		applyStorageOutputSummary(state)
+		if state.Snapshot.UsageVersion > 0 && len(state.Usage) > 0 {
+			if err := s.flushStorageUsage(ctx, state); err != nil {
+				return err
+			}
+		}
 		state.Pending = false
 		state.PendingRows = nil
 		if state.SourceListed && state.SourceOffset < len(state.SourceEntries) {

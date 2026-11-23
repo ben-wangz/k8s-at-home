@@ -60,3 +60,18 @@ func TestHistoryIsIdempotentBoundedAndExpires(t *testing.T) {
 		t.Fatal("outbox retention or recovery lost")
 	}
 }
+
+func TestLogUsesConfiguredRetention(t *testing.T) {
+	store, err := filesystem.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	event := Event{ID: ID("expired-configured-event"), OccurredAt: time.Now().UTC().Add(-2 * time.Second)}
+	if err := (Log{Store: store, Retention: time.Second}).Append(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Head(context.Background(), EventKey(event)); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("event older than configured retention was persisted: %v", err)
+	}
+}

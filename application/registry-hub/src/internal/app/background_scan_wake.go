@@ -1,6 +1,7 @@
 package app
 
 import (
+	"registry-hub/internal/diagnostics"
 	"strings"
 	"time"
 )
@@ -25,11 +26,12 @@ func newBackgroundScanWakeChannels() map[string]chan struct{} {
 	channels := make(map[string]chan struct{})
 	for _, kind := range []string{
 		"source_tasks", "source_downloads", "source_cache", "source_demands", "task_reconciliation", "activation",
+		"quota_wake_dispatch",
 		"statistics_tasks", "statistics_cache", "statistics_intents", "statistics_protection",
 		"history_tasks", "history_intents", "history_work", "history_receipts", "history_downloads", "history_uploads", "history_upload_receipts",
-		"diagnostic_retention_events", "diagnostic_retention_event_budgets", "diagnostic_retention_collected", "diagnostic_retention_notification_work",
+		"diagnostic_retention_events", "diagnostic_retention_event_batches", "diagnostic_retention_event_budgets", "diagnostic_retention_collected", "diagnostic_retention_notification_work", "diagnostic_retention_work_history", "diagnostic_retention_transfer_history", "diagnostic_retention_transfer_expired",
 		"diagnostic_retention_transfers", "diagnostic_retention_transfer_sessions", "diagnostic_retention_upload_receipts", "diagnostic_retention_transfer_progress",
-		"diagnostic_retention_storage_snapshots", "diagnostic_retention_storage_records", "diagnostic_retention_legacy",
+		"diagnostic_retention_storage_snapshots", "diagnostic_retention_storage_records",
 	} {
 		channels[kind] = make(chan struct{}, 1)
 	}
@@ -53,7 +55,8 @@ func (s *Service) signalSourceRetry(kind string) {
 	}
 }
 
-func (s *Service) signalBackgroundScans(key string) {
+func (s *Service) signalBackgroundScans(key string, committedAt time.Time) {
+	s.queueDiagnosticSourceWake(key, committedAt)
 	switch {
 	case strings.HasPrefix(key, "tasks/state/"):
 		s.signalBackgroundScan("source_tasks")
@@ -76,6 +79,8 @@ func (s *Service) signalBackgroundScans(key string) {
 		s.signalBackgroundScan("statistics_protection")
 	case strings.HasPrefix(key, "background/v1/jobs/"):
 		s.signalBackgroundScan("history_work")
+	case strings.HasPrefix(key, quotaWakeDispatchPrefix):
+		s.signalBackgroundScan("quota_wake_dispatch")
 	case strings.HasPrefix(key, "background/v1/receipts/"):
 		s.signalBackgroundScan("history_receipts")
 	case strings.HasPrefix(key, "uploads/sessions/"):
@@ -85,12 +90,24 @@ func (s *Service) signalBackgroundScans(key string) {
 		s.signalBackgroundScan("diagnostic_retention_upload_receipts")
 	case strings.HasPrefix(key, "diagnostics/v1/events/"):
 		s.signalBackgroundScan("diagnostic_retention_events")
+	case strings.HasPrefix(key, diagnostics.BatchPrefix):
+		s.signalBackgroundScan("diagnostic_retention_event_batches")
 	case strings.HasPrefix(key, "diagnostics/v1/event-budgets/"):
 		s.signalBackgroundScan("diagnostic_retention_event_budgets")
 	case strings.HasPrefix(key, "diagnostics/v1/collected/"):
 		s.signalBackgroundScan("diagnostic_retention_collected")
 	case strings.HasPrefix(key, "diagnostics/v1/notification-work/"):
 		s.signalBackgroundScan("diagnostic_retention_notification_work")
+	case strings.HasPrefix(key, terminalWorkHistoryPrefix):
+		s.signalBackgroundScan("diagnostic_retention_work_history")
+	case strings.HasPrefix(key, terminalWorkHistoryOrderPrefix):
+		s.signalBackgroundScan("diagnostic_retention_work_history_index")
+	case strings.HasPrefix(key, terminalTransferHistoryPrefix):
+		s.signalBackgroundScan("diagnostic_retention_transfer_history")
+	case strings.HasPrefix(key, terminalTransferHistoryOrderPrefix):
+		s.signalBackgroundScan("diagnostic_retention_transfer_history_index")
+	case strings.HasPrefix(key, terminalTransferExpiredPrefix):
+		s.signalBackgroundScan("diagnostic_retention_transfer_expired")
 	case strings.HasPrefix(key, "diagnostics/v1/transfers/"):
 		s.signalBackgroundScan("diagnostic_retention_transfers")
 	case strings.HasPrefix(key, "diagnostics/v1/transfer-sessions/"):

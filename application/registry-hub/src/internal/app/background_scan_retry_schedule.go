@@ -110,7 +110,11 @@ func (s *Service) runSourceRetryIndexRepair(ctx context.Context, holder lease.Le
 		if ctx.Err() != nil {
 			return time.Now(), backoff
 		}
-		s.backgroundEvent(kind, "retry_index_repair_failed", err)
+		event := "retry_index_repair_failed"
+		if errors.Is(err, errBackgroundAdmissionYield) {
+			event = "retry_index_admission_yield"
+		}
+		s.backgroundEvent(kind, event, err)
 		return now.Add(backoff), nextBackoff
 	}
 

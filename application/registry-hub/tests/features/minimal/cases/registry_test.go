@@ -63,6 +63,13 @@ func TestEveryRegisteredScenarioHasAValidPlanAndReleaseIdentity(t *testing.T) {
 			t.Fatalf("scenario %s has no valid plan: %v", id, err)
 		}
 	}
+	plan, err := runtime.PlanScenario("feature-history-retention", nil)
+	if err != nil || len(plan.Order) != 1 || plan.Order[0] != "feature-history-retention" {
+		t.Fatalf("history retention scenario plan = %v, error = %v", plan.Order, err)
+	}
+	if !runtime.Scenarios["feature-history-retention"].HistoryAdmin {
+		t.Fatal("history retention scenario is missing its scoped admin fixture")
+	}
 }
 
 func TestLargeLayerScenariosAreExplicitAndUseTheSameCase(t *testing.T) {

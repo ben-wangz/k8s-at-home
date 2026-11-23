@@ -191,12 +191,20 @@ func (s *Service) backgroundEvent(kind, event string, cause error) {
 	if s.metrics != nil {
 		s.metrics.recordEvent("background_" + kind + "_" + event)
 	}
+	if errors.Is(cause, errBackgroundAdmissionYield) {
+		s.recordBackgroundAdmissionYield(kind)
+		return
+	}
 	if cause != nil && !errors.Is(cause, lease.ErrHeld) && s.logger != nil {
 		s.logger.Warn("background work deferred", "work_kind", kind, "event", event, "error_class", storageResult(cause))
 	}
 	if cause != nil {
 		s.recordWorkerObservation(kind, event, cause)
 	}
+}
+
+func (s *Service) recordBackgroundAdmissionYield(kind string) {
+	s.updateWorker(kind, func(current *workerStatus) { current.AdmissionYields++ })
 }
 
 func (s *Service) enqueueProjection(ctx context.Context, kind, source string, payload any, at time.Time) error {

@@ -156,15 +156,29 @@ func (s *Service) projectDiagnosticTransfer(ctx context.Context, key string, dat
 		return err
 	}
 	if view.Kind == "upstream_download" {
-		return inventory.Update(ctx, s.store, transferSessionKey(view.SessionID), func(current *transferView) error {
+		if err := inventory.Update(ctx, s.store, transferSessionKey(view.SessionID), func(current *transferView) error {
 			if current.ProgressAt.After(view.ProgressAt) {
 				return nil
 			}
 			*current = view
 			return nil
-		})
+		}); err != nil {
+			return err
+		}
 	}
-	return nil
+	transferKey := diagnostics.Prefix + "transfers/" + view.ID + ".json"
+	current, version, err := inventory.Read[transferView](ctx, s.store, transferKey)
+	if err != nil {
+		return err
+	}
+	if version == "" {
+		entry, err := s.store.Head(ctx, transferKey)
+		if err != nil {
+			return err
+		}
+		version = sourceEntryVersion(entry)
+	}
+	return s.projectTerminalTransferHistory(ctx, current, version)
 }
 
 func transferSessionKey(session string) string {

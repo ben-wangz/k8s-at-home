@@ -77,56 +77,144 @@ func (s *Service) cleanupStorageObservation(ctx context.Context, entry storage.E
 }
 
 func (s *Service) advanceStorageRetention(ctx context.Context, id string) error {
+	_, err := s.advanceStorageRetentionBefore(ctx, id, time.Now().UTC())
+	return err
+}
+
+func (s *Service) advanceStorageRetentionBefore(ctx context.Context, id string, cutoff time.Time) (historyCleanupEntryProgress, error) {
+	progress := historyCleanupEntryProgress{}
 	if active, err := s.storageCollectionActive(ctx, id); err != nil || active {
-		return err
+		return progress, err
 	}
 	key := storageRetentionPrefix + id + ".json"
 	plan, version, err := inventory.Read[storageRetention](ctx, s.store, key)
 	if errors.Is(err, storage.ErrNotFound) {
-		return nil
+		snapshot, manifestVersion, readErr := inventory.Read[storageSnapshot](ctx, s.store, storageInventoryPrefix+"snapshots/"+id+"/manifest.json")
+		if errors.Is(readErr, storage.ErrNotFound) {
+			return progress, nil
+		}
+		if readErr != nil {
+			return progress, readErr
+		}
+		if snapshot.SnapshotID != id || snapshot.ExpiresAt.IsZero() {
+			return progress, storage.ErrCorruptObject
+		}
+		if snapshot.ExpiresAt.After(cutoff) {
+			progress.Skipped++
+			return progress, nil
+		}
+		candidate := storageRetention{SnapshotID: id, ManifestVersion: manifestVersion, ExpiresAt: snapshot.ExpiresAt}
+		if err := inventory.Update(ctx, s.store, key, func(current *storageRetention) error {
+			if current.SnapshotID == "" {
+				*current = candidate
+			}
+			return nil
+		}); err != nil {
+			return progress, err
+		}
+		plan, version, err = inventory.Read[storageRetention](ctx, s.store, key)
+		if err != nil {
+			return progress, err
+		}
 	}
 	if err != nil {
-		return err
+		return progress, err
 	}
-	if plan.SnapshotID != id || plan.ExpiresAt.IsZero() || plan.ExpiresAt.After(time.Now()) || plan.ManifestVersion == "" {
-		return storage.ErrCorruptObject
+	if plan.SnapshotID != id || plan.ExpiresAt.IsZero() || plan.ExpiresAt.After(cutoff) || plan.ManifestVersion == "" {
+		return progress, storage.ErrCorruptObject
 	}
 	prefix := storageInventoryPrefix + "snapshots/" + id + "/"
 	manifest := prefix + "manifest.json"
 	current, err := s.store.Head(ctx, manifest)
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {
-		return err
+		return progress, err
 	}
 	if err == nil && current.Version != plan.ManifestVersion {
-		return storage.ErrConditionFailed
+		return progress, storage.ErrConditionFailed
 	}
 	if !plan.ChildrenDone {
 		previous := plan
 		entries, next, err := storage.Scan(ctx, s.store, prefix, plan.Token, 32)
 		if err != nil {
-			return err
+			return progress, err
 		}
 		for _, child := range entries {
 			if child.Key == manifest {
 				continue
 			}
-			if err := s.deleteStorageRetentionEntry(ctx, child); err != nil {
-				return err
+			deleted, missing, err := s.deleteHistoryEntryConditional(ctx, child)
+			if err != nil {
+				return progress, err
+			}
+			if deleted {
+				progress.Deleted++
+				progress.DeletedBytes += child.Size
+			} else if missing {
+				progress.Missing++
 			}
 		}
 		plan.Token, plan.ChildrenDone = next, next == ""
-		return inventory.Update(ctx, s.store, key, func(value *storageRetention) error {
+		err = inventory.Update(ctx, s.store, key, func(value *storageRetention) error {
 			if *value != previous && *value != plan {
 				return storage.ErrConditionFailed
 			}
 			*value = plan
 			return nil
 		})
+		return progress, err
 	}
-	if err := s.store.DeleteIfMatch(ctx, manifest, plan.ManifestVersion); err != nil && !errors.Is(err, storage.ErrNotFound) {
-		return err
+	if err == nil {
+		deleted, missing, err := s.deleteHistoryEntryConditional(ctx, current)
+		if err != nil {
+			return progress, err
+		}
+		if deleted {
+			progress.Deleted++
+			progress.DeletedBytes += current.Size
+		} else if missing {
+			progress.Missing++
+		}
+	} else {
+		progress.Missing++
 	}
-	return s.store.DeleteIfMatch(ctx, key, version)
+	err = s.store.DeleteIfMatch(ctx, key, version)
+	if errors.Is(err, storage.ErrNotFound) {
+		err = nil
+	}
+	return progress, err
+}
+
+func (s *Service) deleteHistoryEntryConditional(ctx context.Context, entry storage.Entry) (bool, bool, error) {
+	if entry.Version == "" {
+		current, err := s.store.Head(ctx, entry.Key)
+		if errors.Is(err, storage.ErrNotFound) {
+			return false, true, nil
+		}
+		if err != nil {
+			return false, false, err
+		}
+		if entry.ModTime != current.ModTime || entry.Size != current.Size {
+			return false, false, storage.ErrConditionFailed
+		}
+		entry = current
+	}
+	err := s.store.DeleteIfMatch(ctx, entry.Key, entry.Version)
+	if errors.Is(err, storage.ErrNotFound) {
+		return false, true, nil
+	}
+	if errors.Is(err, storage.ErrUnknownCommit) {
+		current, headErr := s.store.Head(ctx, entry.Key)
+		if errors.Is(headErr, storage.ErrNotFound) {
+			return true, false, nil
+		}
+		if headErr != nil {
+			return false, false, errors.Join(err, headErr)
+		}
+		if sourceEntryVersion(current) != sourceEntryVersion(entry) {
+			return false, false, storage.ErrConditionFailed
+		}
+	}
+	return err == nil, false, err
 }
 
 func (s *Service) deleteStorageRetentionEntry(ctx context.Context, entry storage.Entry) error {

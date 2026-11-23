@@ -41,7 +41,7 @@ Reuse restores the chart's replicas, recalculates and runs the full dependency s
 
     application/registry-hub/tests/features/minimal/run.sh environment create --id <id>
 
-Available scenarios are feature-minimal, feature-quota-convergence, feature-client-auth-catalog, feature-upstream-auth-transport, feature-backend-s3, feature-diagnostics, feature-diagnostics-s3, feature-registry-s3, feature-storage-redirect, feature-referrers-fallback, and feature-gc. They share one runner, dependency DAG, and test namespace. Each scenario has its own Helm values, release, and state directory:
+Available scenarios are feature-minimal, feature-quota-convergence, feature-client-auth-catalog, feature-upstream-auth-transport, feature-backend-s3, feature-diagnostics, feature-diagnostics-s3, feature-history-retention, feature-registry-s3, feature-storage-redirect, feature-referrers-fallback, and feature-gc. They share one runner, dependency DAG, and test namespace. Each scenario has its own Helm values, release, and state directory:
 
     application/registry-hub/tests/features/minimal/run.sh list --scenario feature-minimal
     application/registry-hub/tests/features/minimal/run.sh plan --scenario feature-minimal
@@ -64,6 +64,9 @@ Available scenarios are feature-minimal, feature-quota-convergence, feature-clie
     application/registry-hub/tests/features/minimal/run.sh list --scenario feature-referrers-fallback
     application/registry-hub/tests/features/minimal/run.sh plan --scenario feature-referrers-fallback
     application/registry-hub/tests/features/minimal/run.sh run --scenario feature-referrers-fallback
+    application/registry-hub/tests/features/minimal/run.sh list --scenario feature-history-retention
+    application/registry-hub/tests/features/minimal/run.sh plan --scenario feature-history-retention
+    application/registry-hub/tests/features/minimal/run.sh run --scenario feature-history-retention
     application/registry-hub/tests/features/minimal/run.sh list --scenario feature-gc
     application/registry-hub/tests/features/minimal/run.sh plan --scenario feature-gc
     application/registry-hub/tests/features/minimal/run.sh run --scenario feature-gc
@@ -129,6 +132,7 @@ See the [environment guide](environment/README.md) for prerequisites and environ
 | registry-roundtrip | OCI content upload/read and digest consistency | admin-auth, initialization-secrets |
 | image-inventory | Inventory discovery of pushed images, no-change refresh cost, local closure proof, authentication, immutable pagination, and query validation | registry-roundtrip |
 | feature-diagnostics | Complete physical accounting, independent registry totals, pagination, and retained reports after restart | registry-roundtrip, image-inventory |
+| feature-history-retention | Principal-bound cleanup previews, permission separation, idempotent submission, and terminal operation status | None; run-scoped external admin Secret |
 | client-interop | Real Podman image and Helm OCI chart round trips | installation |
 | restart-reuse | Job recreation, repeated Helm upgrades, Pod restart, release reinstall, and credential stability | registry-roundtrip |
 | external-combinations | Automatic/external Secret combinations, cleanup simulation, reuse-values upgrade from old references, and restore to empty values | restart-reuse |

@@ -21,13 +21,14 @@ func (s *Service) startBackgroundWorkers(ctx context.Context) {
 	workers = append(workers, s.runDiagnosticHistory)
 	workers = append(workers, s.runStorageInventory)
 	workers = append(workers, s.runDiagnosticEventSink)
+	workers = append(workers, s.runDiagnosticSourceWakeSink)
 	workers = append(workers, s.runDiagnosticRetention)
 	workers = append(workers, s.runRetryRequestRetention)
 	workers = append(workers, func(ctx context.Context) { <-ctx.Done(); pace.Stop(); collectorPace.Stop() })
 	queues := []struct {
 		kind string
 		step backgroundStep
-	}{{"inventory", s.projectManifestStep}, {"execution", s.projectExecutionStep}, {"download_cleanup", s.cleanupDownloadStep}, {"notify", s.notificationStep}, {"wake_root", s.wakeRootStep}, {"terminal_cleanup", s.terminalCleanupStep}, {"quota_wake", s.quotaWakeStep}, {"cache_verification", s.cacheVerificationStep}, {"distribution_verification", s.distributionVerificationStep}}
+	}{{"inventory", s.projectManifestStep}, {"execution", s.projectExecutionStep}, {"download_cleanup", s.cleanupDownloadStep}, {"notify", s.notificationStep}, {"wake_root", s.wakeRootStep}, {"terminal_cleanup", s.terminalCleanupStep}, {"quota_wake", s.quotaWakeStep}, {"cache_verification", s.cacheVerificationStep}, {"distribution_verification", s.distributionVerificationStep}, {historyCleanupWorkKind, s.historyCleanupStep}}
 	for _, queue := range queues {
 		s.backgroundReady[queue.kind] = make(chan struct{}, 1)
 		workers = append(workers, func(ctx context.Context) { s.runBackgroundQueue(ctx, queue.kind, queue.step) })

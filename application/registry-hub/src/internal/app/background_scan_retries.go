@@ -39,7 +39,7 @@ type sourceSweepRetryDue struct {
 }
 
 func sourceSweepUsesDurableRetry(kind string) bool {
-	return kind == "history_receipts" || kind == "receipt_cleanup" || strings.HasPrefix(kind, "diagnostic_retention_")
+	return kind == "history_receipts" || kind == "receipt_cleanup" || kind == "receipt_cleanup_preview" || strings.HasPrefix(kind, "diagnostic_retention_")
 }
 
 func sourceSweepRetryKinds() []string {
@@ -81,8 +81,22 @@ func sourceEntryVersion(entry storage.Entry) string {
 	return fmt.Sprintf("%d:%d", entry.ModTime, entry.Size)
 }
 
+func sourceEntryIdentity(entry storage.Entry) string {
+	if entry.MetadataFingerprint != "" {
+		return entry.MetadataFingerprint
+	}
+	return sourceEntryVersion(entry)
+}
+
+func sameSourceEntry(current, listed storage.Entry) bool {
+	if current.MetadataFingerprint != "" && listed.MetadataFingerprint != "" {
+		return current.MetadataFingerprint == listed.MetadataFingerprint
+	}
+	return sourceEntryVersion(current) == sourceEntryVersion(listed)
+}
+
 func (s *Service) enqueueSourceSweepRetry(ctx context.Context, kind string, entry storage.Entry, cause error, attempts int, next time.Time) error {
-	partition, version := sourceRetryPartition(kind, entry.Key), sourceEntryVersion(entry)
+	partition, version := sourceRetryPartition(kind, entry.Key), sourceEntryIdentity(entry)
 	id := sourceRetryID(kind, partition, entry.Key, version)
 	key := sourceRetryRecordKey(kind, id)
 	now := time.Now().UTC()

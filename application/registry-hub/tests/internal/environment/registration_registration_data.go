@@ -60,6 +60,7 @@ var scenarioReleaseKeys = map[string]string{
 	"feature-upstream-matrix-s3":      "ups3",
 	"feature-diagnostics":             "diag",
 	"feature-diagnostics-s3":          "diags3",
+	"feature-history-retention":       "hist",
 	"feature-registry-s3":             "regs3",
 	"feature-storage-redirect":        "strdr",
 	"feature-referrers-fallback":      "reffb",

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 )
 
 func (s *Service) backgroundBudget(ctx context.Context) (func(), bool) {
@@ -9,6 +10,22 @@ func (s *Service) backgroundBudget(ctx context.Context) (func(), bool) {
 }
 
 func (s *Service) backgroundKindBudget(ctx context.Context, kind string) (func(), bool) {
+	releaseCleanup, admitted := s.acquireRetentionCleanupBudget(ctx, kind)
+	if !admitted {
+		return nil, false
+	}
+	releaseBackground, admitted := s.acquireBackgroundCapacity(ctx, kind)
+	if !admitted {
+		releaseCleanup()
+		return nil, false
+	}
+	return func() {
+		releaseBackground()
+		releaseCleanup()
+	}, true
+}
+
+func (s *Service) acquireBackgroundCapacity(ctx context.Context, kind string) (func(), bool) {
 	slots, pace := s.backgroundSlots, s.backgroundPace
 	if kind == "storage_inventory" {
 		slots, pace = s.collectorSlots, s.collectorPace
@@ -48,6 +65,20 @@ func (s *Service) backgroundKindBudget(ctx context.Context, kind string) (func()
 			return nil, false
 		}
 		return func() { <-slots }, true
+	case <-ctx.Done():
+		return nil, false
+	}
+}
+
+func (s *Service) acquireRetentionCleanupBudget(ctx context.Context, kind string) (func(), bool) {
+	if kind != historyCleanupWorkKind && kind != "receipt_cleanup" && kind != "receipt_cleanup_preview" &&
+		kind != "retry_request_retention" && !strings.HasPrefix(kind, "diagnostic_retention_") {
+		return func() {}, ctx.Err() == nil
+	}
+	s.retentionCleanupOnce.Do(func() { s.retentionCleanupSlots = make(chan struct{}, 1) })
+	select {
+	case s.retentionCleanupSlots <- struct{}{}:
+		return func() { <-s.retentionCleanupSlots }, true
 	case <-ctx.Done():
 		return nil, false
 	}

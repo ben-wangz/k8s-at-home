@@ -1,0 +1,21 @@
+backend:
+  adminAuth:
+    existingSecret: __RUN_HISTORY_ADMIN_SECRET__
+  diagnostics:
+    ordinaryEventFlushSeconds: 5
+    criticalEventFlushSeconds: 2
+    eventRetentionSeconds: 120
+    eventBudgetRetentionSeconds: 180
+    collectionRetentionSeconds: 360
+    retryRequestRetentionSeconds: 180
+    transferRetentionSeconds: 240
+    transferExpiryRetentionSeconds: 240
+    terminalHistoryRetentionSeconds: 240
+    fullWorkReceiptRetentionSeconds: 300
+    historyCleanupPreviewTTLSeconds: 30
+    historyCleanupResultRetentionSeconds: 30
+    historySweepIntervalSeconds: 2
+    historySweepMaxIntervalSeconds: 5
+    retentionSweepIntervalSeconds: 10
+    historyProjectionReadsEnabled: true
+    fullWorkReceiptCleanupEnabled: true

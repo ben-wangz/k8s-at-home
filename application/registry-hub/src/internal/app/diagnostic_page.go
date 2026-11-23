@@ -16,11 +16,21 @@ import (
 )
 
 type diagnosticCursor struct {
-	Query      string    `json:"query"`
-	Storage    string    `json:"storage,omitempty"`
-	Phase      int       `json:"phase"`
-	SnapshotID string    `json:"snapshotID,omitempty"`
-	ExpiresAt  time.Time `json:"expiresAt"`
+	Query             string    `json:"query"`
+	Storage           string    `json:"storage,omitempty"`
+	Phase             int       `json:"phase"`
+	BatchKey          string    `json:"batchKey,omitempty"`
+	BatchNext         string    `json:"batchNext,omitempty"`
+	BatchOffset       int       `json:"batchOffset,omitempty"`
+	SnapshotID        string    `json:"snapshotID,omitempty"`
+	HistorySource     string    `json:"historySource,omitempty"`
+	HistoryBefore     time.Time `json:"historyBefore,omitempty"`
+	HistoryAfter      time.Time `json:"historyAfter,omitempty"`
+	HistoryIndexToken string    `json:"historyIndexToken,omitempty"`
+	HistoryKind       string    `json:"historyKind,omitempty"`
+	HistoryID         string    `json:"historyID,omitempty"`
+	HistoryRevision   string    `json:"historyRevision,omitempty"`
+	ExpiresAt         time.Time `json:"expiresAt"`
 }
 
 type diagnosticPage[T any] struct {

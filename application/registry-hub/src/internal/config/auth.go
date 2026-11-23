@@ -7,7 +7,7 @@ import (
 )
 
 func validateAuth(auth Auth) error {
-	const allowed = "pull catalog push delete task-admin referrer-prune gc-admin observe work-retry"
+	const allowed = "pull catalog push delete task-admin referrer-prune gc-admin observe work-retry history-cleanup"
 	for _, credential := range append(append([]Credential{}, auth.Basic...), auth.Bearer...) {
 		if len(credential.Permissions) == 0 {
 			return errors.New("each credential must declare at least one permission")

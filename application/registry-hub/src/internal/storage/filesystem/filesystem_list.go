@@ -149,7 +149,11 @@ func (s *Store) head(ctx context.Context, path, key string) (storage.Entry, erro
 	if err != nil {
 		return storage.Entry{}, err
 	}
-	return storage.Entry{Key: key, Version: version, Size: info.Size(), ModTime: info.ModTime().UnixNano()}, nil
+	fingerprint, err := fileFingerprint(info)
+	if err != nil {
+		return storage.Entry{}, err
+	}
+	return storage.Entry{Key: key, Version: version, MetadataFingerprint: fingerprint, Size: info.Size(), ModTime: info.ModTime().UnixNano()}, nil
 }
 
 // CleanupOrphans removes stale FileSystem staging files left by interrupted writes.

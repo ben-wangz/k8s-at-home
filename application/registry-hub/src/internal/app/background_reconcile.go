@@ -25,6 +25,7 @@ func (s *Service) runBackgroundReconciliation(ctx context.Context) {
 		kind, prefix string
 		step         func(context.Context, string) error
 	}{
+		{"quota_wake_dispatch", quotaWakeDispatchPrefix, s.reconcileQuotaWakeDispatch},
 		{"source_tasks", "tasks/state/", s.reconcileInventoryTask},
 		{"source_downloads", "downloads/v1/", s.reconcileCommittedDownload},
 		{"source_cache", "cache/objects/", s.reconcileManifestCache},

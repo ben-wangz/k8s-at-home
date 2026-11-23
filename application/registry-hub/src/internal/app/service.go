@@ -78,6 +78,8 @@ type Service struct {
 	background              sync.WaitGroup
 	backgroundSlots         chan struct{}
 	backgroundScheduler     *backgroundScheduler
+	retentionCleanupOnce    sync.Once
+	retentionCleanupSlots   chan struct{}
 	backgroundReady         map[string]chan struct{}
 	backgroundWake          map[string]chan struct{}
 	backgroundRetryWake     map[string]chan struct{}
@@ -91,9 +93,16 @@ type Service struct {
 	instanceID              string
 	diagnosticEvents        chan diagnostics.Event
 	diagnosticEventsDropped atomic.Uint64
+	diagnosticSourceWakes   chan diagnosticSourceWake
+	diagnosticSourceWakeMu  sync.Mutex
+	diagnosticSourcePending map[string]struct{}
+	diagnosticSourceDrops   atomic.Uint64
+	diagnosticSourceErrors  atomic.Uint64
+	logRecordsDropped       func() uint64
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
+	cfg.Diagnostics = cfg.Diagnostics.WithDefaults()
 	serviceMetrics := newMetrics()
 	var store storage.Store
 	var err error
@@ -160,7 +169,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	gate.recovery = controlled
 	controlled.blocked.Store(true)
 	service := &Service{
-		startedAt: time.Now().UTC(), instanceID: requestID(), diagnosticEvents: make(chan diagnostics.Event, 256),
+		startedAt: time.Now().UTC(), instanceID: requestID(), diagnosticEvents: make(chan diagnostics.Event, 256), diagnosticSourceWakes: make(chan diagnosticSourceWake, 256), diagnosticSourcePending: make(map[string]struct{}),
 		cfg: cfg, logger: logger, store: store, registry: registry, upstream: remote,
 		cache: artifact.NewCache(store), gate: gate, metrics: serviceMetrics, cursorKey: cursorKey, ctx: ctx, cancel: cancel,
 		records:     tasks.NewRecords(store),
@@ -169,6 +178,11 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 		solidificationSlots: make(chan struct{}, cfg.Limits.Workers),
 		blobIntentEvents:    make(chan tasks.BlobIdentity, 256),
 		limiter:             newRequestLimiter(cfg.Limits.GlobalRate, cfg.Limits.GlobalBurst, cfg.Limits.NoAuthRate, cfg.Limits.NoAuthBurst), nativeCache: make(map[string]nativeReferrerCapability),
+	}
+	if logger != nil {
+		if counter, ok := logger.Handler().(interface{ Dropped() uint64 }); ok {
+			service.logRecordsDropped = counter.Dropped
+		}
 	}
 	service.inventory = &inventory.Repository{Store: store}
 	service.recoveryStarting.Store(true)

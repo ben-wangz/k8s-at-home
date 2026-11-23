@@ -39,8 +39,12 @@ func storageCategory(domain, key string) string {
 		return "background_receipts"
 	case strings.HasPrefix(key, workqueue.Prefix):
 		return "background_checkpoints"
-	case strings.HasPrefix(key, diagnostics.Prefix+"events/"):
+	case strings.HasPrefix(key, diagnostics.Prefix+"events/"), strings.HasPrefix(key, "diagnostics/v2/event-batches/"):
 		return "diagnostic_events"
+	case strings.HasPrefix(key, terminalWorkHistoryPrefix), strings.HasPrefix(key, terminalWorkHistoryOrderPrefix):
+		return "terminal_work_history"
+	case strings.HasPrefix(key, terminalTransferHistoryPrefix), strings.HasPrefix(key, terminalTransferHistoryOrderPrefix):
+		return "terminal_transfer_history"
 	case strings.HasPrefix(key, storageInventoryPrefix):
 		return "storage_inventory_output"
 	case strings.HasPrefix(key, diagnostics.Prefix):

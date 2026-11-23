@@ -144,6 +144,7 @@ var defaultChecks = map[string][]string{
 	"upstream-persistence-fixture":    {"upstream-persistence-fixture.solidification"},
 	"quota-convergence":               {"quota-convergence.covered-capacity"},
 	"feature-diagnostics":             {"feature-diagnostics.accounting", "feature-diagnostics.dependencies", "feature-diagnostics.restart"},
+	"feature-history-retention":       {"feature-history-retention.permissions", "feature-history-retention.preview", "feature-history-retention.submission", "feature-history-retention.principal-binding", "feature-history-retention.completion"},
 	"image-inventory":                 {"image-inventory.auth", "image-inventory.reference", "image-inventory.no-change-refresh", "image-inventory.snapshot", "image-inventory.validation"},
 	"default-render":                  {"default-render.closure-limits-defaulted", "default-render.service-readiness-routing"},
 	"registry-protocol":               {"registry-protocol.version", "registry-protocol.errors", "registry-protocol.head", "registry-protocol.listeners"},

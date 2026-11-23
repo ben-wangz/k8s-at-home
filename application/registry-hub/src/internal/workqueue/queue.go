@@ -55,6 +55,11 @@ func (q Queue) Enqueue(ctx context.Context, kind, source string, payload any, ob
 	if err := inventory.ValidateWriteGuard(ctx); err != nil {
 		return Job{}, err
 	}
+	if completed, found, markerErr := q.completionMarker(ctx, kind, job.ID, data); markerErr != nil {
+		return Job{}, markerErr
+	} else if found {
+		return completed, nil
+	}
 	entry, err := q.Store.Put(ctx, Key(kind, job.ID), bytes.NewReader(encoded), int64(len(encoded)), storage.PutOptions{IfAbsent: true})
 	if err == nil {
 		job.Version = entry.Version
@@ -62,6 +67,11 @@ func (q Queue) Enqueue(ctx context.Context, kind, source string, payload any, ob
 		return job, nil
 	}
 	if errors.Is(err, storage.ErrAlreadyExists) || errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrUnknownCommit) {
+		if completed, found, markerErr := q.completionMarker(ctx, kind, job.ID, data); markerErr != nil {
+			return Job{}, markerErr
+		} else if found {
+			return completed, nil
+		}
 		stored, readErr := q.Read(ctx, kind, job.ID)
 		if readErr == nil && bytes.Equal(stored.Payload, data) {
 			q.notifyRunnable(stored)
@@ -102,6 +112,12 @@ func (q Queue) ClaimFor(ctx context.Context, job Job, duration time.Duration) (J
 	} else if err != nil && !errors.Is(err, storage.ErrNotFound) {
 		return Job{}, err
 	}
+	if _, found, err := q.completionMarker(ctx, job.Kind, job.ID, job.Payload); err != nil {
+		return Job{}, err
+	} else if found {
+		_ = q.Store.DeleteIfMatch(ctx, Key(job.Kind, job.ID), job.Version)
+		return Job{}, storage.ErrConditionFailed
+	}
 	if job.State == "running" {
 		diagnostics.Record(&job.DiagnosticOutbox, diagnostics.Event{Component: "background", Operation: job.Kind, EntityID: job.ID, WorkID: job.ID, WorkKind: job.Kind, Stage: "lease_takeover", Result: "recovered", AttemptID: job.AttemptID, RunID: job.RunID})
 	}
@@ -115,7 +131,16 @@ func (q Queue) ClaimFor(ctx context.Context, job Job, duration time.Duration) (J
 	job.WaitReason, job.ResponsibleWorkID, job.ResponsibleWorkKind = "", "", ""
 	job.DependencyGeneration = ""
 	err := q.save(ctx, &job)
-	return job, err
+	if err != nil {
+		return Job{}, err
+	}
+	if _, found, markerErr := q.completionMarker(ctx, job.Kind, job.ID, job.Payload); markerErr != nil {
+		return Job{}, markerErr
+	} else if found {
+		_ = q.Store.DeleteIfMatch(ctx, Key(job.Kind, job.ID), job.Version)
+		return Job{}, storage.ErrConditionFailed
+	}
+	return job, nil
 }
 
 func (q Queue) Validate(ctx context.Context, job Job) error {

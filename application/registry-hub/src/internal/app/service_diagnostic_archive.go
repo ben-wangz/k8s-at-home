@@ -15,29 +15,65 @@ import (
 )
 
 type eventCollectionReceipt struct {
-	LastEventID string    `json:"lastEventID"`
-	Truncated   bool      `json:"truncated"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	SourceVersion string                       `json:"sourceVersion,omitempty"`
+	LastEventID   string                       `json:"lastEventID"`
+	Truncated     bool                         `json:"truncated"`
+	Dispositions  []diagnosticEventDisposition `json:"dispositions,omitempty"`
+	GapIDs        []string                     `json:"gapIDs,omitempty"`
+	UpdatedAt     time.Time                    `json:"updatedAt"`
+}
+
+type diagnosticEventDisposition struct {
+	SourceKey     string `json:"sourceKey"`
+	SourceVersion string `json:"sourceVersion"`
+	FirstEventID  string `json:"firstEventID"`
+	LastEventID   string `json:"lastEventID"`
+	EventCount    int    `json:"eventCount"`
+	Disposition   string `json:"disposition"`
+	Reason        string `json:"reason,omitempty"`
+	BatchID       string `json:"batchID,omitempty"`
+	BatchSHA256   string `json:"batchSHA256,omitempty"`
+	GapID         string `json:"gapID,omitempty"`
+}
+
+type diagnosticCoverageGapRecord struct {
+	ID            string    `json:"id"`
+	SourceKey     string    `json:"sourceKey,omitempty"`
+	SourceVersion string    `json:"sourceVersion,omitempty"`
+	FirstEventID  string    `json:"firstEventID,omitempty"`
+	LastEventID   string    `json:"lastEventID,omitempty"`
+	EventCount    int       `json:"eventCount"`
+	Reason        string    `json:"reason"`
+	OccurredAt    time.Time `json:"occurredAt"`
 }
 
 type diagnosticHistoryCoverage struct {
-	LastGapAt time.Time `json:"lastGapAt"`
-	Reason    string    `json:"reason"`
+	LastGapAt      time.Time `json:"lastGapAt"`
+	Reason         string    `json:"reason"`
+	GapCount       uint64    `json:"gapCount,omitempty"`
+	DroppedEvents  uint64    `json:"droppedEvents,omitempty"`
+	DroppedBatches uint64    `json:"droppedBatches,omitempty"`
 }
 
 type diagnosticReceiptArchive struct {
-	SourceKey           string    `json:"sourceKey"`
-	SourceVersion       string    `json:"sourceVersion"`
-	LastArchivedEventID string    `json:"lastArchivedEventID,omitempty"`
-	ProjectionVersion   int       `json:"projectionVersion"`
-	NotificationIndexed bool      `json:"notificationIndexed"`
-	TransferProjected   bool      `json:"transferProjected"`
-	OutboxComplete      bool      `json:"outboxComplete"`
-	Complete            bool      `json:"complete"`
-	UpdatedAt           time.Time `json:"updatedAt"`
+	SourceKey                 string    `json:"sourceKey"`
+	SourceVersion             string    `json:"sourceVersion"`
+	SourceFingerprint         string    `json:"sourceFingerprint,omitempty"`
+	LastArchivedEventID       string    `json:"lastArchivedEventID,omitempty"`
+	ProjectionVersion         int       `json:"projectionVersion"`
+	NotificationIndexed       bool      `json:"notificationIndexed"`
+	TransferProjected         bool      `json:"transferProjected"`
+	ExecutionFactProjected    bool      `json:"executionFactProjected"`
+	ExecutionSourcesVerified  bool      `json:"executionSourcesVerified"`
+	ExecutionVerificationDone bool      `json:"executionVerificationDone"`
+	HistoryProjected          bool      `json:"historyProjected"`
+	OutboxComplete            bool      `json:"outboxComplete"`
+	OutboxDispositionVersion  int       `json:"outboxDispositionVersion,omitempty"`
+	Complete                  bool      `json:"complete"`
+	UpdatedAt                 time.Time `json:"updatedAt"`
 }
 
-const diagnosticReceiptProjectionVersion = 1
+const diagnosticReceiptProjectionVersion = 5
 
 func (s *Service) archiveDiagnosticReceipt(ctx context.Context, entry storage.Entry, p *sourceSweepCheckpoint) error {
 	stateKey := diagnostics.Prefix + "archive-projections/" + diagnostics.ID(entry.Key) + ".json"
@@ -45,7 +81,9 @@ func (s *Service) archiveDiagnosticReceipt(ctx context.Context, entry storage.En
 	if stateErr != nil && !errors.Is(stateErr, storage.ErrNotFound) {
 		return stateErr
 	}
-	if entry.Version != "" && state.SourceVersion == entry.Version && state.ProjectionVersion == diagnosticReceiptProjectionVersion && state.Complete {
+	kind, _, receipt := receiptWorkIdentity(entry.Key)
+	executionReady := !receipt || kind != "execution" || state.ExecutionVerificationDone
+	if diagnosticReceiptSourceMatches(state, entry) && state.ProjectionVersion == diagnosticReceiptProjectionVersion && state.Complete && state.ExecutionFactProjected && executionReady {
 		incrementSweepCount(p, "skipped", 1)
 		return nil
 	}
@@ -53,9 +91,11 @@ func (s *Service) archiveDiagnosticReceipt(ctx context.Context, entry storage.En
 	if err != nil {
 		return err
 	}
-	if sourceEntryVersion(current) != sourceEntryVersion(entry) {
+	if !sameSourceEntry(current, entry) {
 		return storage.ErrConditionFailed
 	}
+	entry = current
+	sourceFingerprint := sourceEntryIdentity(entry)
 	raw, version, err := inventory.Read[json.RawMessage](ctx, s.store, entry.Key)
 	if err != nil {
 		return err
@@ -66,8 +106,8 @@ func (s *Service) archiveDiagnosticReceipt(ctx context.Context, entry storage.En
 	if entry.Version != "" && version != entry.Version {
 		return storage.ErrConditionFailed
 	}
-	if state.SourceKey != entry.Key || state.SourceVersion != version || state.ProjectionVersion != diagnosticReceiptProjectionVersion {
-		state = diagnosticReceiptArchive{SourceKey: entry.Key, SourceVersion: version, ProjectionVersion: diagnosticReceiptProjectionVersion}
+	if state.SourceKey != entry.Key || state.SourceVersion != version || state.SourceFingerprint != sourceFingerprint || state.ProjectionVersion != diagnosticReceiptProjectionVersion {
+		state = diagnosticReceiptArchive{SourceKey: entry.Key, SourceVersion: version, SourceFingerprint: sourceFingerprint, ProjectionVersion: diagnosticReceiptProjectionVersion}
 	}
 	var data struct {
 		DiagnosticOutbox []diagnostics.Event `json:"diagnosticOutbox"`
@@ -79,6 +119,33 @@ func (s *Service) archiveDiagnosticReceipt(ctx context.Context, entry storage.En
 	isJob := json.Unmarshal(raw, &job) == nil && job.ID != "" && (strings.HasPrefix(entry.Key, "background/v1/receipts/") || strings.HasPrefix(entry.Key, "background/v1/jobs/"))
 	if !isJob {
 		state.NotificationIndexed = true
+	}
+	isExecutionReceipt := isJob && strings.HasPrefix(entry.Key, workqueue.Prefix+"receipts/") && job.Kind == "execution"
+	if !isExecutionReceipt {
+		state.ExecutionFactProjected, state.ExecutionSourcesVerified, state.ExecutionVerificationDone = true, true, true
+	} else if !state.ExecutionFactProjected && job.State == "done" {
+		var fact inventoryExecutionFact
+		if json.Unmarshal(job.Payload, &fact) != nil {
+			return storage.ErrCorruptObject
+		}
+		if err := s.indexExecutionSource(ctx, job, fact); err != nil {
+			return err
+		}
+		if err := s.projectCompactExecutionFact(ctx, entry, job, fact); err != nil {
+			return err
+		}
+		state.ExecutionFactProjected = true
+		state.ExecutionSourcesVerified, err = s.verifyExecutionSourceLinks(ctx, job, fact)
+		if err != nil {
+			return err
+		}
+		state.ExecutionVerificationDone = true
+		if err := s.saveDiagnosticReceiptArchive(ctx, stateKey, state, stateVersion); err != nil {
+			return err
+		}
+		if _, stateVersion, err = inventory.Read[diagnosticReceiptArchive](ctx, s.store, stateKey); err != nil {
+			return err
+		}
 	}
 	if isJob && !state.NotificationIndexed {
 		if err := s.indexNotificationJob(ctx, job); err != nil {
@@ -114,7 +181,7 @@ func (s *Service) archiveDiagnosticReceipt(ctx context.Context, entry storage.En
 	}
 	if !state.OutboxComplete {
 		for batch := 0; batch < diagnostics.OutboxLimit/4+1; batch++ {
-			if err := s.collectDiagnosticOutbox(ctx, entry.Key, data.DiagnosticOutbox); err != nil {
+			if err := s.collectDiagnosticOutboxVersion(ctx, entry.Key, version, data.DiagnosticOutbox); err != nil {
 				return err
 			}
 			if len(data.DiagnosticOutbox) == 0 {
@@ -125,7 +192,10 @@ func (s *Service) archiveDiagnosticReceipt(ctx context.Context, entry storage.En
 					return err
 				}
 				state.LastArchivedEventID = receipt.LastEventID
-				state.OutboxComplete = receipt.LastEventID == data.DiagnosticOutbox[len(data.DiagnosticOutbox)-1].ID
+				state.OutboxComplete = diagnosticOutboxSettled(entry.Key, version, data.DiagnosticOutbox, receipt)
+			}
+			if state.OutboxComplete {
+				state.OutboxDispositionVersion = 1
 			}
 			if err := s.saveDiagnosticReceiptArchive(ctx, stateKey, state, stateVersion); err != nil {
 				return err
@@ -141,6 +211,17 @@ func (s *Service) archiveDiagnosticReceipt(ctx context.Context, entry storage.En
 			return errSourceBudgetYield
 		}
 	}
+	if !isJob || !strings.HasPrefix(entry.Key, workqueue.Prefix+"receipts/") || job.State != "done" {
+		state.HistoryProjected = true
+	} else if !state.HistoryProjected {
+		state.HistoryProjected, err = s.projectTerminalWorkHistory(ctx, entry.Key, version, entry, job)
+		if err != nil {
+			return err
+		}
+	}
+	if !state.HistoryProjected {
+		return errSourceBudgetYield
+	}
 	state.Complete, state.UpdatedAt = true, time.Now().UTC()
 	if err := s.saveDiagnosticReceiptArchive(ctx, stateKey, state, stateVersion); err != nil {
 		return err
@@ -149,6 +230,46 @@ func (s *Service) archiveDiagnosticReceipt(ctx context.Context, entry storage.En
 		incrementSweepCount(p, "archived", int64(len(data.DiagnosticOutbox)))
 	}
 	return nil
+}
+
+func diagnosticReceiptSourceMatches(state diagnosticReceiptArchive, entry storage.Entry) bool {
+	if entry.MetadataFingerprint != "" {
+		return state.SourceFingerprint == entry.MetadataFingerprint
+	}
+	if entry.Version != "" {
+		return state.SourceVersion == entry.Version
+	}
+	return state.SourceFingerprint == sourceEntryIdentity(entry)
+}
+
+func diagnosticOutboxSettled(source, version string, events []diagnostics.Event, receipt eventCollectionReceipt) bool {
+	if len(events) == 0 {
+		return true
+	}
+	if receipt.SourceVersion != version || len(receipt.Dispositions) == 0 || receipt.LastEventID != events[len(events)-1].ID {
+		return false
+	}
+	if receipt.Truncated && len(receipt.GapIDs) == 0 {
+		return false
+	}
+	offset := 0
+	for _, disposition := range receipt.Dispositions {
+		if disposition.SourceKey != source || disposition.SourceVersion != version || disposition.EventCount < 1 ||
+			disposition.Disposition != "archived" && disposition.Disposition != "discarded_by_policy" || offset+disposition.EventCount > len(events) ||
+			disposition.FirstEventID != events[offset].ID {
+			return false
+		}
+		end := offset + disposition.EventCount - 1
+		if disposition.LastEventID != events[end].ID {
+			return false
+		}
+		if disposition.Disposition == "archived" && (disposition.BatchID == "" || disposition.BatchSHA256 == "") ||
+			disposition.Disposition == "discarded_by_policy" && disposition.GapID == "" {
+			return false
+		}
+		offset += disposition.EventCount
+	}
+	return offset == len(events)
 }
 
 func (s *Service) saveDiagnosticReceiptArchive(ctx context.Context, key string, state diagnosticReceiptArchive, version string) error {
@@ -164,9 +285,11 @@ func (s *Service) saveDiagnosticReceiptArchive(ctx context.Context, key string, 
 	_, err = s.store.Put(ctx, key, bytes.NewReader(data), int64(len(data)), options)
 	if errors.Is(err, storage.ErrUnknownCommit) {
 		stored, _, readErr := inventory.Read[diagnosticReceiptArchive](ctx, s.store, key)
-		if readErr == nil && stored.SourceKey == state.SourceKey && stored.SourceVersion == state.SourceVersion &&
+		if readErr == nil && stored.SourceKey == state.SourceKey && stored.SourceVersion == state.SourceVersion && stored.SourceFingerprint == state.SourceFingerprint &&
 			stored.ProjectionVersion == state.ProjectionVersion && stored.LastArchivedEventID == state.LastArchivedEventID &&
 			stored.NotificationIndexed == state.NotificationIndexed && stored.TransferProjected == state.TransferProjected &&
+			stored.ExecutionFactProjected == state.ExecutionFactProjected && stored.ExecutionSourcesVerified == state.ExecutionSourcesVerified &&
+			stored.ExecutionVerificationDone == state.ExecutionVerificationDone && stored.HistoryProjected == state.HistoryProjected &&
 			stored.OutboxComplete == state.OutboxComplete && stored.Complete == state.Complete {
 			return nil
 		}

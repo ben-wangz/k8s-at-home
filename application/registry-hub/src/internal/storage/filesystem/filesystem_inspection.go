@@ -28,7 +28,7 @@ func (s *Store) Fingerprint(ctx context.Context, key string) (storage.Entry, str
 		return storage.Entry{}, "", storage.ErrCorruptObject
 	}
 	fingerprint, err := fileFingerprint(info)
-	return storage.Entry{Key: key, Size: info.Size(), ModTime: info.ModTime().UnixNano()}, fingerprint, err
+	return storage.Entry{Key: key, MetadataFingerprint: fingerprint, Size: info.Size(), ModTime: info.ModTime().UnixNano()}, fingerprint, err
 }
 
 func fileFingerprint(info os.FileInfo) (string, error) {

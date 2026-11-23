@@ -9,15 +9,16 @@ import (
 )
 
 const (
-	Pull          = "pull"
-	Catalog       = "catalog"
-	Push          = "push"
-	Delete        = "delete"
-	TaskAdmin     = "task-admin"
-	ReferrerPrune = "referrer-prune"
-	GCAdmin       = "gc-admin"
-	Observe       = "observe"
-	WorkRetry     = "work-retry"
+	Pull           = "pull"
+	Catalog        = "catalog"
+	Push           = "push"
+	Delete         = "delete"
+	TaskAdmin      = "task-admin"
+	ReferrerPrune  = "referrer-prune"
+	GCAdmin        = "gc-admin"
+	Observe        = "observe"
+	WorkRetry      = "work-retry"
+	HistoryCleanup = "history-cleanup"
 )
 
 type Principal struct {

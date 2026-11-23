@@ -1,6 +1,9 @@
 package app
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"github.com/prometheus/client_golang/prometheus"
+	"time"
+)
 
 func (m *metrics) initBackgroundBudgetMetrics() {
 	m.initPayloadMetrics()
@@ -20,5 +23,13 @@ func (m *metrics) initBackgroundBudgetMetrics() {
 	m.registry.MustRegister(m.storageCollection, m.storageListSize)
 	m.backgroundAdmission = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "registry_hub_background_admission_wait_seconds", Help: "Time spent waiting for background admission, separate from execution.", Buckets: prometheus.DefBuckets}, []string{"kind", "result"})
 	m.backgroundRemaining = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "registry_hub_background_execution_deadline_remaining_seconds", Help: "Execution time available immediately after admission.", Buckets: []float64{0, .01, .1, 1, 5, 10, 15, 60}}, []string{"kind"})
-	m.registry.MustRegister(m.backgroundAdmission, m.backgroundRemaining)
+	m.diagnosticWakeLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "registry_hub_diagnostic_source_wake_latency_seconds", Help: "Durable diagnostic source wake latency by bounded handoff phase.", Buckets: []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2, 5, 10}}, []string{"phase"})
+	m.registry.MustRegister(m.backgroundAdmission, m.backgroundRemaining, m.diagnosticWakeLatency)
+}
+
+func (m *metrics) recordDiagnosticWakeLatency(phase string, elapsed time.Duration) {
+	if m == nil || m.diagnosticWakeLatency == nil {
+		return
+	}
+	m.diagnosticWakeLatency.WithLabelValues(phase).Observe(max(0, elapsed.Seconds()))
 }

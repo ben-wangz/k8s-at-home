@@ -15,7 +15,10 @@ const DailyBytesLimit = 16 << 20
 
 var ErrHistoryCapacity = errors.New("diagnostic history capacity reached")
 
-type Log struct{ Store storage.Store }
+type Log struct {
+	Store     storage.Store
+	Retention time.Duration
+}
 type HistoryBudget struct {
 	ReservedBytes int64  `json:"reservedBytes"`
 	Rejected      uint64 `json:"rejected"`
@@ -26,8 +29,15 @@ func EventKey(event Event) string {
 }
 
 func (log Log) Append(ctx context.Context, event Event) error {
-	if event.ID == "" || event.OccurredAt.IsZero() || time.Since(event.OccurredAt) > Retention {
+	if event.ID == "" || event.OccurredAt.IsZero() || time.Since(event.OccurredAt) > log.retention() {
 		return nil
+	}
+	behind, err := EventBehindWatermark(ctx, log.Store, event)
+	if err != nil {
+		return err
+	}
+	if behind {
+		return ErrBatchHistoryExpired
 	}
 	key := EventKey(event)
 	if _, err := log.Store.Head(ctx, key); err == nil {
@@ -58,9 +68,30 @@ func (log Log) Append(ctx context.Context, event Event) error {
 	if rejected {
 		return ErrHistoryCapacity
 	}
-	_, err = log.Store.Put(ctx, key, bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfAbsent: true})
+	entry, err := log.Store.Put(ctx, key, bytes.NewReader(data), int64(len(data)), storage.PutOptions{IfAbsent: true})
 	if errors.Is(err, storage.ErrAlreadyExists) || errors.Is(err, storage.ErrConditionFailed) {
+		entry, err = log.Store.Head(ctx, key)
+	}
+	if err != nil {
+		return err
+	}
+	behind, err = EventBehindWatermark(ctx, log.Store, event)
+	if err != nil {
+		return err
+	}
+	if !behind {
 		return nil
 	}
-	return err
+	deleteErr := log.Store.DeleteIfMatch(ctx, key, entry.Version)
+	if errors.Is(deleteErr, storage.ErrNotFound) {
+		deleteErr = nil
+	}
+	return errors.Join(ErrBatchHistoryExpired, deleteErr)
+}
+
+func (log Log) retention() time.Duration {
+	if log.Retention > 0 {
+		return log.Retention
+	}
+	return Retention
 }

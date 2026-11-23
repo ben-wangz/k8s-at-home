@@ -96,6 +96,9 @@ func validateScenarioConfig(path string, scenario ScenarioDefinition) error {
 	if scenario.UpstreamAuth && strings.Count(string(content), "__RUN_UPSTREAM_CONFIG_SECRET__") < 1 {
 		return fmt.Errorf("feature-upstream-auth-transport config must contain an upstream config Secret placeholder")
 	}
+	if scenario.HistoryAdmin && strings.Count(string(content), "__RUN_HISTORY_ADMIN_SECRET__") != 1 {
+		return fmt.Errorf("feature-history-retention config must contain one management auth Secret placeholder")
+	}
 	if scenario.BackendS3 {
 		for _, placeholder := range []string{"__RUN_S3_ENDPOINT__", "__RUN_BACKEND_S3_BUCKET__", "__RUN_BACKEND_S3_SECRET__"} {
 			if strings.Count(string(content), placeholder) != 1 {
@@ -146,6 +149,14 @@ func (runtime *Runtime) prepareScenario(ctx context.Context, scenario ScenarioDe
 		}
 		fixtureHash = digest
 		content = []byte(strings.ReplaceAll(string(content), "__RUN_UPSTREAM_CONFIG_SECRET__", secretName))
+	}
+	if scenario.HistoryAdmin {
+		secretName, digest, err := runtime.Environment.PrepareHistoryAdminSecret(ctx, id, fullname, expectedFixtureHash)
+		if err != nil {
+			return "", "", "", err
+		}
+		fixtureHash = digest
+		content = []byte(strings.ReplaceAll(string(content), "__RUN_HISTORY_ADMIN_SECRET__", secretName))
 	}
 	if scenario.BackendS3 {
 		fixture, err := runtime.Environment.PrepareBackendS3Fixture(ctx, id, fullname, expectedFixtureHash)
