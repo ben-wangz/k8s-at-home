@@ -21,8 +21,8 @@ func TestDiagnosticRetentionUsesConfiguredShortDurations(t *testing.T) {
 	f.service.cfg.Diagnostics.TransferObservationRetention = 8 * time.Second
 	ctx := context.Background()
 	tests := []struct {
-		name     string
-		key      string
+		name      string
+		key       string
 		retention time.Duration
 	}{
 		{name: "legacy event", key: diagnostics.Prefix + "events/20261122/event.json", retention: 5 * time.Second},
