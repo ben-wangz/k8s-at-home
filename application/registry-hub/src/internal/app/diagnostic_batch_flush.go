@@ -32,12 +32,12 @@ func (s *Service) scanDiagnosticPendingBatches(ctx context.Context, now time.Tim
 				continue
 			}
 			date, validKey := diagnosticPendingKeyDate(entry.Key)
-			if !validKey || partition.SchemaVersion != 1 || partition.Date != date || partition.Batch == nil {
+			if !validKey || partition.SchemaVersion != diagnosticPendingSchemaVersion || partition.Date != date || partition.Batch == nil {
 				result = errors.Join(result, storage.ErrCorruptObject)
 				continue
 			}
 			deadline := partition.Batch.deadline()
-			if !deadline.After(now) || partition.Batch.FlushOutcome != nil {
+			if partition.Batch.readyToFlush(now) {
 				if err := s.flushDiagnosticPendingPartition(ctx, date, false); err != nil {
 					if errors.Is(err, storage.ErrConditionFailed) {
 						deadline = now.Add(time.Second)
@@ -70,10 +70,10 @@ func (s *Service) flushDiagnosticPendingPartition(ctx context.Context, date stri
 		if err != nil {
 			return err
 		}
-		if partition.SchemaVersion != 1 || partition.Date != date || partition.Batch == nil {
+		if partition.SchemaVersion != diagnosticPendingSchemaVersion || partition.Date != date || partition.Batch == nil {
 			return storage.ErrCorruptObject
 		}
-		if !force && partition.Batch.deadline().After(time.Now().UTC()) {
+		if !force && !partition.Batch.readyToFlush(time.Now().UTC()) {
 			return nil
 		}
 		return s.flushDiagnosticPendingPartitionLocked(guarded, date, partition, version)
@@ -81,7 +81,7 @@ func (s *Service) flushDiagnosticPendingPartition(ctx context.Context, date stri
 }
 
 func (s *Service) flushDiagnosticPendingPartitionLocked(ctx context.Context, date string, partition diagnosticPendingPartition, version string) error {
-	if partition.SchemaVersion != 1 || partition.Date != date || partition.Batch == nil ||
+	if partition.SchemaVersion != diagnosticPendingSchemaVersion || partition.Date != date || partition.Batch == nil ||
 		!diagnosticPendingBatchFits(partition.Batch.Events, date) || len(partition.Batch.Sources) == 0 {
 		return storage.ErrCorruptObject
 	}
@@ -90,10 +90,36 @@ func (s *Service) flushDiagnosticPendingPartitionLocked(ctx context.Context, dat
 		s.metrics.recordDiagnosticWakeLatency("admission_to_flush_start", time.Since(pending.FirstAdmittedAt))
 	}
 	outcome := pending.FlushOutcome
+	var expectedIntent diagnosticPendingFlushIntent
+	if pending.FlushIntent != nil || outcome == nil {
+		prepared, err := diagnostics.PrepareEventBatch(pending.Events, pending.Critical)
+		if err != nil {
+			return err
+		}
+		sourceHash, err := diagnosticPendingSourcesHash(pending.Sources)
+		if err != nil {
+			return err
+		}
+		expectedIntent = diagnosticPendingFlushIntent{
+			BatchID: prepared.ID, BatchSHA256: prepared.ContentSHA256, SourceRangesSHA256: sourceHash,
+		}
+		if pending.FlushIntent != nil && *pending.FlushIntent != expectedIntent {
+			return storage.ErrCorruptObject
+		}
+	}
 	if outcome == nil {
+		if pending.FlushIntent == nil {
+			if err := s.persistDiagnosticPendingFlushIntent(ctx, date, pending, expectedIntent); err != nil {
+				return err
+			}
+			pending.FlushIntent = &expectedIntent
+		}
 		batch, err := (diagnostics.BatchLog{
 			Store: s.store, Policy: s.diagnosticBatchPolicy(), Retention: s.diagnosticsConfig().EventRetention,
 		}).Append(ctx, pending.Events, pending.Critical)
+		if err == nil && (batch.ID != pending.FlushIntent.BatchID || batch.ContentSHA256 != pending.FlushIntent.BatchSHA256) {
+			return storage.ErrCorruptObject
+		}
 		outcome = &diagnosticPendingOutcome{Disposition: "archived", BatchID: batch.ID, BatchSHA256: batch.ContentSHA256}
 		if errors.Is(err, diagnostics.ErrHistoryCapacity) {
 			outcome = &diagnosticPendingOutcome{Disposition: "discarded_by_policy", Reason: "batch_budget_capacity"}
@@ -112,6 +138,10 @@ func (s *Service) flushDiagnosticPendingPartitionLocked(ctx context.Context, dat
 		return storage.ErrCorruptObject
 	}
 	if outcome.Disposition == "archived" && (outcome.BatchID == "" || outcome.BatchSHA256 == "") {
+		return storage.ErrCorruptObject
+	}
+	if outcome.Disposition == "archived" && pending.FlushIntent != nil &&
+		(outcome.BatchID != pending.FlushIntent.BatchID || outcome.BatchSHA256 != pending.FlushIntent.BatchSHA256) {
 		return storage.ErrCorruptObject
 	}
 	if outcome.Disposition == "discarded_by_policy" && outcome.Reason == "" {

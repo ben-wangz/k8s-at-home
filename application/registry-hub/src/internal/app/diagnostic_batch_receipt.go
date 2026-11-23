@@ -13,9 +13,16 @@ import (
 func (s *Service) persistDiagnosticPendingOutcome(ctx context.Context, date string, pending diagnosticPendingBatch, outcome diagnosticPendingOutcome) (string, error) {
 	key := diagnosticPendingBatchKey(date)
 	if err := inventory.Update(ctx, s.store, key, func(current *diagnosticPendingPartition) error {
-		if current.SchemaVersion != 1 || current.Date != date || current.Batch == nil ||
+		if current.SchemaVersion != diagnosticPendingSchemaVersion || current.Date != date || current.Batch == nil ||
 			!sameDiagnosticPendingContent(*current.Batch, pending) {
 			return storage.ErrConditionFailed
+		}
+		if current.Batch.FlushIntent == nil || pending.FlushIntent == nil || *current.Batch.FlushIntent != *pending.FlushIntent {
+			return storage.ErrConditionFailed
+		}
+		if outcome.Disposition == "archived" &&
+			(current.Batch.FlushIntent.BatchID != outcome.BatchID || current.Batch.FlushIntent.BatchSHA256 != outcome.BatchSHA256) {
+			return storage.ErrCorruptObject
 		}
 		if current.Batch.FlushOutcome != nil {
 			if *current.Batch.FlushOutcome != outcome {
@@ -30,6 +37,27 @@ func (s *Service) persistDiagnosticPendingOutcome(ctx context.Context, date stri
 	}
 	_, version, err := inventory.Read[diagnosticPendingPartition](ctx, s.store, key)
 	return version, err
+}
+
+func (s *Service) persistDiagnosticPendingFlushIntent(ctx context.Context, date string, pending diagnosticPendingBatch, intent diagnosticPendingFlushIntent) error {
+	return inventory.Update(ctx, s.store, diagnosticPendingBatchKey(date), func(current *diagnosticPendingPartition) error {
+		if current.SchemaVersion != diagnosticPendingSchemaVersion || current.Date != date || current.Batch == nil ||
+			!sameDiagnosticPendingContent(*current.Batch, pending) {
+			return storage.ErrConditionFailed
+		}
+		if current.Batch.FlushOutcome != nil {
+			return storage.ErrConditionFailed
+		}
+		if current.Batch.FlushIntent != nil && *current.Batch.FlushIntent != intent {
+			return storage.ErrCorruptObject
+		}
+		current.Batch.FlushIntent = &intent
+		current.Batch.Appendable = false
+		// Older writers also honor the expired deadline after rollback.
+		current.Batch.OrdinaryDeadline = time.Time{}
+		current.Batch.CriticalDeadline = time.Time{}
+		return nil
+	})
 }
 
 func sameDiagnosticPendingContent(left, right diagnosticPendingBatch) bool {

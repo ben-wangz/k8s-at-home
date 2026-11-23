@@ -16,6 +16,8 @@ import (
 
 const diagnosticPendingBatchPrefix = "diagnostics/v2/event-batch-pending/"
 
+const diagnosticPendingSchemaVersion = 1
+
 type diagnosticPendingSource struct {
 	SourceKey       string `json:"sourceKey"`
 	SourceVersion   string `json:"sourceVersion,omitempty"`
@@ -27,14 +29,22 @@ type diagnosticPendingSource struct {
 }
 
 type diagnosticPendingBatch struct {
-	Date             string                    `json:"date"`
-	Critical         bool                      `json:"critical"`
-	FirstAdmittedAt  time.Time                 `json:"firstAdmittedAt"`
-	OrdinaryDeadline time.Time                 `json:"ordinaryDeadline,omitempty"`
-	CriticalDeadline time.Time                 `json:"criticalDeadline,omitempty"`
-	FlushOutcome     *diagnosticPendingOutcome `json:"flushOutcome,omitempty"`
-	Events           []diagnostics.Event       `json:"events"`
-	Sources          []diagnosticPendingSource `json:"sources"`
+	Date             string                        `json:"date"`
+	Critical         bool                          `json:"critical"`
+	FirstAdmittedAt  time.Time                     `json:"firstAdmittedAt"`
+	OrdinaryDeadline time.Time                     `json:"ordinaryDeadline,omitempty"`
+	CriticalDeadline time.Time                     `json:"criticalDeadline,omitempty"`
+	Appendable       bool                          `json:"appendable,omitempty"`
+	FlushIntent      *diagnosticPendingFlushIntent `json:"flushIntent,omitempty"`
+	FlushOutcome     *diagnosticPendingOutcome     `json:"flushOutcome,omitempty"`
+	Events           []diagnostics.Event           `json:"events"`
+	Sources          []diagnosticPendingSource     `json:"sources"`
+}
+
+type diagnosticPendingFlushIntent struct {
+	BatchID            string `json:"batchID"`
+	BatchSHA256        string `json:"batchSHA256"`
+	SourceRangesSHA256 string `json:"sourceRangesSHA256"`
 }
 
 type diagnosticPendingOutcome struct {
@@ -59,6 +69,11 @@ func (batch diagnosticPendingBatch) deadline() time.Time {
 		return batch.CriticalDeadline
 	}
 	return batch.OrdinaryDeadline
+}
+
+func (batch diagnosticPendingBatch) readyToFlush(now time.Time) bool {
+	// An older writer may have already committed a batch without recording an outcome.
+	return !batch.Appendable || batch.FlushIntent != nil || batch.FlushOutcome != nil || !batch.deadline().After(now)
 }
 
 func diagnosticPendingBatchSize(events []diagnostics.Event) (int, error) {
@@ -96,6 +111,15 @@ func diagnosticEventRangeHash(events []diagnostics.Event) (string, error) {
 	return hex.EncodeToString(hash[:]), nil
 }
 
+func diagnosticPendingSourcesHash(sources []diagnosticPendingSource) (string, error) {
+	encoded, err := json.Marshal(sources)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.Sum256(encoded)
+	return hex.EncodeToString(hash[:]), nil
+}
+
 func diagnosticPendingKeyDate(key string) (string, bool) {
 	name := strings.TrimPrefix(key, diagnosticPendingBatchPrefix)
 	if !strings.HasSuffix(name, ".json") {
@@ -112,12 +136,15 @@ func diagnosticPendingKeyDate(key string) (string, bool) {
 }
 
 func (s *Service) saveDiagnosticPendingPartition(ctx context.Context, date string, partition diagnosticPendingPartition) error {
-	if partition.Date != date || partition.SchemaVersion != 1 || partition.Batch == nil {
+	if partition.Date != date || partition.SchemaVersion != diagnosticPendingSchemaVersion || partition.Batch == nil {
 		return fmt.Errorf("invalid diagnostic pending partition: %w", storage.ErrCorruptObject)
 	}
 	return inventory.Update(ctx, s.store, diagnosticPendingBatchKey(date), func(current *diagnosticPendingPartition) error {
-		if current.SchemaVersion != 0 && (current.SchemaVersion != 1 || current.Date != date) {
+		if current.SchemaVersion != 0 && (current.SchemaVersion != diagnosticPendingSchemaVersion || current.Date != date || current.Batch == nil) {
 			return storage.ErrCorruptObject
+		}
+		if current.Batch != nil && (!current.Batch.Appendable || current.Batch.FlushIntent != nil || current.Batch.FlushOutcome != nil) {
+			return storage.ErrConditionFailed
 		}
 		*current = partition
 		return nil

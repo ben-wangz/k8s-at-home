@@ -139,6 +139,48 @@ func (m *Manager) Release(ctx context.Context, lease Lease) error {
 	return err
 }
 
+// DeleteInactive conditionally removes a released or expired held lease.
+func (m *Manager) DeleteInactive(ctx context.Context, key string) (bool, error) {
+	object, current, err := m.read(ctx, key)
+	if errors.Is(err, storage.ErrNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	inactive := current.State == "released" ||
+		current.State == "held" && !current.ExpiresAt.IsZero() && !current.ExpiresAt.After(time.Now())
+	if !inactive {
+		return false, nil
+	}
+	if object.Version == "" {
+		return false, storage.ErrUnavailable
+	}
+	err = m.store.DeleteIfMatch(ctx, key, object.Version)
+	if errors.Is(err, storage.ErrNotFound) {
+		return true, nil
+	}
+	if errors.Is(err, storage.ErrConditionFailed) {
+		return false, nil
+	}
+	if errors.Is(err, storage.ErrUnknownCommit) {
+		current, headErr := m.store.Head(ctx, key)
+		if errors.Is(headErr, storage.ErrNotFound) {
+			return true, nil
+		}
+		if headErr != nil {
+			return false, errors.Join(err, headErr)
+		}
+		if current.Version != object.Version {
+			return false, nil
+		}
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (m *Manager) read(ctx context.Context, key string) (storage.Object, record, error) {
 	for attempt := 0; attempt < 16; attempt++ {
 		object, err := m.store.Get(ctx, key)

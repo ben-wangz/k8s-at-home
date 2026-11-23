@@ -2,10 +2,10 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/inventory"
+	"registry-hub/internal/lease"
 	"registry-hub/internal/storage"
 	"strings"
 	"sync"
@@ -60,7 +60,7 @@ func (s *Service) cleanupDiagnosticRetentionEntry(ctx context.Context, entry sto
 		}
 		return nil
 	case strings.HasPrefix(entry.Key, "leases/diagnostics/event-outbox/"):
-		return s.cleanupReleasedDiagnosticSourceLease(ctx, entry, p)
+		return s.cleanupDiagnosticSourceLease(ctx, entry, p)
 	case strings.HasPrefix(entry.Key, diagnostics.Prefix+"events/"):
 		age = s.diagnosticsConfig().EventRetention
 	case strings.HasPrefix(entry.Key, terminalWorkHistoryPrefix):
@@ -167,28 +167,14 @@ func (s *Service) cleanupDiagnosticRetentionEntry(ctx context.Context, entry sto
 	return nil
 }
 
-func (s *Service) cleanupReleasedDiagnosticSourceLease(ctx context.Context, entry storage.Entry, p *sourceSweepCheckpoint) error {
-	object, err := s.store.Get(ctx, entry.Key)
-	if errors.Is(err, storage.ErrNotFound) {
-		incrementSweepCount(p, "deleted", 1)
-		return nil
-	}
+func (s *Service) cleanupDiagnosticSourceLease(ctx context.Context, entry storage.Entry, p *sourceSweepCheckpoint) error {
+	deleted, err := lease.NewManager(s.store).DeleteInactive(ctx, entry.Key)
 	if err != nil {
 		return err
 	}
-	defer object.Body.Close()
-	var state struct {
-		State string `json:"state"`
-	}
-	if err := json.NewDecoder(object.Body).Decode(&state); err != nil {
-		return storage.ErrCorruptObject
-	}
-	if state.State != "released" {
+	if !deleted {
 		incrementSweepCount(p, "skipped", 1)
 		return nil
-	}
-	if err := s.deleteDiagnosticObservation(ctx, entry); err != nil {
-		return err
 	}
 	incrementSweepCount(p, "deleted", 1)
 	return nil

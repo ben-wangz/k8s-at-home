@@ -67,3 +67,9 @@ func buildEventBatch(events []Event, critical bool) (EventBatch, []byte, EventBa
 	}
 	return batch, data, EventBatchReservation{Date: date, Bytes: int64(len(data)), Critical: critical}, nil
 }
+
+// PrepareEventBatch computes the stable identity for a batch without writing it.
+func PrepareEventBatch(events []Event, critical bool) (EventBatch, error) {
+	batch, _, _, err := buildEventBatch(events, critical)
+	return batch, err
+}

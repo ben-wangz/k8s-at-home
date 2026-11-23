@@ -64,7 +64,7 @@ func TestDiagnosticPendingWorkerUsesBatchDeadlineInsteadOfPolling(t *testing.T) 
 	source := workqueue.Key("notify", "pending-deadline")
 	date := diagnostics.EventBatchDate(event)
 	partition := diagnosticPendingPartition{SchemaVersion: 1, Date: date, Batch: &diagnosticPendingBatch{
-		Date: date, FirstAdmittedAt: now, OrdinaryDeadline: now.Add(250 * time.Millisecond),
+		Date: date, FirstAdmittedAt: now, OrdinaryDeadline: now.Add(250 * time.Millisecond), Appendable: true,
 		Events: []diagnostics.Event{event}, Sources: []diagnosticPendingSource{{
 			SourceKey: source, SourceVersion: "source-v1", FirstEventID: event.ID, LastEventID: event.ID,
 			EventCount: 1, ContentSHA256: "test-range",

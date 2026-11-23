@@ -3,10 +3,8 @@ package app
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"time"
 
 	"registry-hub/internal/diagnostics"
@@ -64,45 +62,7 @@ func (s *Service) withDiagnosticSourceFencedLease(ctx context.Context, source st
 }
 
 func (s *Service) deleteReleasedDiagnosticSourceLease(ctx context.Context, key string) error {
-	object, err := s.store.Get(ctx, key)
-	if errors.Is(err, storage.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	data, readErr := io.ReadAll(io.LimitReader(object.Body, 1<<20))
-	closeErr := object.Body.Close()
-	if readErr != nil || closeErr != nil {
-		return errors.Join(readErr, closeErr)
-	}
-	var state struct {
-		State string `json:"state"`
-	}
-	if err := json.Unmarshal(data, &state); err != nil {
-		return storage.ErrCorruptObject
-	}
-	if state.State != "released" {
-		return nil
-	}
-	entry, err := s.store.Head(ctx, key)
-	if errors.Is(err, storage.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if object.Version != "" {
-		if entry.Version != object.Version {
-			return nil
-		}
-	} else if object.ModTime != entry.ModTime || object.Size != entry.Size {
-		return nil
-	}
-	err = s.store.DeleteIfMatch(ctx, key, sourceEntryVersion(entry))
-	if errors.Is(err, storage.ErrNotFound) || errors.Is(err, storage.ErrConditionFailed) {
-		return nil
-	}
+	_, err := lease.NewManager(s.store).DeleteInactive(ctx, key)
 	return err
 }
 
@@ -147,7 +107,7 @@ func (s *Service) pendingDiagnosticSource(ctx context.Context, source string) (d
 			if readErr != nil {
 				return diagnosticPendingSource{}, false, readErr
 			}
-			if partition.SchemaVersion != 1 || partition.Date == "" || partition.Batch == nil {
+			if partition.SchemaVersion != diagnosticPendingSchemaVersion || partition.Date == "" || partition.Batch == nil {
 				return diagnosticPendingSource{}, false, storage.ErrCorruptObject
 			}
 			for _, pending := range partition.Batch.Sources {
@@ -195,13 +155,12 @@ func (s *Service) admitDiagnosticOutboxBatch(ctx context.Context, source, source
 		if err != nil {
 			return err
 		}
-		if partition.SchemaVersion != 0 && (partition.SchemaVersion != 1 || partition.Date != date) {
+		if partition.SchemaVersion != 0 && (partition.SchemaVersion != diagnosticPendingSchemaVersion || partition.Date != date || partition.Batch == nil) {
 			return storage.ErrCorruptObject
 		}
 		if batch := partition.Batch; batch != nil {
-			if batch.Critical != diagnosticCriticalEvent(events[0]) ||
-				!diagnosticPendingBatchFits(append(append([]diagnostics.Event(nil), batch.Events...), events...), date) ||
-				!batch.deadline().After(time.Now().UTC()) || batch.FlushOutcome != nil {
+			if batch.readyToFlush(time.Now().UTC()) || batch.Critical != diagnosticCriticalEvent(events[0]) ||
+				!diagnosticPendingBatchFits(append(append([]diagnostics.Event(nil), batch.Events...), events...), date) {
 				if err := s.flushDiagnosticPendingPartitionLocked(guarded, date, partition, version); err != nil {
 					return err
 				}
@@ -211,7 +170,7 @@ func (s *Service) admitDiagnosticOutboxBatch(ctx context.Context, source, source
 		batch := partition.Batch
 		if batch == nil {
 			batch = &diagnosticPendingBatch{
-				Date: date, Critical: diagnosticCriticalEvent(events[0]), FirstAdmittedAt: admittedAt,
+				Date: date, Critical: diagnosticCriticalEvent(events[0]), FirstAdmittedAt: admittedAt, Appendable: true,
 				OrdinaryDeadline: admittedAt.Add(s.diagnosticsConfig().OrdinaryEventFlushInterval),
 				Events:           append([]diagnostics.Event(nil), events...), Sources: []diagnosticPendingSource{rangeInfo},
 			}
@@ -231,7 +190,7 @@ func (s *Service) admitDiagnosticOutboxBatch(ctx context.Context, source, source
 				}
 			}
 		}
-		partition = diagnosticPendingPartition{SchemaVersion: 1, Date: date, Batch: batch}
+		partition = diagnosticPendingPartition{SchemaVersion: diagnosticPendingSchemaVersion, Date: date, Batch: batch}
 		if err := s.saveDiagnosticPendingPartition(guarded, date, partition); err != nil {
 			return err
 		}

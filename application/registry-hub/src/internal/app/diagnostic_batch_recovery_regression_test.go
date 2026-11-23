@@ -57,7 +57,10 @@ func TestDiagnosticLegacyPendingPartialAcknowledgementConvergesAfterWatermark(t 
 	partition := diagnosticPendingPartition{SchemaVersion: 1, Date: date, Batch: &diagnosticPendingBatch{
 		Date: date, Critical: false, FirstAdmittedAt: now, OrdinaryDeadline: now.Add(-time.Second), Events: events, Sources: sources,
 	}}
-	if err := f.service.saveDiagnosticPendingPartition(ctx, date, partition); err != nil {
+	if err := inventory.Update(ctx, f.service.store, diagnosticPendingBatchKey(date), func(current *diagnosticPendingPartition) error {
+		*current = partition
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	watermarkDate := now.Add(24 * time.Hour).Format("20060102")

@@ -92,7 +92,7 @@ func TestDiagnosticSourceLeaseRecordsStayBoundedAsSourcesRotate(t *testing.T) {
 	}
 }
 
-func TestDiagnosticRetentionDeletesOnlyReleasedLegacySourceLeases(t *testing.T) {
+func TestDiagnosticRetentionDeletesInactiveLegacySourceLeases(t *testing.T) {
 	f := newStagedAcceptanceFixture(t, 1<<20)
 	ctx := context.Background()
 	manager := lease.NewManager(f.service.store)
@@ -106,7 +106,7 @@ func TestDiagnosticRetentionDeletesOnlyReleasedLegacySourceLeases(t *testing.T) 
 		t.Fatal(err)
 	}
 	var progress sourceSweepCheckpoint
-	if err := f.service.cleanupReleasedDiagnosticSourceLease(ctx, entry, &progress); err != nil {
+	if err := f.service.cleanupDiagnosticSourceLease(ctx, entry, &progress); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.service.store.Head(ctx, "leases/"+key); err != nil {
@@ -119,11 +119,27 @@ func TestDiagnosticRetentionDeletesOnlyReleasedLegacySourceLeases(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.service.cleanupReleasedDiagnosticSourceLease(ctx, entry, &progress); err != nil {
+	if err := f.service.cleanupDiagnosticSourceLease(ctx, entry, &progress); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.service.store.Head(ctx, "leases/"+key); !errors.Is(err, storage.ErrNotFound) {
 		t.Fatalf("released source lease remains after cleanup: %v", err)
+	}
+
+	expiredKey := diagnosticSourceLeaseKey("tasks/state/interrupted-retention-test")
+	if _, err := manager.Acquire(ctx, expiredKey, "interrupted-owner", time.Nanosecond); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	entry, err = f.service.store.Head(ctx, "leases/"+expiredKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.service.cleanupDiagnosticSourceLease(ctx, entry, &progress); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.store.Head(ctx, "leases/"+expiredKey); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("expired held source lease remains: %v", err)
 	}
 }
 
