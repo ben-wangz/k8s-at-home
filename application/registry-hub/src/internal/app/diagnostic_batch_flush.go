@@ -11,13 +11,19 @@ import (
 )
 
 func (s *Service) flushDueDiagnosticBatches(ctx context.Context, now time.Time) error {
+	_, err := s.scanDiagnosticPendingBatches(ctx, now)
+	return err
+}
+
+func (s *Service) scanDiagnosticPendingBatches(ctx context.Context, now time.Time) (time.Time, error) {
 	ctx = context.WithValue(ctx, diagnosticWriteKey{}, true)
 	token := ""
 	var result error
+	var nextDeadline time.Time
 	for {
 		entries, next, err := storage.Scan(ctx, s.store, diagnosticPendingBatchPrefix, token, 100)
 		if err != nil {
-			return errors.Join(result, err)
+			return nextDeadline, errors.Join(result, err)
 		}
 		for _, entry := range entries {
 			partition, _, readErr := inventory.Read[diagnosticPendingPartition](ctx, s.store, entry.Key)
@@ -30,14 +36,24 @@ func (s *Service) flushDueDiagnosticBatches(ctx context.Context, now time.Time) 
 				result = errors.Join(result, storage.ErrCorruptObject)
 				continue
 			}
-			if !partition.Batch.deadline().After(now) {
-				if err := s.flushDiagnosticPendingPartition(ctx, date, false); err != nil && !errors.Is(err, storage.ErrConditionFailed) {
-					result = errors.Join(result, err)
+			deadline := partition.Batch.deadline()
+			if !deadline.After(now) || partition.Batch.FlushOutcome != nil {
+				if err := s.flushDiagnosticPendingPartition(ctx, date, false); err != nil {
+					if errors.Is(err, storage.ErrConditionFailed) {
+						deadline = now.Add(time.Second)
+					} else {
+						result = errors.Join(result, err)
+					}
+				} else {
+					deadline = time.Time{}
 				}
+			}
+			if deadline.After(now) && (nextDeadline.IsZero() || deadline.Before(nextDeadline)) {
+				nextDeadline = deadline
 			}
 		}
 		if next == "" {
-			return result
+			return nextDeadline, result
 		}
 		token = next
 	}
@@ -73,30 +89,54 @@ func (s *Service) flushDiagnosticPendingPartitionLocked(ctx context.Context, dat
 	if s.metrics != nil {
 		s.metrics.recordDiagnosticWakeLatency("admission_to_flush_start", time.Since(pending.FirstAdmittedAt))
 	}
-	batch, err := (diagnostics.BatchLog{
-		Store: s.store, Policy: s.diagnosticBatchPolicy(), Retention: s.diagnosticsConfig().EventRetention,
-	}).Append(ctx, pending.Events, pending.Critical)
-	gapReason := ""
-	if errors.Is(err, diagnostics.ErrHistoryCapacity) {
-		gapReason = "batch_budget_capacity"
-	} else if errors.Is(err, diagnostics.ErrBatchHistoryExpired) {
-		gapReason = "event_history_expired"
-	} else if err != nil {
-		return err
+	outcome := pending.FlushOutcome
+	if outcome == nil {
+		batch, err := (diagnostics.BatchLog{
+			Store: s.store, Policy: s.diagnosticBatchPolicy(), Retention: s.diagnosticsConfig().EventRetention,
+		}).Append(ctx, pending.Events, pending.Critical)
+		outcome = &diagnosticPendingOutcome{Disposition: "archived", BatchID: batch.ID, BatchSHA256: batch.ContentSHA256}
+		if errors.Is(err, diagnostics.ErrHistoryCapacity) {
+			outcome = &diagnosticPendingOutcome{Disposition: "discarded_by_policy", Reason: "batch_budget_capacity"}
+		} else if errors.Is(err, diagnostics.ErrBatchHistoryExpired) {
+			outcome = &diagnosticPendingOutcome{Disposition: "discarded_by_policy", Reason: "event_history_expired"}
+		} else if err != nil {
+			return err
+		}
+		version, err = s.persistDiagnosticPendingOutcome(ctx, date, pending, *outcome)
+		if err != nil {
+			return err
+		}
+		pending.FlushOutcome = outcome
+	}
+	if outcome.Disposition != "archived" && outcome.Disposition != "discarded_by_policy" {
+		return storage.ErrCorruptObject
+	}
+	if outcome.Disposition == "archived" && (outcome.BatchID == "" || outcome.BatchSHA256 == "") {
+		return storage.ErrCorruptObject
+	}
+	if outcome.Disposition == "discarded_by_policy" && outcome.Reason == "" {
+		return storage.ErrCorruptObject
 	}
 	for _, source := range pending.Sources {
+		_, found, err := s.diagnosticPendingDisposition(ctx, source)
+		if err != nil {
+			return err
+		}
+		if found {
+			continue
+		}
 		disposition := diagnosticEventDisposition{
 			SourceKey: source.SourceKey, SourceVersion: source.SourceVersion,
 			FirstEventID: source.FirstEventID, LastEventID: source.LastEventID, EventCount: source.EventCount,
-			Disposition: "archived", BatchID: batch.ID, BatchSHA256: batch.ContentSHA256,
+			Disposition: outcome.Disposition, BatchID: outcome.BatchID, BatchSHA256: outcome.BatchSHA256,
 		}
-		if gapReason != "" {
+		if outcome.Disposition == "discarded_by_policy" {
 			gapID, gapErr := s.recordDiagnosticOutboxGapRange(ctx, source.SourceKey, source.SourceVersion,
-				source.FirstEventID, source.LastEventID, source.EventCount, gapReason)
+				source.FirstEventID, source.LastEventID, source.EventCount, outcome.Reason)
 			if gapErr != nil {
 				return gapErr
 			}
-			disposition.Disposition, disposition.Reason, disposition.GapID = "discarded_by_policy", gapReason, gapID
+			disposition.Reason, disposition.GapID = outcome.Reason, gapID
 		}
 		if err := s.saveDiagnosticPendingDisposition(ctx, source, disposition); err != nil {
 			return err
@@ -124,6 +164,60 @@ func (s *Service) flushDiagnosticPendingPartitionLocked(ctx context.Context, dat
 		s.queueDiagnosticSourceWake(source.SourceKey, time.Now().UTC())
 	}
 	return nil
+}
+
+func (s *Service) persistDiagnosticPendingOutcome(ctx context.Context, date string, pending diagnosticPendingBatch, outcome diagnosticPendingOutcome) (string, error) {
+	key := diagnosticPendingBatchKey(date)
+	if err := inventory.Update(ctx, s.store, key, func(current *diagnosticPendingPartition) error {
+		if current.SchemaVersion != 1 || current.Date != date || current.Batch == nil ||
+			!sameDiagnosticPendingContent(*current.Batch, pending) {
+			return storage.ErrConditionFailed
+		}
+		if current.Batch.FlushOutcome != nil {
+			if *current.Batch.FlushOutcome != outcome {
+				return storage.ErrCorruptObject
+			}
+			return nil
+		}
+		current.Batch.FlushOutcome = &outcome
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	_, version, err := inventory.Read[diagnosticPendingPartition](ctx, s.store, key)
+	return version, err
+}
+
+func sameDiagnosticPendingContent(left, right diagnosticPendingBatch) bool {
+	leftHash, leftErr := diagnosticEventRangeHash(left.Events)
+	rightHash, rightErr := diagnosticEventRangeHash(right.Events)
+	if leftErr != nil || rightErr != nil || leftHash != rightHash || left.Date != right.Date || left.Critical != right.Critical || len(left.Sources) != len(right.Sources) {
+		return false
+	}
+	for index := range left.Sources {
+		if left.Sources[index] != right.Sources[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Service) diagnosticPendingDisposition(ctx context.Context, source diagnosticPendingSource) (diagnosticEventDisposition, bool, error) {
+	key := diagnostics.Prefix + "collected/" + diagnostics.ID(source.SourceKey) + ".json"
+	receipt, _, err := inventory.Read[eventCollectionReceipt](ctx, s.store, key)
+	if errors.Is(err, storage.ErrNotFound) {
+		return diagnosticEventDisposition{}, false, nil
+	}
+	if err != nil {
+		return diagnosticEventDisposition{}, false, err
+	}
+	for _, disposition := range receipt.Dispositions {
+		if disposition.SourceVersion == source.SourceVersion && disposition.FirstEventID == source.FirstEventID &&
+			disposition.LastEventID == source.LastEventID && disposition.EventCount == source.EventCount {
+			return disposition, true, nil
+		}
+	}
+	return diagnosticEventDisposition{}, false, nil
 }
 
 func (s *Service) saveDiagnosticPendingDisposition(ctx context.Context, source diagnosticPendingSource, disposition diagnosticEventDisposition) error {

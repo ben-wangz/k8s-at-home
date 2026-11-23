@@ -24,6 +24,18 @@ type diagnosticSourceWakeTiming struct {
 	AdmittedAt time.Time
 }
 
+const diagnosticPendingRecoveryInterval = time.Minute
+
+func (s *Service) signalDiagnosticBatchWake() {
+	if s.diagnosticBatchWake == nil {
+		return
+	}
+	select {
+	case s.diagnosticBatchWake <- struct{}{}:
+	default:
+	}
+}
+
 func (s *Service) queueDiagnosticSourceWake(key string, committedAt time.Time) {
 	if s.diagnosticSourceWakes == nil || !diagnosticOutboxSourceKey(key) {
 		return
@@ -60,28 +72,65 @@ func diagnosticOutboxSourceKey(key string) bool {
 }
 
 func (s *Service) runDiagnosticSourceWakeSink(ctx context.Context) {
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	var nextDeadline, retryAt time.Time
+	retryDelay := time.Second
+	resetTimer := func(delay time.Duration) {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		if delay < 0 {
+			delay = 0
+		}
+		timer.Reset(delay)
+	}
+	scheduleScan := func(now time.Time) {
+		next := now.Add(diagnosticPendingRecoveryInterval)
+		if !nextDeadline.IsZero() && nextDeadline.Before(next) {
+			next = nextDeadline
+		}
+		resetTimer(time.Until(next))
+	}
+	scan := func(now time.Time) {
+		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
+		deadline, err := s.scanDiagnosticPendingBatches(bounded, now.UTC())
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			s.diagnosticSourceErrors.Add(1)
+			if s.metrics != nil {
+				s.metrics.recordEvent("diagnostic_source_batch_flush_failed")
+			}
+			s.updateWorker("diagnostic_source_events", func(state *workerStatus) {
+				state.State, state.ErrorClass = "backoff", diagnosticReason(err)
+			})
+			nextDeadline = time.Time{}
+			retryAt = now.Add(retryDelay)
+			retryDelay = min(retryDelay*2, time.Minute)
+			resetTimer(time.Until(retryAt))
+			return
+		}
+		nextDeadline = deadline
+		retryAt = time.Time{}
+		retryDelay = time.Second
+		s.updateWorker("diagnostic_source_events", func(state *workerStatus) {
+			state.State, state.ErrorClass = "idle", ""
+		})
+		scheduleScan(now)
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case now := <-ticker.C:
-			bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
-			err := s.flushDueDiagnosticBatches(bounded, now.UTC())
-			cancel()
-			if err != nil && ctx.Err() == nil {
-				s.diagnosticSourceErrors.Add(1)
-				if s.metrics != nil {
-					s.metrics.recordEvent("diagnostic_source_batch_flush_failed")
-				}
-				s.updateWorker("diagnostic_source_events", func(state *workerStatus) {
-					state.State, state.ErrorClass = "backoff", diagnosticReason(err)
-				})
-			} else if err == nil {
-				s.updateWorker("diagnostic_source_events", func(state *workerStatus) {
-					state.State, state.ErrorClass = "idle", ""
-				})
+		case now := <-timer.C:
+			scan(now.UTC())
+		case <-s.diagnosticBatchWake:
+			now := time.Now().UTC()
+			if retryAt.IsZero() || !now.Before(retryAt) {
+				scan(now)
 			}
 		case wake := <-s.diagnosticSourceWakes:
 			s.diagnosticSourceWakeMu.Lock()

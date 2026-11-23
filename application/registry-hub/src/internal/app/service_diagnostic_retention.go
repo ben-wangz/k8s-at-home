@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/inventory"
@@ -17,6 +18,7 @@ func (s *Service) runDiagnosticRetention(ctx context.Context) {
 		{"diagnostic_retention_event_batches", diagnostics.BatchPrefix},
 		{"diagnostic_retention_event_budgets", diagnostics.Prefix + "event-budgets/"},
 		{"diagnostic_retention_collected", diagnostics.Prefix + "collected/"},
+		{"diagnostic_retention_source_leases", "leases/diagnostics/event-outbox/"},
 		{"diagnostic_retention_notification_work", diagnostics.Prefix + "notification-work/"},
 		{"diagnostic_retention_work_history", terminalWorkHistoryPrefix},
 		{"diagnostic_retention_work_history_index", terminalWorkHistoryOrderPrefix},
@@ -57,6 +59,8 @@ func (s *Service) cleanupDiagnosticRetentionEntry(ctx context.Context, entry sto
 			incrementSweepCount(p, "skipped", 1)
 		}
 		return nil
+	case strings.HasPrefix(entry.Key, "leases/diagnostics/event-outbox/"):
+		return s.cleanupReleasedDiagnosticSourceLease(ctx, entry, p)
 	case strings.HasPrefix(entry.Key, diagnostics.Prefix+"events/"):
 		age = s.diagnosticsConfig().EventRetention
 	case strings.HasPrefix(entry.Key, terminalWorkHistoryPrefix):
@@ -153,6 +157,33 @@ func (s *Service) cleanupDiagnosticRetentionEntry(ctx context.Context, entry sto
 		age = s.diagnosticsConfig().TransferObservationRetention
 	}
 	if age == 0 || entry.ModTime == 0 || time.Since(time.Unix(0, entry.ModTime)) < age {
+		incrementSweepCount(p, "skipped", 1)
+		return nil
+	}
+	if err := s.deleteDiagnosticObservation(ctx, entry); err != nil {
+		return err
+	}
+	incrementSweepCount(p, "deleted", 1)
+	return nil
+}
+
+func (s *Service) cleanupReleasedDiagnosticSourceLease(ctx context.Context, entry storage.Entry, p *sourceSweepCheckpoint) error {
+	object, err := s.store.Get(ctx, entry.Key)
+	if errors.Is(err, storage.ErrNotFound) {
+		incrementSweepCount(p, "deleted", 1)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer object.Body.Close()
+	var state struct {
+		State string `json:"state"`
+	}
+	if err := json.NewDecoder(object.Body).Decode(&state); err != nil {
+		return storage.ErrCorruptObject
+	}
+	if state.State != "released" {
 		incrementSweepCount(p, "skipped", 1)
 		return nil
 	}

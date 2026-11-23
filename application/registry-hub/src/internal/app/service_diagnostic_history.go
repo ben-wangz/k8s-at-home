@@ -124,7 +124,7 @@ func (s *Service) collectDiagnosticOutboxVersion(ctx context.Context, source, so
 		return nil
 	}
 	ctx = context.WithValue(ctx, diagnosticWriteKey{}, true)
-	return s.withDiagnosticFencedLease(ctx, diagnosticSourceLeaseKey(source), func(guarded context.Context) error {
+	return s.withDiagnosticSourceFencedLease(ctx, source, func(guarded context.Context) error {
 		return s.collectDiagnosticOutboxVersionLocked(guarded, source, sourceVersion, events)
 	})
 }

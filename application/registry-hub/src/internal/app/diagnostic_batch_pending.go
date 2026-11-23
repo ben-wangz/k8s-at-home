@@ -32,8 +32,16 @@ type diagnosticPendingBatch struct {
 	FirstAdmittedAt  time.Time                 `json:"firstAdmittedAt"`
 	OrdinaryDeadline time.Time                 `json:"ordinaryDeadline,omitempty"`
 	CriticalDeadline time.Time                 `json:"criticalDeadline,omitempty"`
+	FlushOutcome     *diagnosticPendingOutcome `json:"flushOutcome,omitempty"`
 	Events           []diagnostics.Event       `json:"events"`
 	Sources          []diagnosticPendingSource `json:"sources"`
+}
+
+type diagnosticPendingOutcome struct {
+	Disposition string `json:"disposition"`
+	Reason      string `json:"reason,omitempty"`
+	BatchID     string `json:"batchID,omitempty"`
+	BatchSHA256 string `json:"batchSHA256,omitempty"`
 }
 
 type diagnosticPendingPartition struct {

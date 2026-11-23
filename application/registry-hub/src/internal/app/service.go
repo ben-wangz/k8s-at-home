@@ -96,6 +96,7 @@ type Service struct {
 	diagnosticSourceWakes   chan diagnosticSourceWake
 	diagnosticSourceWakeMu  sync.Mutex
 	diagnosticSourcePending map[string]struct{}
+	diagnosticBatchWake     chan struct{}
 	diagnosticSourceDrops   atomic.Uint64
 	diagnosticSourceErrors  atomic.Uint64
 	logRecordsDropped       func() uint64
@@ -169,7 +170,7 @@ func New(cfg config.Config, logger *slog.Logger) (*Service, error) {
 	gate.recovery = controlled
 	controlled.blocked.Store(true)
 	service := &Service{
-		startedAt: time.Now().UTC(), instanceID: requestID(), diagnosticEvents: make(chan diagnostics.Event, 256), diagnosticSourceWakes: make(chan diagnosticSourceWake, 256), diagnosticSourcePending: make(map[string]struct{}),
+		startedAt: time.Now().UTC(), instanceID: requestID(), diagnosticEvents: make(chan diagnostics.Event, 256), diagnosticSourceWakes: make(chan diagnosticSourceWake, 256), diagnosticSourcePending: make(map[string]struct{}), diagnosticBatchWake: make(chan struct{}, 1),
 		cfg: cfg, logger: logger, store: store, registry: registry, upstream: remote,
 		cache: artifact.NewCache(store), gate: gate, metrics: serviceMetrics, cursorKey: cursorKey, ctx: ctx, cancel: cancel,
 		records:     tasks.NewRecords(store),

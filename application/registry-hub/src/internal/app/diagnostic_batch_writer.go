@@ -2,7 +2,11 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"time"
 
 	"registry-hub/internal/diagnostics"
@@ -26,12 +30,93 @@ func (s *Service) withDiagnosticFencedLease(ctx context.Context, key string, wor
 	return errors.Join(workErr, release())
 }
 
+func (s *Service) withDiagnosticSourceFencedLease(ctx context.Context, source string, work func(context.Context) error) error {
+	manager := lease.NewManager(s.store)
+	owner := s.instanceID + "/" + requestID()
+	legacyCtx, legacyHolder, releaseLegacy, err := s.acquireBackgroundUnitLease(ctx, "diagnostic_source_events", manager,
+		diagnosticSourceLeaseKey(source), owner, time.Minute)
+	if errors.Is(err, lease.ErrHeld) {
+		return storage.ErrConditionFailed
+	}
+	if err != nil {
+		return err
+	}
+	shardCtx, shardHolder, releaseShard, err := s.acquireBackgroundUnitLease(legacyCtx, "diagnostic_source_events", manager,
+		diagnosticSourceLeaseShardKey(source), owner, time.Minute)
+	if err != nil {
+		if errors.Is(err, lease.ErrHeld) {
+			err = storage.ErrConditionFailed
+		}
+		return errors.Join(err, releaseLegacy(), s.deleteReleasedDiagnosticSourceLease(ctx, legacyHolder.Key))
+	}
+	guarded := inventory.WithWriteGuard(shardCtx, func(check context.Context) error {
+		if err := manager.Validate(check, legacyHolder); err != nil {
+			return err
+		}
+		return manager.Validate(check, shardHolder)
+	})
+	workErr := work(guarded)
+	releaseErr := errors.Join(releaseShard(), releaseLegacy())
+	if releaseErr == nil {
+		releaseErr = s.deleteReleasedDiagnosticSourceLease(ctx, legacyHolder.Key)
+	}
+	return errors.Join(workErr, releaseErr)
+}
+
+func (s *Service) deleteReleasedDiagnosticSourceLease(ctx context.Context, key string) error {
+	object, err := s.store.Get(ctx, key)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(object.Body, 1<<20))
+	closeErr := object.Body.Close()
+	if readErr != nil || closeErr != nil {
+		return errors.Join(readErr, closeErr)
+	}
+	var state struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return storage.ErrCorruptObject
+	}
+	if state.State != "released" {
+		return nil
+	}
+	entry, err := s.store.Head(ctx, key)
+	if errors.Is(err, storage.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if object.Version != "" {
+		if entry.Version != object.Version {
+			return nil
+		}
+	} else if object.ModTime != entry.ModTime || object.Size != entry.Size {
+		return nil
+	}
+	err = s.store.DeleteIfMatch(ctx, key, sourceEntryVersion(entry))
+	if errors.Is(err, storage.ErrNotFound) || errors.Is(err, storage.ErrConditionFailed) {
+		return nil
+	}
+	return err
+}
+
 func diagnosticPartitionLeaseKey(date string) string {
 	return "diagnostics/event-batch-writer/" + date
 }
 
 func diagnosticSourceLeaseKey(source string) string {
 	return "diagnostics/event-outbox/" + diagnostics.ID("source-lease", source)
+}
+
+func diagnosticSourceLeaseShardKey(source string) string {
+	hash := sha256.Sum256([]byte(source))
+	return fmt.Sprintf("diagnostics/event-outbox-shards/%02x", hash[0])
 }
 
 func (s *Service) appendDiagnosticBatchFenced(ctx context.Context, events []diagnostics.Event, critical bool) (diagnostics.EventBatch, error) {
@@ -116,7 +201,7 @@ func (s *Service) admitDiagnosticOutboxBatch(ctx context.Context, source, source
 		if batch := partition.Batch; batch != nil {
 			if batch.Critical != diagnosticCriticalEvent(events[0]) ||
 				!diagnosticPendingBatchFits(append(append([]diagnostics.Event(nil), batch.Events...), events...), date) ||
-				!batch.deadline().After(time.Now().UTC()) {
+				!batch.deadline().After(time.Now().UTC()) || batch.FlushOutcome != nil {
 				if err := s.flushDiagnosticPendingPartitionLocked(guarded, date, partition, version); err != nil {
 					return err
 				}
@@ -150,6 +235,7 @@ func (s *Service) admitDiagnosticOutboxBatch(ctx context.Context, source, source
 		if err := s.saveDiagnosticPendingPartition(guarded, date, partition); err != nil {
 			return err
 		}
+		s.signalDiagnosticBatchWake()
 		if len(batch.Events) >= diagnostics.BatchMaxEvents {
 			stored, storedVersion, err := inventory.Read[diagnosticPendingPartition](guarded, s.store, key)
 			if err != nil {
