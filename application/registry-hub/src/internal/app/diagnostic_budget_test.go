@@ -2,12 +2,38 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"testing"
 	"time"
 
+	"registry-hub/internal/auth"
+	"registry-hub/internal/config"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 )
+
+func TestEventsAPIUsesConfiguredBatchBudget(t *testing.T) {
+	f := newStagedAcceptanceFixture(t, 1<<20)
+	f.service.cfg.AdminAuth = config.Auth{Basic: []config.Credential{{Username: "observer", Password: "secret", Permissions: []string{auth.Observe}}}}
+	f.service.cfg.Diagnostics = config.Diagnostics{
+		EventBatchDailyBytes: 4096, EventBatchDailyCount: 20,
+		EventBatchGlobalBytes: 32768, EventBatchGlobalCount: 100,
+		EventBatchDailyCriticalBytes: 1024, EventBatchDailyCriticalCount: 5,
+		EventBatchGlobalCriticalBytes: 8192, EventBatchGlobalCriticalCount: 20,
+	}
+
+	response := diagnosticGet(t, f.service, "/api/v1/events")
+	var page eventPage
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &page) != nil || page.TodayBatchBudget == nil {
+		t.Fatalf("events budget response = %d %s", response.Code, response.Body.String())
+	}
+	budget := page.TodayBatchBudget
+	if budget.DailyBytesLimit != 4096 || budget.DailyBatchesLimit != 20 || budget.GlobalBytesLimit != 32768 || budget.GlobalBatchesLimit != 100 ||
+		budget.DailyCriticalBytes != 1024 || budget.DailyCriticalBatches != 5 || budget.GlobalCriticalBytes != 8192 || budget.GlobalCriticalBatches != 20 {
+		t.Fatalf("events API returned default batch budget: %+v", budget)
+	}
+}
 
 func TestBackgroundAdmissionDoesNotConsumeExecutionBudget(t *testing.T) {
 	s := &Service{backgroundSlots: make(chan struct{}, 1)}

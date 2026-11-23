@@ -5,10 +5,21 @@ import (
 	"time"
 
 	"registry-hub/internal/config"
+	"registry-hub/internal/diagnostics"
 )
 
 func (s *Service) diagnosticsConfig() config.Diagnostics {
 	return s.cfg.Diagnostics.WithDefaults()
+}
+
+func (s *Service) diagnosticBatchPolicy() diagnostics.BatchPolicy {
+	cfg := s.diagnosticsConfig()
+	return diagnostics.BatchPolicy{
+		DailyBytes: cfg.EventBatchDailyBytes, DailyBatches: cfg.EventBatchDailyCount,
+		GlobalBytes: cfg.EventBatchGlobalBytes, GlobalBatches: cfg.EventBatchGlobalCount,
+		DailyCriticalBytes: cfg.EventBatchDailyCriticalBytes, DailyCriticalBatches: cfg.EventBatchDailyCriticalCount,
+		GlobalCriticalBytes: cfg.EventBatchGlobalCriticalBytes, GlobalCriticalBatches: cfg.EventBatchGlobalCriticalCount,
+	}
 }
 
 func (s *Service) sourceSweepDelay(kind string, idleRounds int, retry bool) time.Duration {

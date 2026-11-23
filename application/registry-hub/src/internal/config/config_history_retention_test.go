@@ -59,6 +59,46 @@ func TestLoadUsesConfiguredHistoryRetentionDurations(t *testing.T) {
 	}
 }
 
+func TestLoadUsesConfiguredDiagnosticEventBatchPolicy(t *testing.T) {
+	clearRegistryHubEnvironment(t)
+	t.Setenv("REGISTRY_HUB_ADMIN_AUTH_CONFIG", `{"basic":[{"username":"admin","password":"secret","permissions":["task-admin"]}]}`)
+	t.Setenv("REGISTRY_HUB_DISTRIBUTION_AUTH_CONFIG", `{"username":"registry","password":"secret"}`)
+	for name, value := range map[string]string{
+		"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_BYTES_LIMIT":             "4096",
+		"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_COUNT_LIMIT":             "20",
+		"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_BYTES_LIMIT":            "32768",
+		"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_COUNT_LIMIT":            "100",
+		"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_CRITICAL_RESERVE_BYTES":  "1024",
+		"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_CRITICAL_RESERVE_COUNT":  "5",
+		"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_CRITICAL_RESERVE_BYTES": "8192",
+		"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_CRITICAL_RESERVE_COUNT": "20",
+	} {
+		t.Setenv(name, value)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("load configured diagnostic event batch policy: %v", err)
+	}
+	got := loaded.Diagnostics
+	if got.EventBatchDailyBytes != 4096 || got.EventBatchDailyCount != 20 || got.EventBatchGlobalBytes != 32768 ||
+		got.EventBatchGlobalCount != 100 || got.EventBatchDailyCriticalBytes != 1024 || got.EventBatchDailyCriticalCount != 5 ||
+		got.EventBatchGlobalCriticalBytes != 8192 || got.EventBatchGlobalCriticalCount != 20 {
+		t.Fatalf("configured batch policy = %#v", got)
+	}
+}
+
+func TestLoadRejectsCriticalBatchReserveAboveTotal(t *testing.T) {
+	clearRegistryHubEnvironment(t)
+	t.Setenv("REGISTRY_HUB_ADMIN_AUTH_CONFIG", `{"basic":[{"username":"admin","password":"secret","permissions":["task-admin"]}]}`)
+	t.Setenv("REGISTRY_HUB_DISTRIBUTION_AUTH_CONFIG", `{"username":"registry","password":"secret"}`)
+	t.Setenv("REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_BYTES_LIMIT", "1024")
+	t.Setenv("REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_CRITICAL_RESERVE_BYTES", "1025")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load accepted a critical byte reserve larger than the daily byte limit")
+	}
+}
+
 func TestLoadRejectsOutOfRangeHistorySweepInterval(t *testing.T) {
 	clearRegistryHubEnvironment(t)
 	t.Setenv("REGISTRY_HUB_ADMIN_AUTH_CONFIG", `{"basic":[{"username":"admin","password":"secret","permissions":["task-admin"]}]}`)

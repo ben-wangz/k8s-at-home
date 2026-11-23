@@ -65,8 +65,12 @@ func (s *Service) recordDiagnosticOutboxGap(ctx context.Context, source, version
 	if len(events) > 0 {
 		first, last = events[0].ID, events[len(events)-1].ID
 	}
+	return s.recordDiagnosticOutboxGapRange(ctx, source, version, first, last, len(events), reason)
+}
+
+func (s *Service) recordDiagnosticOutboxGapRange(ctx context.Context, source, version, first, last string, eventCount int, reason string) (string, error) {
 	id := diagnostics.ID("outbox-gap", source, version, first, last, reason)
-	record := diagnosticCoverageGapRecord{ID: id, SourceKey: source, SourceVersion: version, FirstEventID: first, LastEventID: last, EventCount: len(events), Reason: reason, OccurredAt: time.Now().UTC()}
+	record := diagnosticCoverageGapRecord{ID: id, SourceKey: source, SourceVersion: version, FirstEventID: first, LastEventID: last, EventCount: eventCount, Reason: reason, OccurredAt: time.Now().UTC()}
 	created := false
 	if err := inventory.Update(ctx, s.store, diagnostics.Prefix+"gaps/"+id+".json", func(value *diagnosticCoverageGapRecord) error {
 		created = false
@@ -84,7 +88,7 @@ func (s *Service) recordDiagnosticOutboxGap(ctx context.Context, source, version
 	if err := inventory.Update(ctx, s.store, diagnostics.Prefix+"coverage.json", func(value *diagnosticHistoryCoverage) error {
 		value.LastGapAt, value.Reason = record.OccurredAt, reason
 		value.GapCount++
-		value.DroppedEvents += uint64(len(events))
+		value.DroppedEvents += uint64(eventCount)
 		value.DroppedBatches++
 		return nil
 	}); err != nil {

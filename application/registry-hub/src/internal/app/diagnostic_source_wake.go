@@ -22,7 +22,6 @@ type diagnosticSourceWakeTimingKey struct{}
 
 type diagnosticSourceWakeTiming struct {
 	AdmittedAt time.Time
-	Recorded   bool
 }
 
 func (s *Service) queueDiagnosticSourceWake(key string, committedAt time.Time) {
@@ -61,10 +60,29 @@ func diagnosticOutboxSourceKey(key string) bool {
 }
 
 func (s *Service) runDiagnosticSourceWakeSink(ctx context.Context) {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case now := <-ticker.C:
+			bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
+			err := s.flushDueDiagnosticBatches(bounded, now.UTC())
+			cancel()
+			if err != nil && ctx.Err() == nil {
+				s.diagnosticSourceErrors.Add(1)
+				if s.metrics != nil {
+					s.metrics.recordEvent("diagnostic_source_batch_flush_failed")
+				}
+				s.updateWorker("diagnostic_source_events", func(state *workerStatus) {
+					state.State, state.ErrorClass = "backoff", diagnosticReason(err)
+				})
+			} else if err == nil {
+				s.updateWorker("diagnostic_source_events", func(state *workerStatus) {
+					state.State, state.ErrorClass = "idle", ""
+				})
+			}
 		case wake := <-s.diagnosticSourceWakes:
 			s.diagnosticSourceWakeMu.Lock()
 			delete(s.diagnosticSourcePending, wake.Key)
@@ -134,17 +152,5 @@ func (s *Service) collectDiagnosticSourceOutbox(ctx context.Context, key string,
 			events[index].TaskID, events[index].IntentID, events[index].TransferID, events[index].ImageID = association.TaskID, association.IntentID, association.TransferID, association.ImageID
 		}
 	}
-	for attempt := 0; attempt <= diagnostics.OutboxLimit; attempt++ {
-		if err := s.collectDiagnosticOutboxVersion(ctx, key, version, events); err != nil {
-			return err
-		}
-		receipt, _, err := inventory.Read[eventCollectionReceipt](ctx, s.store, diagnostics.Prefix+"collected/"+diagnostics.ID(key)+".json")
-		if err != nil {
-			return err
-		}
-		if diagnosticOutboxSettled(key, version, events, receipt) {
-			return nil
-		}
-	}
-	return storage.ErrUnavailable
+	return s.collectDiagnosticOutboxVersion(ctx, key, version, events)
 }

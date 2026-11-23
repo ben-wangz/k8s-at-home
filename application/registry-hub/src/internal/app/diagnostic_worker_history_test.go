@@ -77,6 +77,9 @@ func TestSourceSweepRestoresFailureAndPersistsRecovery(t *testing.T) {
 	if err := f.service.collectDiagnosticOutbox(ctx, sourceSweepKey("source_tasks"), recovered.DiagnosticOutbox); err != nil {
 		t.Fatal(err)
 	}
+	if err := f.service.flushDiagnosticPendingPartition(ctx, diagnostics.EventBatchDate(recovered.DiagnosticOutbox[0]), true); err != nil {
+		t.Fatalf("flush recovered source events: %v", err)
+	}
 	for _, event := range recovered.DiagnosticOutbox {
 		if _, err := f.service.store.Head(ctx, diagnostics.EventKey(event)); err == nil {
 			continue

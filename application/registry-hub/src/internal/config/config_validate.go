@@ -17,6 +17,27 @@ func (c Config) Validate() error {
 	if diagnostics.CriticalEventFlushInterval != 0 && (diagnostics.CriticalEventFlushInterval < time.Second || diagnostics.CriticalEventFlushInterval > time.Minute) {
 		return errors.New("REGISTRY_HUB_DIAGNOSTIC_EVENT_CRITICAL_FLUSH_SECONDS must be between 1 and 60 seconds")
 	}
+	for _, limit := range []struct {
+		name  string
+		value int64
+	}{
+		{"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_BYTES_LIMIT", diagnostics.EventBatchDailyBytes},
+		{"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_COUNT_LIMIT", diagnostics.EventBatchDailyCount},
+		{"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_BYTES_LIMIT", diagnostics.EventBatchGlobalBytes},
+		{"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_COUNT_LIMIT", diagnostics.EventBatchGlobalCount},
+		{"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_CRITICAL_RESERVE_BYTES", diagnostics.EventBatchDailyCriticalBytes},
+		{"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_CRITICAL_RESERVE_COUNT", diagnostics.EventBatchDailyCriticalCount},
+		{"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_CRITICAL_RESERVE_BYTES", diagnostics.EventBatchGlobalCriticalBytes},
+		{"REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_CRITICAL_RESERVE_COUNT", diagnostics.EventBatchGlobalCriticalCount},
+	} {
+		if limit.value <= 0 {
+			return fmt.Errorf("%s must be greater than zero", limit.name)
+		}
+	}
+	if diagnostics.EventBatchDailyCriticalBytes > diagnostics.EventBatchDailyBytes || diagnostics.EventBatchDailyCriticalCount > diagnostics.EventBatchDailyCount ||
+		diagnostics.EventBatchGlobalCriticalBytes > diagnostics.EventBatchGlobalBytes || diagnostics.EventBatchGlobalCriticalCount > diagnostics.EventBatchGlobalCount {
+		return errors.New("diagnostic event batch critical reserves must fit within their daily and global limits")
+	}
 	for _, retention := range []struct {
 		name  string
 		value time.Duration

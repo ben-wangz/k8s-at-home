@@ -187,6 +187,9 @@ func (s *Service) archiveDiagnosticReceipt(ctx context.Context, entry storage.En
 				state.OutboxComplete = true
 			} else {
 				receipt, _, err := inventory.Read[eventCollectionReceipt](ctx, s.store, diagnostics.Prefix+"collected/"+diagnostics.ID(entry.Key)+".json")
+				if errors.Is(err, storage.ErrNotFound) {
+					return errSourceBudgetYield
+				}
 				if err != nil {
 					return err
 				}

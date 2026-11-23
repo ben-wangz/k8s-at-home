@@ -18,8 +18,9 @@ func diagnosticBatchEnd(events []diagnostics.Event, offset int) int {
 		return offset
 	}
 	date := diagnostics.EventBatchDate(events[offset])
+	critical := diagnosticCriticalEvent(events[offset])
 	size, end := 256, offset
-	for end < len(events) && end-offset < diagnostics.BatchMaxEvents && diagnostics.EventBatchDate(events[end]) == date {
+	for end < len(events) && end-offset < diagnostics.BatchMaxEvents && diagnostics.EventBatchDate(events[end]) == date && diagnosticCriticalEvent(events[end]) == critical {
 		encoded, err := json.Marshal(events[end])
 		if err != nil || size+len(encoded)+1 > diagnostics.BatchMaxBytes {
 			break
@@ -96,14 +97,20 @@ func (s *Service) handoffDiagnosticOutbox(ctx context.Context, source string, ev
 		return nil
 	}
 	if err := s.collectDiagnosticOutbox(ctx, source, events); err != nil {
+		if errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrNotFound) {
+			return errSourceBudgetYield
+		}
 		return err
 	}
 	receipt, _, err := inventory.Read[eventCollectionReceipt](ctx, s.store, diagnostics.Prefix+"collected/"+diagnostics.ID(source)+".json")
+	if errors.Is(err, storage.ErrNotFound) {
+		return errSourceBudgetYield
+	}
 	if err != nil {
 		return err
 	}
 	if receipt.LastEventID != events[len(events)-1].ID {
-		return storage.ErrConditionFailed
+		return errSourceBudgetYield
 	}
 	return nil
 }
@@ -113,6 +120,16 @@ func (s *Service) collectDiagnosticOutbox(ctx context.Context, source string, ev
 }
 
 func (s *Service) collectDiagnosticOutboxVersion(ctx context.Context, source, sourceVersion string, events []diagnostics.Event) error {
+	if len(events) == 0 {
+		return nil
+	}
+	ctx = context.WithValue(ctx, diagnosticWriteKey{}, true)
+	return s.withDiagnosticFencedLease(ctx, diagnosticSourceLeaseKey(source), func(guarded context.Context) error {
+		return s.collectDiagnosticOutboxVersionLocked(guarded, source, sourceVersion, events)
+	})
+}
+
+func (s *Service) collectDiagnosticOutboxVersionLocked(ctx context.Context, source, sourceVersion string, events []diagnostics.Event) error {
 	ctx = context.WithValue(ctx, diagnosticWriteKey{}, true)
 	if len(events) == 0 {
 		return nil
@@ -122,8 +139,19 @@ func (s *Service) collectDiagnosticOutboxVersion(ctx context.Context, source, so
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {
 		return err
 	}
+	effectiveSourceVersion := sourceVersion
+	if effectiveSourceVersion == "" {
+		effectiveSourceVersion = prior.SourceVersion
+	}
+	if pending, found, err := s.pendingDiagnosticSource(ctx, source); err != nil {
+		return err
+	} else if found && pending.SourceVersion != effectiveSourceVersion {
+		return storage.ErrConditionFailed
+	}
 	dirty := false
+	checkpointTransition := false
 	if sourceVersion != "" && prior.SourceVersion != sourceVersion {
+		checkpointTransition = prior.SourceVersion != "" || prior.LastEventID != "" || len(prior.Dispositions) > 0
 		if prior.SourceVersion != "" && prior.LastEventID != "" && eventIndex(events, prior.LastEventID) >= 0 && len(prior.Dispositions) > 0 {
 			for index := range prior.Dispositions {
 				prior.Dispositions[index].SourceVersion = sourceVersion
@@ -152,6 +180,7 @@ func (s *Service) collectDiagnosticOutboxVersion(ctx context.Context, source, so
 			}
 			prior.GapIDs = appendUniqueString(prior.GapIDs, gapID)
 			prior.LastEventID, prior.Dispositions, offset, dirty = "", nil, 0, true
+			checkpointTransition = true
 		}
 	}
 	if prior.LastEventID == "" && len(events) == diagnostics.OutboxLimit && !prior.Truncated {
@@ -174,53 +203,22 @@ func (s *Service) collectDiagnosticOutboxVersion(ctx context.Context, source, so
 	if end == offset {
 		return storage.ErrCorruptObject
 	}
+	if dirty && checkpointTransition {
+		prior.UpdatedAt = time.Now().UTC()
+		if err := s.saveEventCollectionReceipt(ctx, key, prior, events); err != nil {
+			return err
+		}
+	}
 	batchEvents := events[offset:end]
-	critical := false
-	for _, event := range batchEvents {
-		critical = critical || diagnosticCriticalEvent(event)
+	effectiveVersion := sourceVersion
+	if effectiveVersion == "" {
+		effectiveVersion = prior.SourceVersion
 	}
-	if timing, ok := ctx.Value(diagnosticSourceWakeTimingKey{}).(*diagnosticSourceWakeTiming); ok && !timing.Recorded {
-		s.metrics.recordDiagnosticWakeLatency("admission_to_flush_start", time.Since(timing.AdmittedAt))
-		timing.Recorded = true
+	admittedAt := time.Now().UTC()
+	if timing, ok := ctx.Value(diagnosticSourceWakeTimingKey{}).(*diagnosticSourceWakeTiming); ok && !timing.AdmittedAt.IsZero() {
+		admittedAt = timing.AdmittedAt
 	}
-	batch, err := (diagnostics.BatchLog{Store: s.store, Retention: s.diagnosticsConfig().EventRetention}).Append(ctx, batchEvents, critical)
-	disposition := diagnosticEventDisposition{
-		SourceKey: source, SourceVersion: prior.SourceVersion, FirstEventID: batchEvents[0].ID,
-		LastEventID: batchEvents[len(batchEvents)-1].ID, EventCount: len(batchEvents), Disposition: "archived",
-	}
-	if errors.Is(err, diagnostics.ErrHistoryCapacity) || errors.Is(err, diagnostics.ErrBatchHistoryExpired) {
-		prior.Truncated = true
-		gapReason := "batch_budget_capacity"
-		if errors.Is(err, diagnostics.ErrBatchHistoryExpired) {
-			gapReason = "event_history_expired"
-		}
-		gapID, gapErr := s.recordDiagnosticOutboxGap(ctx, source, prior.SourceVersion, batchEvents, gapReason)
-		if gapErr != nil {
-			return gapErr
-		}
-		prior.GapIDs = appendUniqueString(prior.GapIDs, gapID)
-		disposition.Disposition, disposition.Reason, disposition.GapID = "discarded_by_policy", gapReason, gapID
-		if err := s.recordDiagnosticBatchGap(ctx, len(batchEvents), gapReason); err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	} else {
-		disposition.BatchID = batch.ID
-		disposition.BatchSHA256 = batch.ContentSHA256
-	}
-	prior.LastEventID = batchEvents[len(batchEvents)-1].ID
-	prior.Dispositions = appendDisposition(prior.Dispositions, disposition)
-	prior.UpdatedAt = time.Now().UTC()
-	if prior.Truncated {
-		if err := inventory.Update(ctx, s.store, diagnostics.Prefix+"coverage.json", func(value *diagnosticHistoryCoverage) error {
-			value.LastGapAt, value.Reason = prior.UpdatedAt, "source_outbox_or_daily_budget_truncated"
-			return nil
-		}); err != nil {
-			return err
-		}
-	}
-	return s.saveEventCollectionReceipt(ctx, key, prior, events)
+	return s.admitDiagnosticOutboxBatch(ctx, source, effectiveVersion, prior.LastEventID, batchEvents, admittedAt)
 }
 
 func (s *Service) saveEventCollectionReceipt(ctx context.Context, key string, next eventCollectionReceipt, events []diagnostics.Event) error {

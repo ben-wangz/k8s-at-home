@@ -70,7 +70,7 @@ func (s *Service) serveEvents(writer http.ResponseWriter, request *http.Request,
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		page.ReadErrors["budget"] = diagnosticReason(err)
 	}
-	if summary, err := (diagnostics.BatchLog{Store: s.store, Retention: retention}).Summary(ctx, time.Now().UTC().Format("20060102")); err == nil {
+	if summary, err := (diagnostics.BatchLog{Store: s.store, Policy: s.diagnosticBatchPolicy(), Retention: retention}).Summary(ctx, time.Now().UTC().Format("20060102")); err == nil {
 		page.TodayBatchBudget = &summary
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		page.ReadErrors["batchBudget"] = diagnosticReason(err)

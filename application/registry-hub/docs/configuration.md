@@ -65,12 +65,20 @@ Use `backend.extraEnvVars` and `registry.extraEnvVars` for additional container 
 
 History migration uses three opt-in backend variables. Keep `REGISTRY_HUB_HISTORY_PROJECTION_READS_ENABLED` unset while the receipt history sweep backfills terminal projections. After every backend writer runs the compatible version and the `history_receipts` scan reports a successful round with no pending retries, set it to `true` to use the ordered terminal history projections (48 hours by default). Then set `REGISTRY_HUB_FULL_WORK_RECEIPT_CLEANUP_PREVIEW=true` to run a read-only candidate scan. Inspect `GET /api/v1/workers/receipt_cleanup_preview` and its `scan.counts`, especially `eligible` and `eligible_bytes`, along with the protected and skip counts. Counts describe the current scan round and remain stable when that round resumes. Preview mode does not write completion markers or delete receipts. After reviewing a completed round, disable preview and set `REGISTRY_HUB_FULL_WORK_RECEIPT_CLEANUP_ENABLED=true` to enable conditional deletion. Preview and deletion cannot be enabled together, and both require projection reads.
 
-Retention clocks and diagnostic flush intervals are available under `backend.diagnostics` and as backend environment variables. Defaults preserve the current policy; the duration values in `GET /api/v1/history/retention` are returned in `durationsSeconds`.
+Retention clocks, diagnostic flush intervals, and event batch budgets are available under `backend.diagnostics` and as backend environment variables. Retention duration values in `GET /api/v1/history/retention` are returned in `durationsSeconds`.
 
 | Helm value | Environment variable | Default |
 | --- | --- | ---: |
 | `ordinaryEventFlushSeconds` | `REGISTRY_HUB_DIAGNOSTIC_EVENT_FLUSH_SECONDS` | 60 seconds |
 | `criticalEventFlushSeconds` | `REGISTRY_HUB_DIAGNOSTIC_EVENT_CRITICAL_FLUSH_SECONDS` | 5 seconds |
+| `eventBatchDailyBytesLimit` | `REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_BYTES_LIMIT` | 4 MiB |
+| `eventBatchDailyCountLimit` | `REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_COUNT_LIMIT` | 128 batches |
+| `eventBatchGlobalBytesLimit` | `REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_BYTES_LIMIT` | 32 MiB |
+| `eventBatchGlobalCountLimit` | `REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_COUNT_LIMIT` | 1,024 batches |
+| `eventBatchDailyCriticalReserveBytes` | `REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_CRITICAL_RESERVE_BYTES` | 1 MiB |
+| `eventBatchDailyCriticalReserveCount` | `REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_CRITICAL_RESERVE_COUNT` | 32 batches |
+| `eventBatchGlobalCriticalReserveBytes` | `REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_CRITICAL_RESERVE_BYTES` | 8 MiB |
+| `eventBatchGlobalCriticalReserveCount` | `REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_CRITICAL_RESERVE_COUNT` | 256 batches |
 | `eventRetentionSeconds` | `REGISTRY_HUB_DIAGNOSTIC_EVENT_RETENTION_SECONDS` | 7 days |
 | `eventBudgetRetentionSeconds` | `REGISTRY_HUB_DIAGNOSTIC_EVENT_BUDGET_RETENTION_SECONDS` | 8 days |
 | `collectionRetentionSeconds` | `REGISTRY_HUB_DIAGNOSTIC_COLLECTION_RETENTION_SECONDS` | 30 days |
@@ -86,5 +94,7 @@ Retention clocks and diagnostic flush intervals are available under `backend.dia
 | `retentionSweepIntervalSeconds` | `REGISTRY_HUB_HISTORY_RETENTION_SWEEP_INTERVAL_SECONDS` | 15 seconds |
 
 Retention durations accept 1 second through 365 days. Event-budget retention must be at least event retention; collection-receipt retention must be at least both event and full-receipt retention; full-receipt, transfer-observation and transfer-expiry retention must be at least terminal-history retention. Ordinary flush accepts 1 through 3,600 seconds, critical flush 1 through 60 seconds, and history and retention sweep intervals accept 1 through 900 seconds. The history sweep maximum must be at least its base interval. `historySweepIntervalSeconds` controls source history projections and receipts, `historySweepMaxIntervalSeconds` caps exponential idle-scan backoff, and `retentionSweepIntervalSeconds` controls expiration cleanup. `backend.inventory.snapshotRetentionSeconds` remains the separate control for physical inventory snapshots.
+
+Batch limits and critical reserves must be positive, and each reserve must fit within its corresponding daily or global total. The same configured limits are used by both event writers and the batch-budget summary in `GET /api/v1/events`.
 
 Generated credentials survive upgrades and uninstall. See [Security](security.md#generated-admin-credentials) for access and [Operations](operations.md#uninstall) for resource removal.

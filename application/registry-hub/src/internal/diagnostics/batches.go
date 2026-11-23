@@ -17,10 +17,10 @@ const (
 	BatchBudgetKey        = "diagnostics/v2/event-batch-budget.json"
 	BatchMaxEvents        = 128
 	BatchMaxBytes         = 64 << 10
-	BatchDailyBytesLimit  = int64(16 << 20)
-	BatchDailyCountLimit  = int64(4096)
-	BatchGlobalBytesLimit = int64(128 << 20)
-	BatchGlobalCountLimit = int64(32768)
+	BatchDailyBytesLimit  = int64(4 << 20)
+	BatchDailyCountLimit  = int64(128)
+	BatchGlobalBytesLimit = int64(32 << 20)
+	BatchGlobalCountLimit = int64(1024)
 	BatchCriticalDayBytes = int64(1 << 20)
 	BatchCriticalDayCount = int64(32)
 	BatchCriticalAllBytes = int64(8 << 20)

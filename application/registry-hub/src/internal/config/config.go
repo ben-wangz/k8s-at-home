@@ -106,6 +106,14 @@ type Solidification struct {
 type Diagnostics struct {
 	OrdinaryEventFlushInterval    time.Duration
 	CriticalEventFlushInterval    time.Duration
+	EventBatchDailyBytes          int64
+	EventBatchDailyCount          int64
+	EventBatchGlobalBytes         int64
+	EventBatchGlobalCount         int64
+	EventBatchDailyCriticalBytes  int64
+	EventBatchDailyCriticalCount  int64
+	EventBatchGlobalCriticalBytes int64
+	EventBatchGlobalCriticalCount int64
 	EventRetention                time.Duration
 	EventBudgetRetention          time.Duration
 	CollectedReceiptRetention     time.Duration
@@ -128,6 +136,14 @@ func DefaultDiagnostics() Diagnostics {
 	return Diagnostics{
 		OrdinaryEventFlushInterval:    time.Minute,
 		CriticalEventFlushInterval:    5 * time.Second,
+		EventBatchDailyBytes:          4 << 20,
+		EventBatchDailyCount:          128,
+		EventBatchGlobalBytes:         32 << 20,
+		EventBatchGlobalCount:         1024,
+		EventBatchDailyCriticalBytes:  1 << 20,
+		EventBatchDailyCriticalCount:  32,
+		EventBatchGlobalCriticalBytes: 8 << 20,
+		EventBatchGlobalCriticalCount: 256,
 		EventRetention:                7 * 24 * time.Hour,
 		EventBudgetRetention:          8 * 24 * time.Hour,
 		CollectedReceiptRetention:     30 * 24 * time.Hour,
@@ -151,6 +167,30 @@ func (c Diagnostics) WithDefaults() Diagnostics {
 	}
 	if c.CriticalEventFlushInterval <= 0 {
 		c.CriticalEventFlushInterval = defaults.CriticalEventFlushInterval
+	}
+	if c.EventBatchDailyBytes <= 0 {
+		c.EventBatchDailyBytes = defaults.EventBatchDailyBytes
+	}
+	if c.EventBatchDailyCount <= 0 {
+		c.EventBatchDailyCount = defaults.EventBatchDailyCount
+	}
+	if c.EventBatchGlobalBytes <= 0 {
+		c.EventBatchGlobalBytes = defaults.EventBatchGlobalBytes
+	}
+	if c.EventBatchGlobalCount <= 0 {
+		c.EventBatchGlobalCount = defaults.EventBatchGlobalCount
+	}
+	if c.EventBatchDailyCriticalBytes <= 0 {
+		c.EventBatchDailyCriticalBytes = defaults.EventBatchDailyCriticalBytes
+	}
+	if c.EventBatchDailyCriticalCount <= 0 {
+		c.EventBatchDailyCriticalCount = defaults.EventBatchDailyCriticalCount
+	}
+	if c.EventBatchGlobalCriticalBytes <= 0 {
+		c.EventBatchGlobalCriticalBytes = defaults.EventBatchGlobalCriticalBytes
+	}
+	if c.EventBatchGlobalCriticalCount <= 0 {
+		c.EventBatchGlobalCriticalCount = defaults.EventBatchGlobalCriticalCount
 	}
 	if c.EventRetention <= 0 {
 		c.EventRetention = defaults.EventRetention

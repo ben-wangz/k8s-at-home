@@ -120,6 +120,22 @@ spec:
               value: {{ .Values.backend.diagnostics.ordinaryEventFlushSeconds | quote }}
             - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_CRITICAL_FLUSH_SECONDS
               value: {{ .Values.backend.diagnostics.criticalEventFlushSeconds | quote }}
+            - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_BYTES_LIMIT
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.eventBatchDailyBytesLimit) | quote }}
+            - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_COUNT_LIMIT
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.eventBatchDailyCountLimit) | quote }}
+            - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_BYTES_LIMIT
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.eventBatchGlobalBytesLimit) | quote }}
+            - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_COUNT_LIMIT
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.eventBatchGlobalCountLimit) | quote }}
+            - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_CRITICAL_RESERVE_BYTES
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.eventBatchDailyCriticalReserveBytes) | quote }}
+            - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_CRITICAL_RESERVE_COUNT
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.eventBatchDailyCriticalReserveCount) | quote }}
+            - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_CRITICAL_RESERVE_BYTES
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.eventBatchGlobalCriticalReserveBytes) | quote }}
+            - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_CRITICAL_RESERVE_COUNT
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.eventBatchGlobalCriticalReserveCount) | quote }}
             - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_RETENTION_SECONDS
               value: {{ .Values.backend.diagnostics.eventRetentionSeconds | quote }}
             - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_BUDGET_RETENTION_SECONDS

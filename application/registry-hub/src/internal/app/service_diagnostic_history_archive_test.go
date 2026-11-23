@@ -52,8 +52,11 @@ func TestDiagnosticReceiptArchiveResumesOutboxAndSkipsCompletedVersion(t *testin
 	f.service.store = fault
 
 	var progress sourceSweepCheckpoint
-	if err := f.service.archiveDiagnosticReceipt(ctx, entry, &progress); !errors.Is(err, storage.ErrUnavailable) {
-		t.Fatalf("first archive error = %v, want injected failure", err)
+	if err := f.service.archiveDiagnosticReceipt(ctx, entry, &progress); !errors.Is(err, errSourceBudgetYield) {
+		t.Fatalf("first archive result = %v, want pending batch yield", err)
+	}
+	if err := f.service.flushDiagnosticPendingPartition(ctx, diagnostics.EventBatchDate(job.DiagnosticOutbox[0]), true); !errors.Is(err, storage.ErrUnavailable) {
+		t.Fatalf("first batch handoff error = %v, want injected failure", err)
 	}
 	stateKey := diagnostics.Prefix + "archive-projections/" + diagnostics.ID(sourceKey) + ".json"
 	state, _, err := inventory.Read[diagnosticReceiptArchive](ctx, fault, stateKey)
@@ -69,6 +72,9 @@ func TestDiagnosticReceiptArchiveResumesOutboxAndSkipsCompletedVersion(t *testin
 	}
 
 	fault.failCollectedWrite = 0
+	if err := f.service.flushDiagnosticPendingPartition(ctx, diagnostics.EventBatchDate(job.DiagnosticOutbox[0]), true); err != nil {
+		t.Fatalf("resume pending batch handoff: %v", err)
+	}
 	if err := f.service.archiveDiagnosticReceipt(ctx, entry, &progress); err != nil {
 		t.Fatalf("resume receipt archive: %v", err)
 	}
@@ -126,6 +132,15 @@ func TestHistoryCleanupReceiptArchiveUsesFilesystemMetadataScan(t *testing.T) {
 	var progress sourceSweepCheckpoint
 	if more := f.service.sourceSweepEntity(ctx, "history_receipts", sourceKey, &progress, f.service.archiveDiagnosticReceipt); more {
 		t.Fatal("one-receipt history sweep unexpectedly had more entities")
+	}
+	if progress.Status.Counts["archived"] != 0 {
+		t.Fatalf("archive counted before outbox commit: %#v", progress.Status.Counts)
+	}
+	if err := f.service.flushDiagnosticPendingPartition(ctx, diagnostics.EventBatchDate(job.DiagnosticOutbox[0]), true); err != nil {
+		t.Fatalf("flush pending history receipt events: %v", err)
+	}
+	if more := f.service.sourceSweepEntity(ctx, "history_receipts", sourceKey, &progress, f.service.archiveDiagnosticReceipt); more {
+		t.Fatal("one-receipt history sweep unexpectedly had more entities after resume")
 	}
 	if progress.Status.Counts["processed"] != 1 || progress.Status.Counts["archived"] != 1 {
 		t.Fatalf("history sweep status = %#v, want one archived receipt", progress.Status.Counts)

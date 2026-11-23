@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"registry-hub/internal/artifact"
 	"registry-hub/internal/auth"
 	"registry-hub/internal/config"
 	"registry-hub/internal/diagnostics"
@@ -90,6 +91,67 @@ func TestReceiptCleanupProtectsExecutionActiveAndUnsettledReceipts(t *testing.T)
 				t.Fatalf("protected receipt missing: %v", err)
 			}
 		})
+	}
+}
+
+func TestReceiptCleanupProtectsUnconsumedDistributionVerificationResult(t *testing.T) {
+	f := newStagedAcceptanceFixture(t, 1<<20)
+	ctx := context.Background()
+	manifest := f.cacheManifest(artifact.Manifest{SchemaVersion: 2, MediaType: ociManifestMediaType})
+	root := f.root("verification-receipt-retention", manifest)
+	work := distributionVerificationWork{
+		Authority: root.Authority, Repository: root.Repository, Digest: manifest.Digest,
+		TaskID: root.ID, RoundID: root.RoundID, TaskGeneration: root.Generation,
+	}
+	jobID := workqueue.ID("distribution_verification", "verification-receipt-retention")
+	payload, err := json.Marshal(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := json.Marshal(distributionVerificationResult{FailureClass: "distribution_invalid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := workqueue.Job{
+		SchemaVersion: 1, ID: jobID, Kind: "distribution_verification", Payload: payload,
+		FinalSummary: result, State: "done", CreatedAt: time.Now().Add(-5 * 24 * time.Hour),
+		CompletedAt: time.Now().Add(-4 * 24 * time.Hour),
+	}
+	entry := putTestReceipt(t, f.service, receipt)
+	if err := inventory.Update(ctx, f.service.store, "tasks/state/"+root.ID+".json", func(task *tasks.Task) error {
+		task.VerificationWorkID = jobID
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var preview sourceSweepCheckpoint
+	if err := f.service.cleanupWorkReceipt(ctx, entry, &preview, true); err != nil {
+		t.Fatal(err)
+	}
+	if preview.Status.Counts["protected_verification_result_unconsumed"] != 1 {
+		t.Fatalf("preview counts = %#v, want unconsumed verification protection", preview.Status.Counts)
+	}
+	var cleanup sourceSweepCheckpoint
+	if err := f.service.cleanupWorkReceipt(ctx, entry, &cleanup, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.store.Head(ctx, entry.Key); err != nil {
+		t.Fatalf("cleanup removed referenced verification result: %v", err)
+	}
+
+	if err := inventory.Update(ctx, f.service.store, "tasks/state/"+root.ID+".json", func(task *tasks.Task) error {
+		task.VerificationWorkID = ""
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cleanup = sourceSweepCheckpoint{}
+	if err := f.service.cleanupWorkReceipt(ctx, entry, &cleanup, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.service.store.Head(ctx, entry.Key); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("unreferenced verification result remains: %v", err)
 	}
 }
 

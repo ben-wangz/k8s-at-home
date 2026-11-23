@@ -64,6 +64,14 @@ func TestBatchLogIsStableAndReservesCapacityBeforeWrite(t *testing.T) {
 	}
 }
 
+func TestObservationBatchPolicyUsesConfiguredStartingCeilings(t *testing.T) {
+	policy := ObservationBatchPolicy()
+	if policy.DailyBytes != 4<<20 || policy.DailyBatches != 128 || policy.GlobalBytes != 32<<20 || policy.GlobalBatches != 1024 ||
+		policy.DailyCriticalBytes != 1<<20 || policy.DailyCriticalBatches != 32 || policy.GlobalCriticalBytes != 8<<20 || policy.GlobalCriticalBatches != 256 {
+		t.Fatalf("observation batch policy = %+v", policy)
+	}
+}
+
 func TestBatchLogUsesConfiguredRetention(t *testing.T) {
 	store, err := filesystem.New(t.TempDir())
 	if err != nil {

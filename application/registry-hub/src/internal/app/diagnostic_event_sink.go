@@ -141,7 +141,7 @@ func (s *Service) flushDiagnosticEvents(ctx context.Context, events []diagnostic
 			s.diagnosticEventsDropped.Add(uint64(len(events) - offset))
 			return
 		}
-		_, err := (diagnostics.BatchLog{Store: s.store, Retention: s.diagnosticsConfig().EventRetention}).Append(bounded, events[offset:end], critical)
+		_, err := s.appendDiagnosticBatchFenced(bounded, events[offset:end], critical)
 		if err != nil {
 			s.diagnosticEventsDropped.Add(uint64(end - offset))
 			if errors.Is(err, diagnostics.ErrHistoryCapacity) {

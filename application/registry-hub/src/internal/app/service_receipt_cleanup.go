@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -91,6 +92,9 @@ func (s *Service) cleanupWorkReceipt(ctx context.Context, entry storage.Entry, p
 			return storage.ErrCorruptObject
 		}
 	}
+	if s.protectVerificationReceiptReference(ctx, kind, id, receipt, progress) {
+		return nil
+	}
 	if err := s.ensureNoActiveReceiptWork(ctx, kind, id); err != nil {
 		if errors.Is(err, storage.ErrConditionFailed) {
 			incrementSweepCount(progress, "protected_active_work", 1)
@@ -126,6 +130,9 @@ func (s *Service) cleanupWorkReceipt(ctx context.Context, entry storage.Entry, p
 		}
 		return err
 	}
+	if s.protectVerificationReceiptReference(ctx, kind, id, receipt, progress) {
+		return nil
+	}
 	current, err := s.store.Head(ctx, entry.Key)
 	if errors.Is(err, storage.ErrNotFound) {
 		incrementSweepCount(progress, "missing", 1)
@@ -155,6 +162,40 @@ func (s *Service) cleanupWorkReceipt(ctx context.Context, entry storage.Entry, p
 	}
 	incrementSweepCount(progress, "deleted", 1)
 	return nil
+}
+
+func (s *Service) protectVerificationReceiptReference(ctx context.Context, kind, id string, receipt workqueue.Job, progress *sourceSweepCheckpoint) bool {
+	if kind != "distribution_verification" {
+		return false
+	}
+	var work distributionVerificationWork
+	if json.Unmarshal(receipt.Payload, &work) != nil || work.TaskID == "" || work.Authority == "" ||
+		work.Repository == "" || work.RoundID == "" || len(work.TaskID) != 32 {
+		incrementSweepCount(progress, "protected_verification_identity_unknown", 1)
+		return true
+	}
+	if _, err := hex.DecodeString(work.TaskID); err != nil {
+		incrementSweepCount(progress, "protected_verification_identity_unknown", 1)
+		return true
+	}
+	if s.tasks == nil {
+		incrementSweepCount(progress, "protected_verification_task_unavailable", 1)
+		return true
+	}
+	task, err := s.tasks.Get(ctx, work.TaskID)
+	if errors.Is(err, storage.ErrNotFound) {
+		return false
+	}
+	if err != nil {
+		incrementSweepCount(progress, "protected_verification_task_unavailable", 1)
+		return true
+	}
+	if task.Generation == work.TaskGeneration && task.RoundID == work.RoundID && task.Authority == work.Authority &&
+		task.Repository == work.Repository && task.VerificationWorkID == id {
+		incrementSweepCount(progress, "protected_verification_result_unconsumed", 1)
+		return true
+	}
+	return false
 }
 
 func (s *Service) ensureNoActiveReceiptWork(ctx context.Context, kind, id string) error {
