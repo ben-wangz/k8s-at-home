@@ -90,6 +90,14 @@ jobs:
           go-version-file: ${{ matrix.go_mod }}
           cache-dependency-path: ${{ matrix.go_mod }}
 
+      - name: setup-helm
+        if: matrix.module == 'application/registry-hub/src'
+        uses: azure/setup-helm@v5
+
+      - name: prepare-registry-hub-chart-dependencies
+        if: matrix.module == 'application/registry-hub/src'
+        run: helm dependency build application/registry-hub/chart
+
       - name: validate-go-module-and-binaries
         env:
           MODULE_DIR: ${{ matrix.module }}
