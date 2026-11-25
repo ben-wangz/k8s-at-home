@@ -40,12 +40,18 @@ func TestInventoryRefreshLatencyWithStableContentAndChangingReference(t *testing
 		started := time.Now()
 		state.NextScanAt = time.Time{}
 		spy.edgeReads = 0
-		for step := 0; step < 10000; step++ {
+		for step := 0; ; step++ {
+			if elapsed := time.Since(started); elapsed > target {
+				t.Fatalf("round %d took %s (limit %s): build phase=%d steps=%d", round, elapsed, target, state.BuildPhase, state.Steps)
+			}
 			if step%25 == 0 {
 				_, err := f.service.inventoryBinding(ctx, inventoryIdentity("ghcr.io", "team/image", "changing"), manifest.Digest, "upstream", 0, time.Now().UTC(), true)
 				if err != nil {
 					t.Fatal(err)
 				}
+			}
+			for f.service.inventoryIdle(&state) && time.Since(started) < target {
+				time.Sleep(100 * time.Millisecond)
 			}
 			if err := f.service.advanceInventory(ctx, leader, &state); err != nil {
 				t.Fatal(err)
@@ -55,11 +61,8 @@ func TestInventoryRefreshLatencyWithStableContentAndChangingReference(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			if state.Build == nil && state.Scan.Complete && state.LastCompleteAt.After(started) {
+			if state.Build == nil && state.Scan.Complete && state.LastCompleteAt.After(started) && time.Since(started) <= target {
 				break
-			}
-			if time.Since(started) > target || step == 9999 {
-				t.Fatalf("round %d exceeded %s: build phase=%d steps=%d", round, target, state.BuildPhase, state.Steps)
 			}
 		}
 		snapshot, err := f.service.inventory.Snapshot(ctx, "", time.Minute)
