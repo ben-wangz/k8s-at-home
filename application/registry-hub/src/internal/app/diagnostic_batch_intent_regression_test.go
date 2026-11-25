@@ -94,6 +94,7 @@ func TestDiagnosticFlushIntentPreservesBatchIdentityAfterOutcomeWriteFailure(t *
 					t.Fatalf("pending flush intent = %+v, error = %v", partition.Batch, err)
 				}
 				assertDiagnosticPendingReadableByPreviousWriter(t, ctx, base, date, now, true)
+				f.service.diagnosticBatchBackoff.clear(date)
 				if err := f.service.collectDiagnosticOutboxVersion(ctx, secondSource, "second-v1", []diagnostics.Event{second}); err != nil {
 					t.Fatalf("admit second critical event after retrying frozen batch: %v", err)
 				}
@@ -195,6 +196,7 @@ func TestDiagnosticLegacyPendingBatchSettlesBeforeSamePriorityAdmission(t *testi
 	if err != nil || before.Version != after.Version {
 		t.Fatalf("failed seal changed legacy partition: before %q, after %q, error %v", before.Version, after.Version, err)
 	}
+	f.service.diagnosticBatchBackoff.clear(date)
 	if err := f.service.collectDiagnosticOutboxVersion(ctx, secondSource, "second-v1", []diagnostics.Event{second}); err != nil {
 		t.Fatalf("resume original batch before admitting the next source: %v", err)
 	}

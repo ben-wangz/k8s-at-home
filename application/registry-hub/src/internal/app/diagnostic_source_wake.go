@@ -97,9 +97,9 @@ func (s *Service) runDiagnosticSourceWakeSink(ctx context.Context) {
 	}
 	scan := func(now time.Time) {
 		bounded, cancel := context.WithTimeout(ctx, 30*time.Second)
-		deadline, err := s.scanDiagnosticPendingBatches(bounded, now.UTC())
+		deadline, batchErr, scanErr := s.scanDiagnosticPendingBatches(bounded, now.UTC())
 		cancel()
-		if err != nil && ctx.Err() == nil {
+		if err := errors.Join(batchErr, scanErr); err != nil && ctx.Err() == nil {
 			s.diagnosticSourceErrors.Add(1)
 			if s.metrics != nil {
 				s.metrics.recordEvent("diagnostic_source_batch_flush_failed")
@@ -107,8 +107,12 @@ func (s *Service) runDiagnosticSourceWakeSink(ctx context.Context) {
 			s.updateWorker("diagnostic_source_events", func(state *workerStatus) {
 				state.State, state.ErrorClass = "backoff", diagnosticReason(err)
 			})
-			nextDeadline = time.Time{}
-			retryAt = now.Add(retryDelay)
+		}
+		if scanErr != nil {
+			retryAt = time.Now().Add(retryDelay)
+			if !deadline.IsZero() && deadline.Before(retryAt) {
+				retryAt = deadline
+			}
 			retryDelay = min(retryDelay*2, time.Minute)
 			resetTimer(time.Until(retryAt))
 			return
@@ -116,9 +120,11 @@ func (s *Service) runDiagnosticSourceWakeSink(ctx context.Context) {
 		nextDeadline = deadline
 		retryAt = time.Time{}
 		retryDelay = time.Second
-		s.updateWorker("diagnostic_source_events", func(state *workerStatus) {
-			state.State, state.ErrorClass = "idle", ""
-		})
+		if batchErr == nil {
+			s.updateWorker("diagnostic_source_events", func(state *workerStatus) {
+				state.State, state.ErrorClass = "idle", ""
+			})
+		}
 		scheduleScan(now)
 	}
 	for {
@@ -140,6 +146,11 @@ func (s *Service) runDiagnosticSourceWakeSink(ctx context.Context) {
 			bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
 			err := s.collectDiagnosticSourceOutbox(bounded, wake.Key, wake.AdmittedAt)
 			cancel()
+			var deferred diagnosticPartitionDeferred
+			if errors.As(err, &deferred) {
+				s.updateWorker("diagnostic_source_events", func(state *workerStatus) { state.State = "backoff" })
+				continue
+			}
 			if err != nil && !errors.Is(err, storage.ErrNotFound) && !errors.Is(err, storage.ErrConditionFailed) && ctx.Err() == nil {
 				s.diagnosticSourceErrors.Add(1)
 				if s.metrics != nil {

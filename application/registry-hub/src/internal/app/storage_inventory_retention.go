@@ -27,13 +27,48 @@ func (s *Service) storageCollectionActive(ctx context.Context, id string) (bool,
 	return checkpoint.Snapshot.SnapshotID == id, err
 }
 
+func (s *Service) storageCollectionProtected(ctx context.Context, id string) (bool, error) {
+	active, err := s.storageCollectionActive(ctx, id)
+	if active || err != nil {
+		return active, err
+	}
+	latest, _, err := inventory.Read[storageSnapshot](ctx, s.store, storageInventoryPrefix+"current.json")
+	if errors.Is(err, storage.ErrNotFound) {
+		return false, nil
+	}
+	return latest.SnapshotID == id && (latest.CompletedAt.IsZero() || time.Since(latest.CompletedAt) < storageInventoryLatestRetention), err
+}
+
+func (s *Service) storageSnapshotExpiry(ctx context.Context, snapshot storageSnapshot) (time.Time, error) {
+	latest, _, err := inventory.Read[storageSnapshot](ctx, s.store, storageInventoryPrefix+"current.json")
+	if errors.Is(err, storage.ErrNotFound) {
+		return snapshot.ExpiresAt, nil
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	switch {
+	case latest.SnapshotID == snapshot.SnapshotID:
+		return latest.ExpiresAt, nil
+	case latest.PreviousSnapshotID == "" || latest.PreviousSnapshotID == snapshot.SnapshotID:
+		return snapshot.ExpiresAt, nil
+	case latest.CompletedAt.After(snapshot.CompletedAt) && !snapshot.CompletedAt.IsZero():
+		if latest.CompletedAt.Before(snapshot.ExpiresAt) {
+			return latest.CompletedAt, nil
+		}
+		return snapshot.ExpiresAt, nil
+	default:
+		return snapshot.ExpiresAt, nil
+	}
+}
+
 func (s *Service) cleanupStorageObservation(ctx context.Context, entry storage.Entry) error {
 	parts := strings.Split(strings.TrimPrefix(entry.Key, storageInventoryPrefix+"snapshots/"), "/")
 	if len(parts) < 2 || !inventory.ValidID(parts[0]) {
 		return nil
 	}
 	id := parts[0]
-	if active, err := s.storageCollectionActive(ctx, id); err != nil || active {
+	if active, err := s.storageCollectionProtected(ctx, id); err != nil || active {
 		return err
 	}
 	_, _, err := inventory.Read[storageRetention](ctx, s.store, storageRetentionPrefix+id+".json")
@@ -57,14 +92,18 @@ func (s *Service) cleanupStorageObservation(ctx context.Context, entry storage.E
 	if snapshot.SnapshotID != id || snapshot.ExpiresAt.IsZero() {
 		return storage.ErrCorruptObject
 	}
-	if snapshot.ExpiresAt.After(time.Now()) {
+	expiresAt, err := s.storageSnapshotExpiry(ctx, snapshot)
+	if err != nil {
+		return err
+	}
+	if expiresAt.After(time.Now()) {
 		// Published reports only query the final usage run; intermediate runs are disposable.
 		if snapshot.UsageVersion > 0 && strings.HasPrefix(entry.Key, prefix+"usage/") && !strings.HasPrefix(entry.Key, usageRunPrefix(id, snapshot.UsageRun)) {
 			return s.deleteStorageRetentionEntry(ctx, entry)
 		}
 		return nil
 	}
-	plan := storageRetention{SnapshotID: id, ManifestVersion: version, ExpiresAt: snapshot.ExpiresAt}
+	plan := storageRetention{SnapshotID: id, ManifestVersion: version, ExpiresAt: expiresAt}
 	if err := inventory.Update(ctx, s.store, storageRetentionPrefix+id+".json", func(value *storageRetention) error {
 		if value.SnapshotID == "" {
 			*value = plan
@@ -82,8 +121,12 @@ func (s *Service) advanceStorageRetention(ctx context.Context, id string) error 
 }
 
 func (s *Service) advanceStorageRetentionBefore(ctx context.Context, id string, cutoff time.Time) (historyCleanupEntryProgress, error) {
+	return s.advanceStorageRetentionVersion(ctx, id, cutoff, "")
+}
+
+func (s *Service) advanceStorageRetentionVersion(ctx context.Context, id string, cutoff time.Time, approvedVersion string) (historyCleanupEntryProgress, error) {
 	progress := historyCleanupEntryProgress{}
-	if active, err := s.storageCollectionActive(ctx, id); err != nil || active {
+	if active, err := s.storageCollectionProtected(ctx, id); err != nil || active {
 		return progress, err
 	}
 	key := storageRetentionPrefix + id + ".json"
@@ -99,11 +142,18 @@ func (s *Service) advanceStorageRetentionBefore(ctx context.Context, id string, 
 		if snapshot.SnapshotID != id || snapshot.ExpiresAt.IsZero() {
 			return progress, storage.ErrCorruptObject
 		}
-		if snapshot.ExpiresAt.After(cutoff) {
+		if approvedVersion != "" && manifestVersion != approvedVersion {
+			return progress, storage.ErrConditionFailed
+		}
+		expiresAt, err := s.storageSnapshotExpiry(ctx, snapshot)
+		if err != nil {
+			return progress, err
+		}
+		if expiresAt.After(cutoff) {
 			progress.Skipped++
 			return progress, nil
 		}
-		candidate := storageRetention{SnapshotID: id, ManifestVersion: manifestVersion, ExpiresAt: snapshot.ExpiresAt}
+		candidate := storageRetention{SnapshotID: id, ManifestVersion: manifestVersion, ExpiresAt: expiresAt}
 		if err := inventory.Update(ctx, s.store, key, func(current *storageRetention) error {
 			if current.SnapshotID == "" {
 				*current = candidate
@@ -122,6 +172,9 @@ func (s *Service) advanceStorageRetentionBefore(ctx context.Context, id string, 
 	}
 	if plan.SnapshotID != id || plan.ExpiresAt.IsZero() || plan.ExpiresAt.After(cutoff) || plan.ManifestVersion == "" {
 		return progress, storage.ErrCorruptObject
+	}
+	if approvedVersion != "" && plan.ManifestVersion != approvedVersion {
+		return progress, storage.ErrConditionFailed
 	}
 	prefix := storageInventoryPrefix + "snapshots/" + id + "/"
 	manifest := prefix + "manifest.json"
@@ -182,45 +235,4 @@ func (s *Service) advanceStorageRetentionBefore(ctx context.Context, id string, 
 		err = nil
 	}
 	return progress, err
-}
-
-func (s *Service) deleteHistoryEntryConditional(ctx context.Context, entry storage.Entry) (bool, bool, error) {
-	if entry.Version == "" {
-		current, err := s.store.Head(ctx, entry.Key)
-		if errors.Is(err, storage.ErrNotFound) {
-			return false, true, nil
-		}
-		if err != nil {
-			return false, false, err
-		}
-		if entry.ModTime != current.ModTime || entry.Size != current.Size {
-			return false, false, storage.ErrConditionFailed
-		}
-		entry = current
-	}
-	err := s.store.DeleteIfMatch(ctx, entry.Key, entry.Version)
-	if errors.Is(err, storage.ErrNotFound) {
-		return false, true, nil
-	}
-	if errors.Is(err, storage.ErrUnknownCommit) {
-		current, headErr := s.store.Head(ctx, entry.Key)
-		if errors.Is(headErr, storage.ErrNotFound) {
-			return true, false, nil
-		}
-		if headErr != nil {
-			return false, false, errors.Join(err, headErr)
-		}
-		if sourceEntryVersion(current) != sourceEntryVersion(entry) {
-			return false, false, storage.ErrConditionFailed
-		}
-	}
-	return err == nil, false, err
-}
-
-func (s *Service) deleteStorageRetentionEntry(ctx context.Context, entry storage.Entry) error {
-	err := s.deleteDiagnosticObservation(ctx, entry)
-	if errors.Is(err, storage.ErrNotFound) {
-		return nil
-	}
-	return err
 }

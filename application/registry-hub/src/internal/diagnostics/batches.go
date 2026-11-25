@@ -137,7 +137,16 @@ func (log BatchLog) Append(ctx context.Context, events []Event, critical bool) (
 	if err != nil {
 		return EventBatch{}, err
 	}
-	behind, err := EventDateBehindWatermark(ctx, log.Store, batch.Date)
+	holder, err := acquireEventDayLease(ctx, log.Store, batch.Date)
+	if err != nil {
+		return EventBatch{}, err
+	}
+	defer releaseEventDayLease(ctx, log.Store, holder)
+	return log.appendLocked(ctx, batch, data, reservation)
+}
+
+func (log BatchLog) appendLocked(ctx context.Context, batch EventBatch, data []byte, reservation EventBatchReservation) (EventBatch, error) {
+	behind, err := eventBatchBehindWatermark(ctx, log.Store, batch)
 	if err != nil {
 		return EventBatch{}, err
 	}
@@ -181,6 +190,25 @@ func rejectBatchIfBehindWatermark(ctx context.Context, store storage.Store, batc
 		return EventBatch{}, err
 	}
 	if !behind {
+		ranges, err := readEventDaySeal(ctx, store, batch.Date)
+		if err != nil {
+			return EventBatch{}, err
+		}
+		sealedCount := 0
+		for _, event := range batch.Events {
+			if eventInSealedRanges(event.OccurredAt, ranges) {
+				sealedCount++
+			}
+		}
+		if sealedCount == 0 {
+			return batch, nil
+		}
+		if sealedCount < len(batch.Events) {
+			return EventBatch{}, ErrBatchHistoryExpired
+		}
+		behind = true
+	}
+	if !behind {
 		return batch, nil
 	}
 	deleteErr := store.DeleteIfMatch(ctx, EventBatchKey(batch.Date, batch.ID), entry.Version)
@@ -188,6 +216,23 @@ func rejectBatchIfBehindWatermark(ctx context.Context, store storage.Store, batc
 		deleteErr = nil
 	}
 	return EventBatch{}, errors.Join(ErrBatchHistoryExpired, deleteErr)
+}
+
+func eventBatchBehindWatermark(ctx context.Context, store storage.Store, batch EventBatch) (bool, error) {
+	behind, err := EventDateBehindWatermark(ctx, store, batch.Date)
+	if err != nil || behind {
+		return behind, err
+	}
+	ranges, err := readEventDaySeal(ctx, store, batch.Date)
+	if err != nil {
+		return false, err
+	}
+	for _, event := range batch.Events {
+		if eventInSealedRanges(event.OccurredAt, ranges) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func EventBatchDate(event Event) string { return event.OccurredAt.UTC().Format("20060102") }

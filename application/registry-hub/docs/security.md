@@ -19,6 +19,36 @@ External HTTPS is terminated by Ingress or a reverse proxy. The chart's Ingress 
 
 The default admin Secret is `<fullname>-admin-auth`, with JSON stored under `config.json`. The generated account is `admin`, with `task-admin`, `referrer-prune`, and `gc-admin` permissions. The initialization Job persists an immutable Secret and an initialization record; restarts and upgrades reuse them.
 
+To enable history cleanup after upgrading, configure an external admin Secret. Do not try to edit the generated Secret: it is immutable, and its initialization record preserves the original credentials. Create a protected JSON file containing every admin account that must remain available, then add a dedicated operator credential with both `history-cleanup` and `observe`:
+
+```json
+{
+  "basic": [
+    {
+      "username": "history-operator",
+      "password": "REPLACE_WITH_A_RANDOM_PASSWORD",
+      "permissions": ["history-cleanup", "observe"]
+    }
+  ]
+}
+```
+
+If existing operators must retain access, include their credentials and permissions in the same file. Create a new Secret and point the chart at it:
+
+```sh
+kubectl -n "$NAMESPACE" create secret generic registry-hub-admin-auth-v2 \
+  --from-file=config.json=/secure/path/admin-auth.json
+```
+
+```yaml
+backend:
+  adminAuth:
+    existingSecret: registry-hub-admin-auth-v2
+    key: config.json
+```
+
+Apply the chart upgrade and verify the backend is ready before removing the old generated Secret. The chart reads the external Secret directly and skips generated admin initialization; the old immutable Secret and its initialization record can remain in place during rollout.
+
 For a default release name, prepare a temporary netrc file without printing the password. This example requires Bash, `kubectl`, and Python 3, and uses a directly reachable Service address:
 
 ```sh

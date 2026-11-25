@@ -72,7 +72,10 @@ type storageSnapshot struct {
 	StartedAt              time.Time                       `json:"startedAt"`
 	CompletedAt            time.Time                       `json:"completedAt"`
 	ExpiresAt              time.Time                       `json:"expiresAt"`
+	PreviousSnapshotID     string                          `json:"previousSnapshotID,omitempty"`
 	Pages                  int                             `json:"pages"`
+	DetailRows             int                             `json:"detailRows,omitempty"`
+	DetailBytes            int64                           `json:"detailBytes,omitempty"`
 	Domains                map[string]storageDomainSummary `json:"domains"`
 	Usage                  []storageUsage                  `json:"usage"`
 	UsageVersion           int                             `json:"usageVersion"`
@@ -119,6 +122,7 @@ type storageCollection struct {
 	RecoveryReason         string                  `json:"recoveryReason,omitempty"`
 	NextScanAt             time.Time               `json:"nextScanAt"`
 	PendingRows            []storageObject         `json:"pendingRows,omitempty"`
+	DetailLimitReached     bool                    `json:"detailLimitReached,omitempty"`
 	PendingSummary         storageUsage            `json:"pendingSummary"`
 	PendingSummaries       []storageUsage          `json:"pendingSummaries,omitempty"`
 	OutputUsage            storageUsage            `json:"outputUsage"`

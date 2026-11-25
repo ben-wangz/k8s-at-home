@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -56,6 +58,55 @@ func TestLoadUsesConfiguredHistoryRetentionDurations(t *testing.T) {
 		got.TerminalHistoryRetention != 20*time.Second || got.FullWorkReceiptRetention != 30*time.Second || got.HistoryCleanupPreviewTTL != 20*time.Second ||
 		got.HistoryCleanupResultRetention != 20*time.Second || got.HistorySweepInterval != 2*time.Second || got.HistorySweepMaxInterval != 2*time.Second || got.RetentionSweepInterval != 2*time.Second {
 		t.Fatalf("configured diagnostics durations = %#v", got)
+	}
+}
+
+func TestLoadParsesHelmHistoryRetentionDurations(t *testing.T) {
+	helm, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("Helm is required to verify rendered values")
+	}
+	keys := []string{"collectionRetentionSeconds", "retryRequestRetentionSeconds", "transferRetentionSeconds", "transferExpiryRetentionSeconds"}
+	names := []string{"REGISTRY_HUB_DIAGNOSTIC_COLLECTION_RETENTION_SECONDS", "REGISTRY_HUB_RETRY_REQUEST_RETENTION_SECONDS",
+		"REGISTRY_HUB_DIAGNOSTIC_TRANSFER_RETENTION_SECONDS", "REGISTRY_HUB_TRANSFER_EXPIRY_RETENTION_SECONDS"}
+	for _, mode := range []string{"defaults", "json"} {
+		t.Run(mode, func(t *testing.T) {
+			clearRegistryHubEnvironment(t)
+			t.Setenv("REGISTRY_HUB_ADMIN_AUTH_CONFIG", `{"basic":[{"username":"admin","password":"secret","permissions":["task-admin"]}]}`)
+			t.Setenv("REGISTRY_HUB_DISTRIBUTION_AUTH_CONFIG", `{"username":"registry","password":"secret"}`)
+			args := []string{"template", "retention-test", "../../../chart", "--show-only", "templates/backend-deployment.yaml"}
+			want := [4]time.Duration{}
+			for i, key := range keys {
+				seconds := 2592000
+				if mode == "json" {
+					seconds += i + 1
+					args = append(args, "--set-json", "backend.diagnostics."+key+"="+strconv.Itoa(seconds))
+				}
+				want[i] = time.Duration(seconds) * time.Second
+			}
+			rendered, err := exec.CommandContext(t.Context(), helm, args...).CombinedOutput()
+			if err != nil {
+				t.Fatalf("render retention configuration: %v: %s", err, rendered)
+			}
+			for _, name := range names {
+				_, tail, found := strings.Cut(string(rendered), "- name: "+name+"\n")
+				line, _, _ := strings.Cut(tail, "\n")
+				value, err := strconv.Unquote(strings.TrimPrefix(strings.TrimSpace(line), "value: "))
+				if !found || err != nil {
+					t.Fatalf("rendered %s is missing a quoted value", name)
+				}
+				t.Setenv(name, value)
+			}
+			loaded, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := loaded.Diagnostics
+			got := [4]time.Duration{cfg.CollectedReceiptRetention, cfg.RetryRequestRetention, cfg.TransferObservationRetention, cfg.TransferExpiryRetention}
+			if got != want {
+				t.Fatalf("loaded Helm durations=%v, want %v", got, want)
+			}
+		})
 	}
 }
 

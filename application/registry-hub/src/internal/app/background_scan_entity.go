@@ -13,7 +13,7 @@ var errSourceBudgetYield = errors.New("source execution budget yielded")
 func (s *Service) sourceSweepEntity(ctx context.Context, kind, prefix string, p *sourceSweepCheckpoint, step sourceSweepStep) bool {
 	entry, found, err := p.Cursor.Peek(ctx, s.store, prefix, 32)
 	if err != nil {
-		if ctx.Err() != nil && pureContextBudget(err) {
+		if errors.Is(err, errHistoryCleanupRequestBudget) || ctx.Err() != nil && pureContextBudget(err) {
 			return false
 		}
 		s.failSourceScan(ctx, kind, prefix, p, err)
@@ -34,8 +34,21 @@ func (s *Service) sourceSweepEntity(ctx context.Context, kind, prefix string, p 
 		}
 	}
 	if !p.Backoff[id].Next.After(time.Now()) {
+		pending, err := s.sourceSweepRetryPending(ctx, kind, entry)
+		if err != nil {
+			s.failSourceScan(ctx, kind, prefix, p, err)
+			return false
+		}
+		if pending {
+			return advanceSourceSweepCursor(p)
+		}
 		err = step(ctx, entry, p)
-		if errors.Is(err, errSourceBudgetYield) {
+		var deferred diagnosticPartitionDeferred
+		if errors.As(err, &deferred) {
+			p.RoundFailed = true
+			return advanceSourceSweepCursor(p)
+		}
+		if errors.Is(err, errSourceBudgetYield) || errors.Is(err, errHistoryCleanupRequestBudget) {
 			return false
 		}
 		if ctx.Err() != nil && pureContextBudget(err) {
@@ -92,6 +105,10 @@ func (s *Service) sourceSweepEntity(ctx context.Context, kind, prefix string, p 
 			incrementSweepCount(p, "processed", 1)
 		}
 	}
+	return advanceSourceSweepCursor(p)
+}
+
+func advanceSourceSweepCursor(p *sourceSweepCheckpoint) bool {
 	p.Cursor.Advance()
 	p.Status.LastCursorProgressAt = time.Now().UTC()
 	incrementSweepCount(p, "scanned", 1)
@@ -109,7 +126,7 @@ func incrementSweepCount(p *sourceSweepCheckpoint, name string, amount int64) {
 }
 
 func (s *Service) failSourceScan(ctx context.Context, kind, prefix string, p *sourceSweepCheckpoint, err error) {
-	if errors.Is(err, errSourceBudgetYield) || ctx.Err() != nil && pureContextBudget(err) {
+	if errors.Is(err, errSourceBudgetYield) || errors.Is(err, errHistoryCleanupRequestBudget) || ctx.Err() != nil && pureContextBudget(err) {
 		return
 	}
 	if s.sourceDependencyWait(ctx, kind, p, err) {

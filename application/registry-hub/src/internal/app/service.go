@@ -97,6 +97,8 @@ type Service struct {
 	diagnosticSourceWakeMu  sync.Mutex
 	diagnosticSourcePending map[string]struct{}
 	diagnosticBatchWake     chan struct{}
+	diagnosticBatchBackoff  diagnosticPartitionBackoff
+	diagnosticSealBackoff   diagnosticPartitionBackoff
 	diagnosticSourceDrops   atomic.Uint64
 	diagnosticSourceErrors  atomic.Uint64
 	logRecordsDropped       func() uint64

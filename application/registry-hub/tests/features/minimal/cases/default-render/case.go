@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/ben-wangz/registry-hub-tests/features/minimal/cases/support"
@@ -36,6 +37,31 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		return fmt.Errorf("default Helm rendering is not deterministic")
 	}
 	text := string(first)
+	defaultRetention := map[string]int64{
+		"REGISTRY_HUB_DIAGNOSTIC_COLLECTION_RETENTION_SECONDS": 2592000,
+		"REGISTRY_HUB_RETRY_REQUEST_RETENTION_SECONDS":         2592000,
+		"REGISTRY_HUB_DIAGNOSTIC_TRANSFER_RETENTION_SECONDS":   2592000,
+		"REGISTRY_HUB_TRANSFER_EXPIRY_RETENTION_SECONDS":       2592000,
+	}
+	if err := assertRetentionSeconds(text, defaultRetention); err != nil {
+		return err
+	}
+	overridden, err := renderWithNumericSettings(ctx, environment,
+		"backend.diagnostics.collectionRetentionSeconds=86400",
+		"backend.diagnostics.retryRequestRetentionSeconds=172800",
+		"backend.diagnostics.transferRetentionSeconds=259200",
+		"backend.diagnostics.transferExpiryRetentionSeconds=345600")
+	if err != nil {
+		return err
+	}
+	if err := assertRetentionSeconds(string(overridden), map[string]int64{
+		"REGISTRY_HUB_DIAGNOSTIC_COLLECTION_RETENTION_SECONDS": 86400,
+		"REGISTRY_HUB_RETRY_REQUEST_RETENTION_SECONDS":         172800,
+		"REGISTRY_HUB_DIAGNOSTIC_TRANSFER_RETENTION_SECONDS":   259200,
+		"REGISTRY_HUB_TRANSFER_EXPIRY_RETENTION_SECONDS":       345600,
+	}); err != nil {
+		return err
+	}
 	for _, expected := range []string{"kind: Job", "REGISTRY_HUB_INIT_ADMIN_AUTH", "REGISTRY_HUB_INIT_TLS", "REGISTRY_HUB_INIT_HTTP_SECRET"} {
 		if !strings.Contains(text, expected) {
 			return fmt.Errorf("default Helm rendering is missing %q", expected)
@@ -91,6 +117,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	digest := sha256.Sum256(first)
 	return support.WriteResult(environment, map[string]any{
 		"renderSHA256":                 hex.EncodeToString(digest[:]),
+		"retentionSecondsAreIntegers":  true,
 		"externalCombinations":         "verified",
 		"closureLimitOverridesAbsent":  true,
 		"adminServiceReadinessRouting": true,
@@ -129,16 +156,66 @@ func render(ctx context.Context, environment testkit.CaseContext) ([]byte, error
 }
 
 func renderWithSettings(ctx context.Context, environment testkit.CaseContext, settings ...string) ([]byte, error) {
+	return renderWithSetFlag(ctx, environment, "--set-string", settings...)
+}
+
+func renderWithNumericSettings(ctx context.Context, environment testkit.CaseContext, settings ...string) ([]byte, error) {
+	return renderWithSetFlag(ctx, environment, "--set-json", settings...)
+}
+
+func renderWithSetFlag(ctx context.Context, environment testkit.CaseContext, flag string, settings ...string) ([]byte, error) {
 	arguments := []string{"template", "rh-default-" + environment.RunID, environment.ChartDir,
 		"--namespace", environment.Namespace, "--values", environment.BaseValues}
 	for _, setting := range settings {
-		arguments = append(arguments, "--set-string", setting)
+		arguments = append(arguments, flag, setting)
 	}
 	result, err := testkit.Command(ctx, "helm", arguments...)
 	if err != nil {
 		return nil, err
 	}
 	return result.Stdout, nil
+}
+
+func assertRetentionSeconds(rendered string, expected map[string]int64) error {
+	for name, want := range expected {
+		value, ok := renderedEnvironmentValue(rendered, name)
+		if !ok {
+			return fmt.Errorf("rendered backend environment is missing %s", name)
+		}
+		got, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || got != want {
+			return fmt.Errorf("rendered %s value %q is not the expected base-10 integer %d", name, value, want)
+		}
+	}
+	return nil
+}
+
+func renderedEnvironmentValue(rendered, name string) (string, bool) {
+	lines := strings.Split(rendered, "\n")
+	for index, line := range lines {
+		if strings.TrimSpace(line) != "- name: "+name {
+			continue
+		}
+		for _, following := range lines[index+1:] {
+			valueLine := strings.TrimSpace(following)
+			if strings.HasPrefix(valueLine, "- name:") {
+				break
+			}
+			if !strings.HasPrefix(valueLine, "value:") {
+				continue
+			}
+			value := strings.TrimSpace(strings.TrimPrefix(valueLine, "value:"))
+			if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+				unquoted, err := strconv.Unquote(value)
+				if err != nil {
+					return "", false
+				}
+				value = unquoted
+			}
+			return value, true
+		}
+	}
+	return "", false
 }
 
 func rejectPartialExternalAuth(ctx context.Context, environment testkit.CaseContext, setting string) error {

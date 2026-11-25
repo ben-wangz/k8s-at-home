@@ -67,10 +67,12 @@ func (s *Service) dispatchDueSourceSweepRetry(ctx context.Context, holder lease.
 		p.Status.Operations++
 		s.updateWorker(kind, func(status *workerStatus) { status.State = "retrying" })
 		source, sourceErr := s.store.Head(ctx, retry.SourceKey)
-		if errors.Is(sourceErr, storage.ErrNotFound) || sourceErr == nil && sourceEntryIdentity(source) != retry.SourceVersion {
+		missing := errors.Is(sourceErr, storage.ErrNotFound)
+		repairBudget := missing && terminalHistoryIndexBackfillWorker(kind) && retry.SourceSize != nil
+		if missing && !repairBudget || sourceErr == nil && sourceEntryIdentity(source) != retry.SourceVersion {
 			return true, s.completeSourceRetry(ctx, manager, claim, entry, version, retry, recordVersion)
 		}
-		if sourceErr != nil {
+		if sourceErr != nil && !repairBudget {
 			_ = manager.Release(context.Background(), claim)
 			return false, sourceErr
 		}
@@ -80,8 +82,18 @@ func (s *Service) dispatchDueSourceSweepRetry(ctx context.Context, holder lease.
 			}
 			return manager.Validate(check, claim)
 		})
-		stepErr := step(runCtx, source, p)
-		if errors.Is(stepErr, errSourceBudgetYield) || ctx.Err() != nil && pureContextBudget(stepErr) {
+		var stepErr error
+		if repairBudget {
+			stepErr = s.releaseMissingTerminalHistoryBudget(runCtx, kind, retry.SourceKey, *retry.SourceSize)
+		} else {
+			stepErr = step(context.WithValue(runCtx, terminalHistoryRetryKey{}, true), source, p)
+		}
+		var deferred diagnosticPartitionDeferred
+		if errors.As(stepErr, &deferred) {
+			retry.NextAttemptAt = deferred.until.UTC()
+			return true, s.moveSourceRetry(ctx, manager, claim, entry, version, retry, recordVersion)
+		}
+		if errors.Is(stepErr, errSourceBudgetYield) || errors.Is(stepErr, errHistoryCleanupRequestBudget) || ctx.Err() != nil && pureContextBudget(stepErr) {
 			_ = manager.Release(context.Background(), claim)
 			return true, nil
 		}
@@ -113,13 +125,18 @@ func (s *Service) completeSourceRetry(ctx context.Context, manager *lease.Manage
 }
 
 func (s *Service) rescheduleSourceRetry(ctx context.Context, manager *lease.Manager, claim lease.Lease, dueEntry storage.Entry, dueVersion string, retry sourceSweepRetry, recordVersion string, cause error) error {
+	retry.Attempts++
+	retry.ErrorClass = diagnosticReason(cause)
+	delay := min(time.Second*time.Duration(1<<min(retry.Attempts, 8)), 5*time.Minute)
+	retry.NextAttemptAt = time.Now().UTC().Add(delay + time.Duration(time.Now().UnixNano()%int64(delay/4+1)))
+	return s.moveSourceRetry(ctx, manager, claim, dueEntry, dueVersion, retry, recordVersion)
+}
+
+func (s *Service) moveSourceRetry(ctx context.Context, manager *lease.Manager, claim lease.Lease, dueEntry storage.Entry, dueVersion string, retry sourceSweepRetry, recordVersion string) error {
 	if err := manager.Validate(ctx, claim); err != nil {
 		return err
 	}
 	retry.Revision++
-	retry.Attempts++
-	retry.ErrorClass = diagnosticReason(cause)
-	retry.NextAttemptAt = time.Now().UTC().Add(min(time.Second*time.Duration(1<<min(retry.Attempts, 8)), 5*time.Minute))
 	retry.UpdatedAt = time.Now().UTC()
 	data, err := json.Marshal(retry)
 	if err != nil {

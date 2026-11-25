@@ -11,60 +11,75 @@ import (
 )
 
 func (s *Service) flushDueDiagnosticBatches(ctx context.Context, now time.Time) error {
-	_, err := s.scanDiagnosticPendingBatches(ctx, now)
-	return err
+	_, batchErr, scanErr := s.scanDiagnosticPendingBatches(ctx, now)
+	return errors.Join(batchErr, scanErr)
 }
 
-func (s *Service) scanDiagnosticPendingBatches(ctx context.Context, now time.Time) (time.Time, error) {
+func (s *Service) scanDiagnosticPendingBatches(ctx context.Context, now time.Time) (nextDeadline time.Time, batchErr, scanErr error) {
 	ctx = context.WithValue(ctx, diagnosticWriteKey{}, true)
 	token := ""
-	var result error
-	var nextDeadline time.Time
 	for {
 		entries, next, err := storage.Scan(ctx, s.store, diagnosticPendingBatchPrefix, token, 100)
 		if err != nil {
-			return nextDeadline, errors.Join(result, err)
+			return nextDeadline, batchErr, errors.Join(scanErr, err)
 		}
 		for _, entry := range entries {
-			partition, _, readErr := inventory.Read[diagnosticPendingPartition](ctx, s.store, entry.Key)
-			if readErr != nil {
-				result = errors.Join(result, readErr)
-				continue
-			}
 			date, validKey := diagnosticPendingKeyDate(entry.Key)
-			if !validKey || partition.SchemaVersion != diagnosticPendingSchemaVersion || partition.Date != date || partition.Batch == nil {
-				result = errors.Join(result, storage.ErrCorruptObject)
+			if !validKey {
+				scanErr = errors.Join(scanErr, storage.ErrCorruptObject)
 				continue
 			}
-			deadline := partition.Batch.deadline()
-			if partition.Batch.readyToFlush(now) {
-				if err := s.flushDiagnosticPendingPartition(ctx, date, false); err != nil {
-					if errors.Is(err, storage.ErrConditionFailed) {
-						deadline = now.Add(time.Second)
-					} else {
-						result = errors.Join(result, err)
-					}
-				} else {
-					deadline = time.Time{}
-				}
-			}
+			deadline, err := s.scanDiagnosticPendingDate(ctx, date, now)
+			batchErr = errors.Join(batchErr, err)
 			if deadline.After(now) && (nextDeadline.IsZero() || deadline.Before(nextDeadline)) {
 				nextDeadline = deadline
 			}
 		}
 		if next == "" {
-			return nextDeadline, result
+			return nextDeadline, batchErr, scanErr
 		}
 		token = next
 	}
 }
 
+func (s *Service) scanDiagnosticPendingDate(ctx context.Context, date string, now time.Time) (time.Time, error) {
+	if retryAt := s.diagnosticBatchBackoff.dueAt(date); retryAt.After(time.Now()) {
+		return retryAt, nil
+	}
+	partition, _, err := inventory.Read[diagnosticPendingPartition](ctx, s.store, diagnosticPendingBatchKey(date))
+	switch {
+	case errors.Is(err, storage.ErrNotFound):
+		return time.Time{}, nil
+	case err != nil:
+		s.deferDiagnosticBatchRetry(date, err)
+	case partition.SchemaVersion != diagnosticPendingSchemaVersion || partition.Date != date || partition.Batch == nil:
+		return time.Time{}, storage.ErrCorruptObject
+	case !partition.Batch.readyToFlush(now):
+		return partition.Batch.deadline(), nil
+	default:
+		err = s.flushDiagnosticPendingPartition(ctx, date, false)
+		if err == nil {
+			return time.Time{}, nil
+		}
+	}
+	deadline := s.diagnosticBatchBackoff.dueAt(date)
+	if !deadline.After(now) {
+		deadline = time.Now().Add(time.Second)
+	}
+	var deferred diagnosticPartitionDeferred
+	if errors.Is(err, storage.ErrConditionFailed) || errors.As(err, &deferred) {
+		return deadline, nil
+	}
+	return deadline, err
+}
+
 func (s *Service) flushDiagnosticPendingPartition(ctx context.Context, date string, force bool) error {
 	ctx = context.WithValue(ctx, diagnosticWriteKey{}, true)
-	return s.withDiagnosticFencedLease(ctx, diagnosticPartitionLeaseKey(date), func(guarded context.Context) error {
+	return s.withDiagnosticPendingPartition(ctx, date, force, func(guarded context.Context) error {
 		key := diagnosticPendingBatchKey(date)
 		partition, version, err := inventory.Read[diagnosticPendingPartition](guarded, s.store, key)
 		if errors.Is(err, storage.ErrNotFound) {
+			s.diagnosticBatchBackoff.clear(date)
 			return nil
 		}
 		if err != nil {
@@ -190,6 +205,7 @@ func (s *Service) flushDiagnosticPendingPartitionLocked(ctx context.Context, dat
 	if deleteErr != nil {
 		return deleteErr
 	}
+	s.diagnosticBatchBackoff.clear(date)
 	for _, source := range pending.Sources {
 		s.queueDiagnosticSourceWake(source.SourceKey, time.Now().UTC())
 	}

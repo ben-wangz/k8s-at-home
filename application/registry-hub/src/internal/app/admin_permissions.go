@@ -10,7 +10,7 @@ func adminPermission(method, path string) string {
 	if method == http.MethodGet && (path == "/api/v1/history/retention" || strings.HasPrefix(path, "/api/v1/history/cleanup/")) {
 		return auth.Observe
 	}
-	if method == http.MethodPost && (path == "/api/v1/history/cleanup" || path == "/api/v1/history/cleanup/preview") {
+	if method == http.MethodPost && (path == "/api/v1/history/cleanup" || path == "/api/v1/history/cleanup/preview" || path == "/api/v1/history/cleanup/previews") {
 		return auth.HistoryCleanup
 	}
 	if method == http.MethodGet && (diagnosticAdminPath(path) || inventoryAdminPath(path) || strings.HasPrefix(path, "/api/v1/background") || path == "/api/v1/tasks" || strings.HasPrefix(path, "/api/v1/tasks/") || path == "/metrics") {

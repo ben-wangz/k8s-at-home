@@ -146,7 +146,7 @@ var defaultChecks = map[string][]string{
 	"feature-diagnostics":             {"feature-diagnostics.accounting", "feature-diagnostics.dependencies", "feature-diagnostics.restart"},
 	"feature-history-retention":       {"feature-history-retention.permissions", "feature-history-retention.preview", "feature-history-retention.submission", "feature-history-retention.principal-binding", "feature-history-retention.completion"},
 	"image-inventory":                 {"image-inventory.auth", "image-inventory.reference", "image-inventory.no-change-refresh", "image-inventory.snapshot", "image-inventory.validation"},
-	"default-render":                  {"default-render.closure-limits-defaulted", "default-render.service-readiness-routing"},
+	"default-render":                  {"default-render.closure-limits-defaulted", "default-render.service-readiness-routing", "default-render.integer-retention-seconds"},
 	"registry-protocol":               {"registry-protocol.version", "registry-protocol.errors", "registry-protocol.head", "registry-protocol.listeners"},
 	"client-interop":                  {"client-interop.podman", "client-interop.manifest", "client-interop.helm", "client-interop.oras-push-pull", "client-interop.oras-referrer", "client-interop.oras-delete", "client-interop.isolation"},
 	"podman-upstream-pull":            {"podman-upstream-pull.tag", "podman-upstream-pull.index-digest", "podman-upstream-pull.platform-digest", "podman-upstream-pull.corrupt-layer"},

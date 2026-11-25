@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/workqueue"
@@ -41,6 +40,10 @@ func (s *Service) cleanupWorkReceipt(ctx context.Context, entry storage.Entry, p
 		incrementSweepCount(progress, "skipped", 1)
 		return nil
 	}
+	if entry.Version != "" && version != "" && entry.Version != version {
+		incrementSweepCount(progress, "protected_version_changed", 1)
+		return nil
+	}
 	if version == "" {
 		version = sourceEntryVersion(entry)
 	}
@@ -57,7 +60,7 @@ func (s *Service) cleanupWorkReceipt(ctx context.Context, entry storage.Entry, p
 		incrementSweepCount(progress, "skipped", 1)
 		return nil
 	}
-	projectionKey := diagnostics.Prefix + "archive-projections/" + diagnostics.ID(entry.Key) + ".json"
+	projectionKey := diagnosticReceiptArchiveKey(entry.Key)
 	projection, _, err := inventory.Read[diagnosticReceiptArchive](ctx, s.store, projectionKey)
 	if errors.Is(err, storage.ErrNotFound) || err == nil && (!projection.Complete || !projection.HistoryProjected || !projection.OutboxComplete ||
 		projection.OutboxDispositionVersion != 1 || projection.ProjectionVersion != diagnosticReceiptProjectionVersion ||
@@ -145,9 +148,13 @@ func (s *Service) cleanupWorkReceipt(ctx context.Context, entry storage.Entry, p
 		incrementSweepCount(progress, "protected_version_changed", 1)
 		return nil
 	}
+	if err := inventory.ValidateWriteGuard(ctx); err != nil {
+		return err
+	}
 	err = s.store.DeleteIfMatch(ctx, entry.Key, current.Version)
 	if errors.Is(err, storage.ErrNotFound) {
-		err = nil
+		incrementSweepCount(progress, "missing", 1)
+		return nil
 	}
 	if errors.Is(err, storage.ErrUnknownCommit) {
 		_, headErr := s.store.Head(ctx, entry.Key)

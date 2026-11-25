@@ -104,7 +104,13 @@ func (s *Service) pendingDiagnosticSource(ctx context.Context, source string) (d
 		}
 		for _, entry := range entries {
 			partition, _, readErr := inventory.Read[diagnosticPendingPartition](ctx, s.store, entry.Key)
+			if errors.Is(readErr, storage.ErrNotFound) {
+				continue
+			}
 			if readErr != nil {
+				if date, ok := diagnosticPendingKeyDate(entry.Key); ok {
+					s.deferDiagnosticBatchRetry(date, readErr)
+				}
 				return diagnosticPendingSource{}, false, readErr
 			}
 			if partition.SchemaVersion != diagnosticPendingSchemaVersion || partition.Date == "" || partition.Batch == nil {
@@ -146,7 +152,7 @@ func (s *Service) admitDiagnosticOutboxBatch(ctx context.Context, source, source
 		return storage.ErrConditionFailed
 	}
 	date := diagnostics.EventBatchDate(events[0])
-	return s.withDiagnosticFencedLease(ctx, diagnosticPartitionLeaseKey(date), func(guarded context.Context) error {
+	return s.withDiagnosticPendingPartition(ctx, date, false, func(guarded context.Context) error {
 		key := diagnosticPendingBatchKey(date)
 		partition, version, err := inventory.Read[diagnosticPendingPartition](guarded, s.store, key)
 		if errors.Is(err, storage.ErrNotFound) {

@@ -4,13 +4,13 @@
   "dependsOn": [],
   "timeoutSeconds": 600,
   "preconditions": ["The isolated release uses run-scoped observer and history-cleanup credentials and a short retention profile."],
-  "assertions": ["Only the history-cleanup role can preview and submit cleanup; configured intervals and active retention workers are reported; expired previews, cleanup results, and terminal projections leave their query windows; automatic full-receipt cleanup deletes eligible test data."],
+  "assertions": ["Only the history-cleanup role can preview and submit cleanup; configured intervals and active retention workers are reported; asynchronous bounded-range previews expose their limits and executable segments; expired previews, cleanup results, and terminal projections leave their query windows; automatic full-receipt cleanup deletes eligible test data."],
   "checks": [
     {"id":"feature-history-retention.permissions","description":"Verify authentication and separate observe and history-cleanup permissions."},
-    {"id":"feature-history-retention.preview","description":"Verify server-defined preview categories and bounded preview responses."},
+    {"id":"feature-history-retention.preview","description":"Verify server-defined preview categories, bounded responses, and asynchronous UTC range previews."},
     {"id":"feature-history-retention.submission","description":"Verify durable submission, retry idempotency, and conflicting request rejection."},
     {"id":"feature-history-retention.principal-binding","description":"Verify cleanup previews and operation results remain bound to their principal."},
-    {"id":"feature-history-retention.completion","description":"Wait for cleanup completion, then verify preview, result, projection, and receipt expiry under the short profile."}
+    {"id":"feature-history-retention.completion","description":"Wait for cleanup completion, then verify preview, result, projection, receipt, and receipt archive expiry under the short profile."}
   ],
   "outputs": ["Policy version, preview IDs, operation ID and terminal cleanup counters."],
   "requirements": ["docs/diagnostics.md", "docs/security.md"]

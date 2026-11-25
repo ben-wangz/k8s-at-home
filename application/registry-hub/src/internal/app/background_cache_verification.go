@@ -105,6 +105,13 @@ func (s *Service) beginSourceSweepUnit(ctx context.Context, kind string) (contex
 	if kind == "cache_cleanup" {
 		return s.beginCachePayloadUnit(ctx, kind)
 	}
+	if retentionCleanupKind(kind) {
+		unit, release, admitted := s.beginBackgroundUnit(ctx, kind, historyCleanupRangeBudget)
+		if !admitted {
+			return unit, release, false
+		}
+		return withHistoryCleanupRequestBudget(unit, historyCleanupStorageRequests), release, true
+	}
 	return s.beginBackgroundUnit(ctx, kind, 15*time.Second)
 }
 

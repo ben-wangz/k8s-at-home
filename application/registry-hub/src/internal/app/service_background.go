@@ -28,7 +28,7 @@ func (s *Service) startBackgroundWorkers(ctx context.Context) {
 	queues := []struct {
 		kind string
 		step backgroundStep
-	}{{"inventory", s.projectManifestStep}, {"execution", s.projectExecutionStep}, {"download_cleanup", s.cleanupDownloadStep}, {"notify", s.notificationStep}, {"wake_root", s.wakeRootStep}, {"terminal_cleanup", s.terminalCleanupStep}, {"quota_wake", s.quotaWakeStep}, {"cache_verification", s.cacheVerificationStep}, {"distribution_verification", s.distributionVerificationStep}, {historyCleanupWorkKind, s.historyCleanupStep}}
+	}{{"inventory", s.projectManifestStep}, {"execution", s.projectExecutionStep}, {"download_cleanup", s.cleanupDownloadStep}, {"notify", s.notificationStep}, {"wake_root", s.wakeRootStep}, {"terminal_cleanup", s.terminalCleanupStep}, {"quota_wake", s.quotaWakeStep}, {"cache_verification", s.cacheVerificationStep}, {"distribution_verification", s.distributionVerificationStep}, {historyCleanupWorkKind, s.historyCleanupStep}, {historyCleanupPreviewKind, s.historyCleanupRangePreviewStep}}
 	for _, queue := range queues {
 		s.backgroundReady[queue.kind] = make(chan struct{}, 1)
 		workers = append(workers, func(ctx context.Context) { s.runBackgroundQueue(ctx, queue.kind, queue.step) })

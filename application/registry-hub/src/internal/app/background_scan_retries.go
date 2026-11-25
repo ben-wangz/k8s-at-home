@@ -23,6 +23,7 @@ type sourceSweepRetry struct {
 	Partition     string    `json:"partition"`
 	SourceKey     string    `json:"sourceKey"`
 	SourceVersion string    `json:"sourceVersion"`
+	SourceSize    *int64    `json:"sourceSize,omitempty"`
 	Revision      uint64    `json:"revision"`
 	Attempts      int       `json:"attempts"`
 	State         string    `json:"state"`
@@ -44,7 +45,7 @@ func sourceSweepUsesDurableRetry(kind string) bool {
 
 func sourceSweepRetryKinds() []string {
 	var kinds []string
-	for _, kind := range backgroundScanKinds {
+	for _, kind := range historyCleanupRetentionWorkerKinds() {
 		if sourceSweepUsesDurableRetry(kind) {
 			kinds = append(kinds, kind)
 		}
@@ -68,6 +69,19 @@ func sourceRetryID(kind, partition, key, version string) string {
 
 func sourceRetryRecordKey(kind, id string) string {
 	return sourceRetryPrefix + kind + "/" + id + ".json"
+}
+
+func (s *Service) sourceSweepRetryPending(ctx context.Context, kind string, entry storage.Entry) (bool, error) {
+	if !sourceSweepUsesDurableRetry(kind) {
+		return false, nil
+	}
+	// The retry dispatcher owns this version, including after its due time.
+	id := sourceRetryID(kind, sourceRetryPartition(kind, entry.Key), entry.Key, sourceEntryIdentity(entry))
+	_, err := s.store.Head(ctx, sourceRetryRecordKey(kind, id))
+	if errors.Is(err, storage.ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 func sourceRetryDueKey(kind string, due time.Time, id string, revision uint64) string {
@@ -115,6 +129,9 @@ func (s *Service) enqueueSourceSweepRetry(ctx context.Context, kind string, entr
 		}
 		retry := sourceSweepRetry{SchemaVersion: 1, ID: id, Kind: kind, Partition: partition, SourceKey: entry.Key, SourceVersion: version,
 			Revision: revision, Attempts: attempts, State: "pending", ErrorClass: diagnosticReason(cause), NextAttemptAt: next.UTC(), CreatedAt: created, UpdatedAt: now}
+		if terminalHistoryIndexBackfillWorker(kind) {
+			retry.SourceSize = &entry.Size
+		}
 		data, err := json.Marshal(retry)
 		if err != nil {
 			return err

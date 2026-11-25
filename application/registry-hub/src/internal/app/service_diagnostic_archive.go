@@ -73,9 +73,14 @@ type diagnosticReceiptArchive struct {
 }
 
 const diagnosticReceiptProjectionVersion = 5
+const diagnosticReceiptArchivePrefix = diagnostics.Prefix + "archive-projections/"
+
+func diagnosticReceiptArchiveKey(source string) string {
+	return diagnosticReceiptArchivePrefix + diagnostics.ID(source) + ".json"
+}
 
 func (s *Service) archiveDiagnosticReceipt(ctx context.Context, entry storage.Entry, p *sourceSweepCheckpoint) error {
-	stateKey := diagnostics.Prefix + "archive-projections/" + diagnostics.ID(entry.Key) + ".json"
+	stateKey := diagnosticReceiptArchiveKey(entry.Key)
 	state, stateVersion, stateErr := inventory.Read[diagnosticReceiptArchive](ctx, s.store, stateKey)
 	if stateErr != nil && !errors.Is(stateErr, storage.ErrNotFound) {
 		return stateErr

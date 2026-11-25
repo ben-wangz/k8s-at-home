@@ -27,6 +27,12 @@ func historyCleanupPrefixes(category string) []string {
 		return []string{terminalTransferHistoryPrefix, terminalTransferHistoryOrderPrefix}
 	case "storage_snapshot_history":
 		return []string{storageInventoryPrefix + "snapshots/"}
+	case "full_work_receipts":
+		return []string{workqueue.Prefix + "receipts/"}
+	case "diagnostic_collection_receipts":
+		return []string{diagnostics.Prefix + "collected/"}
+	case "transfer_observations":
+		return []string{diagnostics.Prefix + "transfers/", diagnostics.Prefix + "transfer-sessions/", diagnostics.Prefix + "upload-receipts/", diagnostics.Prefix + "transfer-progress/"}
 	default:
 		return nil
 	}

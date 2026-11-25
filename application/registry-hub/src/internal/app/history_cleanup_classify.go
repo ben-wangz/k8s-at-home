@@ -3,13 +3,11 @@ package app
 import (
 	"context"
 	"errors"
-	"strings"
-	"time"
-
-	"registry-hub/internal/diagnostics"
 	"registry-hub/internal/inventory"
 	"registry-hub/internal/storage"
 	"registry-hub/internal/workqueue"
+	"strings"
+	"time"
 )
 
 func (s *Service) classifyHistoryCleanupEntry(ctx context.Context, category string, entry storage.Entry, cutoff time.Time) (historyCleanupCandidate, error) {
@@ -26,6 +24,12 @@ func (s *Service) classifyHistoryCleanupEntry(ctx context.Context, category stri
 		return s.classifyTerminalTransferEntry(ctx, entry, cutoff)
 	case "storage_snapshot_history":
 		return s.classifyStorageSnapshotEntry(ctx, entry, cutoff)
+	case "full_work_receipts":
+		return s.classifyWorkReceiptEntry(ctx, entry, cutoff)
+	case "diagnostic_collection_receipts":
+		return s.classifyCollectionReceiptEntry(ctx, entry, cutoff)
+	case "transfer_observations":
+		return s.classifyTransferObservationEntry(ctx, entry, cutoff)
 	default:
 		return historyCleanupCandidate{Reason: "unsupported_category"}, nil
 	}
@@ -108,6 +112,9 @@ func (s *Service) classifyTerminalTransferEntry(ctx context.Context, entry stora
 }
 
 func (s *Service) classifyStorageSnapshotEntry(ctx context.Context, entry storage.Entry, cutoff time.Time) (historyCleanupCandidate, error) {
+	if !strings.HasSuffix(entry.Key, "/manifest.json") {
+		return historyCleanupCandidate{Reason: "snapshot_manifest_only"}, nil
+	}
 	parts := strings.Split(strings.TrimPrefix(entry.Key, storageInventoryPrefix+"snapshots/"), "/")
 	if len(parts) < 2 || !inventory.ValidID(parts[0]) {
 		return historyCleanupCandidate{Reason: "invalid_snapshot_key"}, nil
@@ -129,41 +136,4 @@ func (s *Service) classifyStorageSnapshotEntry(ctx context.Context, entry storag
 		return historyCleanupCandidate{Reason: "invalid_snapshot_manifest"}, nil
 	}
 	return historyCleanupCandidate{Eligible: !snapshot.ExpiresAt.After(cutoff), Reason: "live_snapshot"}, nil
-}
-
-func historyCleanupEventDate(key string) (string, bool) {
-	var date string
-	switch {
-	case strings.HasPrefix(key, diagnostics.Prefix+"events/"):
-		parts := strings.Split(strings.TrimPrefix(key, diagnostics.Prefix+"events/"), "/")
-		if len(parts) < 2 {
-			return "", false
-		}
-		date = parts[0]
-	case strings.HasPrefix(key, diagnostics.BatchPrefix):
-		parts := strings.Split(strings.TrimPrefix(key, diagnostics.BatchPrefix), "/")
-		if len(parts) < 2 {
-			return "", false
-		}
-		date = parts[0]
-	default:
-		return "", false
-	}
-	parsed, err := time.Parse("20060102", date)
-	return date, err == nil && parsed.UTC().Format("20060102") == date
-}
-
-func historyCleanupCoverage(category string) string {
-	switch category {
-	case "diagnostic_events":
-		return "legacy events and validated batch objects; whole UTC partitions before the cutoff date only"
-	case "terminal_work_history":
-		return "terminal projections and full receipts passing receipt, reference, outbox, and execution-fact guards"
-	case "terminal_transfer_history":
-		return "terminal history projections and their order indexes; source transfer state is protected"
-	case "storage_snapshot_history":
-		return "expired snapshot contents using the manifest, cursor, active-build, and conditional-delete checks"
-	default:
-		return "unknown"
-	}
 }

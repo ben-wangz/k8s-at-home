@@ -32,6 +32,15 @@ func (log Log) Append(ctx context.Context, event Event) error {
 	if event.ID == "" || event.OccurredAt.IsZero() || time.Since(event.OccurredAt) > log.retention() {
 		return nil
 	}
+	holder, err := acquireEventDayLease(ctx, log.Store, EventBatchDate(event))
+	if err != nil {
+		return err
+	}
+	defer releaseEventDayLease(ctx, log.Store, holder)
+	return log.appendLocked(ctx, event)
+}
+
+func (log Log) appendLocked(ctx context.Context, event Event) error {
 	behind, err := EventBehindWatermark(ctx, log.Store, event)
 	if err != nil {
 		return err

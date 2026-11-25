@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"strings"
 )
 
 func (s *Service) backgroundBudget(ctx context.Context) (func(), bool) {
@@ -71,8 +70,7 @@ func (s *Service) acquireBackgroundCapacity(ctx context.Context, kind string) (f
 }
 
 func (s *Service) acquireRetentionCleanupBudget(ctx context.Context, kind string) (func(), bool) {
-	if kind != historyCleanupWorkKind && kind != "receipt_cleanup" && kind != "receipt_cleanup_preview" &&
-		kind != "retry_request_retention" && !strings.HasPrefix(kind, "diagnostic_retention_") {
+	if !retentionCleanupKind(kind) {
 		return func() {}, ctx.Err() == nil
 	}
 	s.retentionCleanupOnce.Do(func() { s.retentionCleanupSlots = make(chan struct{}, 1) })

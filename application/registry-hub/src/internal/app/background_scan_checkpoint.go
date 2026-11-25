@@ -14,25 +14,27 @@ import (
 const backgroundStatusPublishInterval = 30 * time.Second
 
 type sourceSweepCheckpoint struct {
-	QuotaLastCandidates map[string]tasks.Task    `json:"quotaLastCandidates,omitempty"`
-	QuotaSignalRevision uint64                   `json:"quotaSignalRevision,omitempty"`
-	QuotaGateState      string                   `json:"quotaGateState,omitempty"`
-	QuotaCandidates     map[string]tasks.Task    `json:"quotaCandidates,omitempty"`
-	QuotaWakeIndex      int                      `json:"quotaWakeIndex,omitempty"`
-	Status              backgroundScanStatus     `json:"status"`
-	Cursor              inventory.Cursor         `json:"cursor"`
-	RetryIndexCursor    inventory.Cursor         `json:"retryIndexCursor,omitempty"`
-	Backoff             map[string]entityBackoff `json:"backoff"`
-	Round               uint64                   `json:"round"`
-	EventPartitionDate  string                   `json:"eventPartitionDate,omitempty"`
-	EventRoundEndDate   string                   `json:"eventRoundEndDate,omitempty"`
-	PreviewCountRound   uint64                   `json:"previewCountRound,omitempty"`
-	IdleRounds          int                      `json:"idleRounds,omitempty"`
-	RoundFailed         bool                     `json:"roundFailed"`
-	ScanRetries         int                      `json:"scanRetries"`
-	NextRound           time.Time                `json:"nextRound"`
-	DiagnosticOutbox    []diagnostics.Event      `json:"diagnosticOutbox,omitempty"`
-	StatusPublishedAt   time.Time                `json:"statusPublishedAt,omitempty"`
+	QuotaLastCandidates          map[string]tasks.Task    `json:"quotaLastCandidates,omitempty"`
+	QuotaSignalRevision          uint64                   `json:"quotaSignalRevision,omitempty"`
+	QuotaGateState               string                   `json:"quotaGateState,omitempty"`
+	QuotaCandidates              map[string]tasks.Task    `json:"quotaCandidates,omitempty"`
+	QuotaWakeIndex               int                      `json:"quotaWakeIndex,omitempty"`
+	Status                       backgroundScanStatus     `json:"status"`
+	Cursor                       inventory.Cursor         `json:"cursor"`
+	RetryIndexCursor             inventory.Cursor         `json:"retryIndexCursor,omitempty"`
+	Backoff                      map[string]entityBackoff `json:"backoff"`
+	Round                        uint64                   `json:"round"`
+	EventPartitionDate           string                   `json:"eventPartitionDate,omitempty"`
+	EventRoundEndDate            string                   `json:"eventRoundEndDate,omitempty"`
+	PreviewCountRound            uint64                   `json:"previewCountRound,omitempty"`
+	IdleRounds                   int                      `json:"idleRounds,omitempty"`
+	RoundFailed                  bool                     `json:"roundFailed"`
+	ScanRetries                  int                      `json:"scanRetries"`
+	NextRound                    time.Time                `json:"nextRound"`
+	DiagnosticOutbox             []diagnostics.Event      `json:"diagnosticOutbox,omitempty"`
+	StatusPublishedAt            time.Time                `json:"statusPublishedAt,omitempty"`
+	HistoryIndexBackfillVersion  int                      `json:"historyIndexBackfillVersion,omitempty"`
+	HistoryIndexBackfillComplete bool                     `json:"historyIndexBackfillComplete,omitempty"`
 }
 
 func sourceSweepKey(kind string) string { return "background/v1/source-checkpoints/" + kind + ".json" }

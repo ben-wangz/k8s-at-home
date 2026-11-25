@@ -103,23 +103,23 @@ spec:
             - name: REGISTRY_HUB_LIMIT_REFERRER_PAGES
               value: {{ .Values.backend.limits.referrerPages | quote }}
             - name: REGISTRY_HUB_INVENTORY_REFRESH_SECONDS
-              value: {{ .Values.backend.inventory.refreshSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.inventory.refreshSeconds) | quote }}
             - name: REGISTRY_HUB_INVENTORY_STALE_SECONDS
-              value: {{ .Values.backend.inventory.staleSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.inventory.staleSeconds) | quote }}
             - name: REGISTRY_HUB_INVENTORY_SNAPSHOT_RETENTION_SECONDS
-              value: {{ .Values.backend.inventory.snapshotRetentionSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.inventory.snapshotRetentionSeconds) | quote }}
             - name: REGISTRY_HUB_INVENTORY_FRAGMENT_REUSE_SECONDS
-              value: {{ .Values.backend.inventory.fragmentReuseSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.inventory.fragmentReuseSeconds) | quote }}
             - name: REGISTRY_HUB_INVENTORY_CONTENT_AUDIT_SECONDS
-              value: {{ .Values.backend.inventory.contentAuditSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.inventory.contentAuditSeconds) | quote }}
             - name: REGISTRY_HUB_INVENTORY_BATCH_SIZE
               value: {{ .Values.backend.inventory.batchSize | quote }}
             - name: REGISTRY_HUB_INVENTORY_BATCH_TIMEOUT_SECONDS
-              value: {{ .Values.backend.inventory.batchTimeoutSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.inventory.batchTimeoutSeconds) | quote }}
             - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_FLUSH_SECONDS
-              value: {{ .Values.backend.diagnostics.ordinaryEventFlushSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.ordinaryEventFlushSeconds) | quote }}
             - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_CRITICAL_FLUSH_SECONDS
-              value: {{ .Values.backend.diagnostics.criticalEventFlushSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.criticalEventFlushSeconds) | quote }}
             - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_BYTES_LIMIT
               value: {{ printf "%d" (int64 .Values.backend.diagnostics.eventBatchDailyBytesLimit) | quote }}
             - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_DAILY_COUNT_LIMIT
@@ -137,31 +137,31 @@ spec:
             - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_BATCH_GLOBAL_CRITICAL_RESERVE_COUNT
               value: {{ printf "%d" (int64 .Values.backend.diagnostics.eventBatchGlobalCriticalReserveCount) | quote }}
             - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_RETENTION_SECONDS
-              value: {{ .Values.backend.diagnostics.eventRetentionSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.eventRetentionSeconds) | quote }}
             - name: REGISTRY_HUB_DIAGNOSTIC_EVENT_BUDGET_RETENTION_SECONDS
-              value: {{ .Values.backend.diagnostics.eventBudgetRetentionSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.eventBudgetRetentionSeconds) | quote }}
             - name: REGISTRY_HUB_DIAGNOSTIC_COLLECTION_RETENTION_SECONDS
-              value: {{ .Values.backend.diagnostics.collectionRetentionSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.collectionRetentionSeconds) | quote }}
             - name: REGISTRY_HUB_RETRY_REQUEST_RETENTION_SECONDS
-              value: {{ .Values.backend.diagnostics.retryRequestRetentionSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.retryRequestRetentionSeconds) | quote }}
             - name: REGISTRY_HUB_DIAGNOSTIC_TRANSFER_RETENTION_SECONDS
-              value: {{ .Values.backend.diagnostics.transferRetentionSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.transferRetentionSeconds) | quote }}
             - name: REGISTRY_HUB_TRANSFER_EXPIRY_RETENTION_SECONDS
-              value: {{ .Values.backend.diagnostics.transferExpiryRetentionSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.transferExpiryRetentionSeconds) | quote }}
             - name: REGISTRY_HUB_TERMINAL_HISTORY_RETENTION_SECONDS
-              value: {{ .Values.backend.diagnostics.terminalHistoryRetentionSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.terminalHistoryRetentionSeconds) | quote }}
             - name: REGISTRY_HUB_FULL_WORK_RECEIPT_RETENTION_SECONDS
-              value: {{ .Values.backend.diagnostics.fullWorkReceiptRetentionSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.fullWorkReceiptRetentionSeconds) | quote }}
             - name: REGISTRY_HUB_HISTORY_CLEANUP_PREVIEW_TTL_SECONDS
-              value: {{ .Values.backend.diagnostics.historyCleanupPreviewTTLSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.historyCleanupPreviewTTLSeconds) | quote }}
             - name: REGISTRY_HUB_HISTORY_CLEANUP_RESULT_RETENTION_SECONDS
-              value: {{ .Values.backend.diagnostics.historyCleanupResultRetentionSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.historyCleanupResultRetentionSeconds) | quote }}
             - name: REGISTRY_HUB_HISTORY_SWEEP_INTERVAL_SECONDS
-              value: {{ .Values.backend.diagnostics.historySweepIntervalSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.historySweepIntervalSeconds) | quote }}
             - name: REGISTRY_HUB_HISTORY_SWEEP_MAX_INTERVAL_SECONDS
-              value: {{ .Values.backend.diagnostics.historySweepMaxIntervalSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.historySweepMaxIntervalSeconds) | quote }}
             - name: REGISTRY_HUB_HISTORY_RETENTION_SWEEP_INTERVAL_SECONDS
-              value: {{ .Values.backend.diagnostics.retentionSweepIntervalSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.diagnostics.retentionSweepIntervalSeconds) | quote }}
             - name: REGISTRY_HUB_HISTORY_PROJECTION_READS_ENABLED
               value: {{ .Values.backend.diagnostics.historyProjectionReadsEnabled | quote }}
             - name: REGISTRY_HUB_FULL_WORK_RECEIPT_CLEANUP_PREVIEW
@@ -169,7 +169,7 @@ spec:
             - name: REGISTRY_HUB_FULL_WORK_RECEIPT_CLEANUP_ENABLED
               value: {{ .Values.backend.diagnostics.fullWorkReceiptCleanupEnabled | quote }}
             - name: REGISTRY_HUB_SOLIDIFICATION_IDLE_TIMEOUT_SECONDS
-              value: {{ .Values.backend.solidification.idleTimeoutSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.backend.solidification.idleTimeoutSeconds) | quote }}
             - name: REGISTRY_HUB_SOLIDIFICATION_MAX_WAITING_ROOTS
               value: {{ .Values.backend.solidification.maxWaitingRoots | quote }}
             - name: REGISTRY_HUB_SOLIDIFICATION_MAX_BLOB_INTENTS
@@ -219,7 +219,7 @@ spec:
             - name: REGISTRY_HUB_S3_PART_SIZE
               value: {{ .Values.storage.s3.partSize | int64 | quote }}
             - name: REGISTRY_HUB_S3_TIMEOUT_SECONDS
-              value: {{ .Values.storage.s3.timeoutSeconds | quote }}
+              value: {{ printf "%d" (int64 .Values.storage.s3.timeoutSeconds) | quote }}
             - name: REGISTRY_HUB_S3_MAX_CONNECTIONS
               value: {{ .Values.storage.s3.maxConnections | quote }}
             - name: REGISTRY_HUB_S3_REPLAY_MEMORY_BYTES

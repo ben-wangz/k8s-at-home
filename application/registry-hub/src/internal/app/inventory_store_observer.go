@@ -8,6 +8,9 @@ import (
 )
 
 func (s *observedStore) Fingerprint(ctx context.Context, key string) (storage.Entry, string, error) {
+	if err := consumeHistoryCleanupStorageRequest(ctx); err != nil {
+		return storage.Entry{}, "", err
+	}
 	if source, ok := s.Store.(storage.Fingerprinter); ok {
 		entry, fingerprint, err := source.Fingerprint(ctx, key)
 		if fingerprint != "" || err != nil {
@@ -19,6 +22,9 @@ func (s *observedStore) Fingerprint(ctx context.Context, key string) (storage.En
 }
 
 func (s *observedStore) ListMetadata(ctx context.Context, prefix, token string, limit int) ([]storage.Entry, string, error) {
+	if err := consumeHistoryCleanupStorageRequest(ctx); err != nil {
+		return nil, "", err
+	}
 	started := time.Now()
 	callCtx := attributedStorageContext(ctx, "list", prefix)
 	entries, next, err := storage.Scan(callCtx, s.Store, prefix, token, limit)

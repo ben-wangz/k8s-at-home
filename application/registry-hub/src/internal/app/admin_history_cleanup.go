@@ -22,7 +22,7 @@ func (s *Service) serveHistoryCleanup(writer http.ResponseWriter, request *http.
 		}
 		view, err := s.historyCleanupRetention(ctx)
 		if err != nil {
-			writeInventoryError(writer, err)
+			s.writeHistoryCleanupError(writer, http.StatusServiceUnavailable, err)
 			return
 		}
 		writeJSON(writer, http.StatusOK, view)
@@ -42,10 +42,34 @@ func (s *Service) serveHistoryCleanup(writer http.ResponseWriter, request *http.
 			return
 		}
 		if err != nil {
-			writeInventoryError(writer, err)
+			s.writeHistoryCleanupError(writer, http.StatusServiceUnavailable, err)
 			return
 		}
 		writeJSON(writer, http.StatusOK, preview)
+	case request.URL.Path == "/api/v1/history/cleanup/previews" && request.Method == http.MethodPost:
+		var body historyCleanupRangeRequest
+		if len(request.URL.Query()) != 0 || decodeAdminBody(writer, request, &body) != nil {
+			writeInventoryError(writer, inventory.ErrInvalid)
+			return
+		}
+		preview, err := s.createHistoryCleanupRangePreview(ctx, principal.Name, body)
+		if errors.Is(err, storage.ErrCorruptObject) {
+			writeInventoryError(writer, inventory.ErrInvalid)
+			return
+		}
+		if errors.Is(err, errHistoryCleanupCapacity) {
+			writeAdminError(writer, http.StatusTooManyRequests, "CAPACITY", "cleanup preview capacity is full")
+			return
+		}
+		if err != nil {
+			status := http.StatusServiceUnavailable
+			if errors.Is(err, storage.ErrConditionFailed) || errors.Is(err, storage.ErrNotFound) && body.Cursor != "" {
+				status = http.StatusConflict
+			}
+			s.writeHistoryCleanupError(writer, status, err)
+			return
+		}
+		writeJSON(writer, http.StatusAccepted, preview)
 	case request.URL.Path == "/api/v1/history/cleanup" && request.Method == http.MethodPost:
 		var body historyCleanupExecutionRequest
 		if len(request.URL.Query()) != 0 || decodeAdminBody(writer, request, &body) != nil {
@@ -58,6 +82,26 @@ func (s *Service) serveHistoryCleanup(writer http.ResponseWriter, request *http.
 			return
 		}
 		writeJSON(writer, http.StatusAccepted, view)
+	case len(request.URL.Query()) == 0 && request.Method == http.MethodGet && strings.HasPrefix(request.URL.Path, "/api/v1/history/cleanup/previews/"):
+		id := strings.TrimPrefix(request.URL.Path, "/api/v1/history/cleanup/previews/")
+		if !inventory.ValidID(id) {
+			writeInventoryError(writer, inventory.ErrInvalid)
+			return
+		}
+		preview, err := s.historyCleanupRangePreviewStatus(ctx, id, principal.Name)
+		if errors.Is(err, inventory.ErrExpired) {
+			writeAdminError(writer, http.StatusGone, "HISTORY_EXPIRED", "cleanup preview has expired")
+			return
+		}
+		if errors.Is(err, storage.ErrNotFound) {
+			writeAdminError(writer, http.StatusNotFound, "NAME_UNKNOWN", "cleanup preview does not exist")
+			return
+		}
+		if err != nil {
+			s.writeHistoryCleanupError(writer, http.StatusServiceUnavailable, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, preview)
 	case len(request.URL.Query()) == 0 && request.Method == http.MethodGet && strings.HasPrefix(request.URL.Path, "/api/v1/history/cleanup/"):
 		id := strings.TrimPrefix(request.URL.Path, "/api/v1/history/cleanup/")
 		if !inventory.ValidID(id) {
@@ -74,7 +118,7 @@ func (s *Service) serveHistoryCleanup(writer http.ResponseWriter, request *http.
 			return
 		}
 		if err != nil {
-			writeInventoryError(writer, err)
+			s.writeHistoryCleanupError(writer, http.StatusServiceUnavailable, err)
 			return
 		}
 		writeJSON(writer, http.StatusOK, view)
@@ -96,7 +140,7 @@ func (s *Service) writeHistoryCleanupError(writer http.ResponseWriter, status in
 	case http.StatusTooManyRequests:
 		writeAdminError(writer, http.StatusTooManyRequests, "CAPACITY", "cleanup operation capacity is full")
 	default:
-		writeAdminError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "cleanup request could not be persisted")
+		writeAdminError(writer, http.StatusServiceUnavailable, "UNAVAILABLE", "history cleanup storage is temporarily unavailable")
 	}
 }
 

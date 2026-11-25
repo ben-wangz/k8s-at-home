@@ -129,6 +129,17 @@ func (s *Service) releaseHistoryProjectionBudget(ctx context.Context, prefix, ke
 	return s.restoreHistoryProjectionBudget(ctx, prefix, key, size, 0)
 }
 
+func (s *Service) releaseHistoryProjectionBudgetForCategory(ctx context.Context, category, key string, size int64) error {
+	switch category {
+	case "terminal_work_history":
+		return s.releaseHistoryProjectionBudget(ctx, terminalWorkHistoryPrefix, key, size)
+	case "terminal_transfer_history":
+		return s.releaseHistoryProjectionBudget(ctx, terminalTransferHistoryPrefix, key, size)
+	default:
+		return nil
+	}
+}
+
 func historyOrderKey(prefix string, at time.Time, kind, id, revision string) string {
 	orderedTime := uint64(at.UTC().UnixNano()) ^ (uint64(1) << 63)
 	return fmt.Sprintf("%s%020d/%s/%s/%s.json", prefix, ^orderedTime, url.PathEscape(kind), url.PathEscape(id), url.PathEscape(revision))

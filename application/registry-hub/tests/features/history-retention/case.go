@@ -65,7 +65,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err != nil || status != http.StatusOK {
 		return fmt.Errorf("read retention policy status=%d error=%v", status, err)
 	}
-	if testkit.String(retention["policyVersion"]) == "" || len(testkit.Map(retention["policies"])) != 4 {
+	if testkit.String(retention["policyVersion"]) == "" || len(testkit.Map(retention["policies"])) != 7 {
 		return fmt.Errorf("retention response is missing the effective policy: %v", retention)
 	}
 	retentionProfile := map[string]int64{
@@ -147,6 +147,10 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err != nil {
 		return err
 	}
+	rangePreviewID, rangePreview, rangeOperationID, err := exerciseRangeCleanup(ctx, environment, credentials.Operator, credentials.Observer)
+	if err != nil {
+		return err
+	}
 	completedAt, err := parseTime(completed["completedAt"])
 	if err != nil {
 		return fmt.Errorf("cleanup result omitted its completion time: %w", err)
@@ -183,8 +187,9 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	if err != nil {
 		return err
 	}
-	if status, _, err := callWithHeaders(ctx, environment, &credentials.Operator, http.MethodPost, "/api/v1/history/cleanup", string(expiredRequest), map[string]string{"Idempotency-Key": "expired-preview-" + expiredPreview.ID}); err != nil || status != http.StatusGone {
-		return fmt.Errorf("expired cleanup preview submission status=%d error=%v", status, err)
+	expiredPreviewStatus, _, err := callWithHeaders(ctx, environment, &credentials.Operator, http.MethodPost, "/api/v1/history/cleanup", string(expiredRequest), map[string]string{"Idempotency-Key": "expired-preview-" + expiredPreview.ID})
+	if err != nil || expiredPreviewStatus != http.StatusGone && expiredPreviewStatus != http.StatusNotFound {
+		return fmt.Errorf("expired cleanup preview submission status=%d error=%v", expiredPreviewStatus, err)
 	}
 	if status, _, err := call(ctx, environment, &credentials.Operator, http.MethodGet, statusURL, ""); err != nil || status != http.StatusGone {
 		return fmt.Errorf("expired cleanup result status=%d error=%v", status, err)
@@ -195,7 +200,7 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 	receiptTTLGap := time.Duration(retentionProfile["fullWorkReceiptRetention"]-retentionProfile["terminalHistoryRetention"]) * time.Second
 	retentionSweep := time.Duration(retentionProfile["retentionSweepInterval"]) * time.Second
 	receiptCleanupWait := receiptTTLGap + min(retentionSweep*4, time.Minute) + 30*time.Second
-	receiptCleanup, err := waitForReceiptCleanup(ctx, environment, credentials.Observer, receiptCleanupWait)
+	receiptCleanup, archiveCleanup, err := waitForReceiptCleanup(ctx, environment, credentials.Observer, receiptCleanupWait)
 	if err != nil {
 		return err
 	}
@@ -203,14 +208,18 @@ func Run(ctx context.Context, environment testkit.CaseContext) error {
 		"policyVersion":                first.PolicyVersion,
 		"retentionProfile":             retentionProfile,
 		"previewIDs":                   []string{first.ID, second.ID, expiredPreview.ID},
+		"rangePreviewID":               rangePreviewID,
+		"rangePreviewStatus":           rangePreview["status"],
+		"rangeOperationID":             rangeOperationID,
 		"operationID":                  operationID,
 		"operation":                    completed,
 		"terminalHistoryAt":            terminalAt,
 		"terminalHistoryExpires":       terminalHistoryExpiresAt,
 		"historyProjectionWaitSeconds": int64(projectionWait / time.Second),
-		"expiredPreviewStatus":         http.StatusGone,
+		"expiredPreviewStatus":         expiredPreviewStatus,
 		"expiredResultStatus":          http.StatusGone,
 		"expiredHistoryStatus":         http.StatusGone,
 		"receiptCleanupDeleted":        receiptCleanup,
+		"receiptArchiveCleanupDeleted": archiveCleanup,
 	})
 }

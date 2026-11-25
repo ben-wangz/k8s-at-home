@@ -37,6 +37,9 @@ func (s *Service) storageSnapshot(ctx context.Context, id string) (storageSnapsh
 			err = inventory.ErrNotObserved
 		}
 	}
+	if err == nil && id != "" {
+		snapshot.ExpiresAt, err = s.storageSnapshotExpiry(ctx, snapshot)
+	}
 	if err == nil && !snapshot.ExpiresAt.After(time.Now()) {
 		if id != "" {
 			err = inventory.ErrExpired

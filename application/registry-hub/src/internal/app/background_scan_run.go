@@ -20,6 +20,7 @@ func (s *Service) runSourceSweepStateLeader(ctx context.Context, holder lease.Le
 		s.backgroundEvent(kind, "checkpoint_read_failed", err)
 		return
 	}
+	prepareTerminalHistoryIndexBackfill(kind, &p)
 	if p.Backoff == nil {
 		p.Backoff = map[string]entityBackoff{}
 	}

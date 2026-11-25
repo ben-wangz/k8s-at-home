@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -28,11 +27,17 @@ func (s *Service) historyCleanupStatus(ctx context.Context, id, principal string
 		if readErr != nil {
 			return historyCleanupTaskView{}, readErr
 		}
-		if operation.SchemaVersion != 1 || operation.ID != id || operation.PreviewID != payload.PreviewID {
+		if operation.SchemaVersion != 1 || operation.ID != id || operation.PreviewID != payload.PreviewID || operation.SegmentID != payload.SegmentID {
 			return historyCleanupTaskView{}, storage.ErrCorruptObject
 		}
 		if operation.Principal != principal {
 			return historyCleanupTaskView{}, storage.ErrNotFound
+		}
+		if job.State == "failed" {
+			operation, readErr = s.refreshHistoryCleanupOperationStatus(ctx, operation)
+			if readErr != nil {
+				return historyCleanupTaskView{}, readErr
+			}
 		}
 		if !operation.ExpiresAt.IsZero() && !operation.ExpiresAt.After(time.Now().UTC()) {
 			return historyCleanupTaskView{}, inventory.ErrExpired
@@ -70,8 +75,12 @@ func historyCleanupViewFromJob(job workqueue.Job, operation historyCleanupOperat
 	view := historyCleanupTaskView{
 		ID: job.ID, PreviewID: operation.PreviewID, Status: job.State, StatusURL: "/api/v1/history/cleanup/" + job.ID,
 		PolicyVersion: operation.PolicyVersion, Categories: operation.Categories, Cutoff: operation.Cutoff,
-		Counts: progress.Counts, CreatedAt: job.CreatedAt, CompletedAt: completedAt,
+		Range: operation.Range, SegmentID: operation.SegmentID,
+		Counts: operation.Counts, CreatedAt: job.CreatedAt, CompletedAt: completedAt,
 		ExpiresAt: operation.ExpiresAt, LastError: job.ErrorClass, NextRetry: job.NextAttemptAt,
+	}
+	if view.Counts == nil {
+		view.Counts = progress.Counts
 	}
 	if job.State == "failed" {
 		view.Failed = 1
@@ -84,6 +93,7 @@ func historyCleanupViewFromOperation(operation historyCleanupOperation) historyC
 		ID: operation.ID, PreviewID: operation.PreviewID, Status: operation.Status,
 		StatusURL: "/api/v1/history/cleanup/" + operation.ID, PolicyVersion: operation.PolicyVersion,
 		Categories: operation.Categories, Cutoff: operation.Cutoff, Counts: operation.Counts,
+		Range: operation.Range, SegmentID: operation.SegmentID,
 		CreatedAt: operation.CreatedAt, CompletedAt: operation.CompletedAt, ExpiresAt: operation.ExpiresAt,
 	}
 	return addHistoryCleanupTotals(view)
@@ -94,6 +104,7 @@ func addHistoryCleanupTotals(view historyCleanupTaskView) historyCleanupTaskView
 		view.Scanned += counts.Scanned
 		view.Deleted += counts.Deleted
 		view.Missing += counts.Missing
+		view.Unconfirmed += counts.Unconfirmed
 		view.Skipped += counts.Skipped
 		view.Failed += counts.Failed
 		view.DeletedBytes += counts.DeletedBytes
@@ -118,10 +129,13 @@ func (s *Service) historyCleanupRetention(ctx context.Context) (historyCleanupRe
 	view := historyCleanupRetentionView{
 		PolicyVersion: historyCleanupPolicyVersion,
 		Policies: map[string]string{
-			"diagnostic_events":         fmt.Sprintf("automatic cleanup after %s; manual cleanup removes whole UTC partitions before the sealed cutoff date", diagnosticsConfig.EventRetention),
-			"terminal_work_history":     fmt.Sprintf("%s projection history; full receipts require %s age and complete replay, execution, reference, and outbox proofs", diagnosticsConfig.TerminalHistoryRetention, diagnosticsConfig.FullWorkReceiptRetention),
-			"terminal_transfer_history": fmt.Sprintf("%s terminal projection; active source transfer state is outside the manual history scope", diagnosticsConfig.TerminalHistoryRetention),
-			"storage_snapshot_history":  "manifest expiry; latest and active collection data remains protected",
+			"diagnostic_events":              fmt.Sprintf("automatic cleanup after %s; manual cleanup seals and removes selected UTC time ranges", diagnosticsConfig.EventRetention),
+			"terminal_work_history":          fmt.Sprintf("%s projection history; full receipts require %s age and complete replay, execution, reference, and outbox proofs", diagnosticsConfig.TerminalHistoryRetention, diagnosticsConfig.FullWorkReceiptRetention),
+			"terminal_transfer_history":      fmt.Sprintf("%s terminal projection; active source transfer state is outside the manual history scope", diagnosticsConfig.TerminalHistoryRetention),
+			"storage_snapshot_history":       "manifest expiry; latest and active collection data remains protected",
+			"full_work_receipts":             fmt.Sprintf("completed receipts older than %s with settled handoff and verified replacement evidence", diagnosticsConfig.FullWorkReceiptRetention),
+			"diagnostic_collection_receipts": fmt.Sprintf("receipts older than %s after all source handoffs settle", diagnosticsConfig.CollectedReceiptRetention),
+			"transfer_observations":          fmt.Sprintf("terminal transfer state and transfer observations older than %s", diagnosticsConfig.TransferObservationRetention),
 		},
 		DurationsSeconds: map[string]int64{
 			"diagnosticEventRetention":       int64(diagnosticsConfig.EventRetention.Seconds()),
@@ -141,6 +155,9 @@ func (s *Service) historyCleanupRetention(ctx context.Context) (historyCleanupRe
 			"criticalEventFlushInterval":     int64(diagnosticsConfig.CriticalEventFlushInterval.Seconds()),
 		},
 		KnownEligibleVolume: map[string]historyCleanupCounts{}, ObservedAt: time.Now().UTC(),
+		Workers:         map[string]historyCleanupWorkerSummary{},
+		RangeLimits:     currentHistoryCleanupRangeLimits(),
+		ReceiptBackfill: historyCleanupReceiptBackfill{AutomaticCleanupEnabled: diagnosticsConfig.FullWorkReceiptCleanupEnabled},
 	}
 	operations, err := s.readHistoryCleanupOperations(ctx)
 	if err != nil {
@@ -153,56 +170,26 @@ func (s *Service) historyCleanupRetention(ctx context.Context) (historyCleanupRe
 		}
 		view.LastCleanup = &last
 	}
-	previews, _, err := storage.Scan(ctx, s.store, historyCleanupPreviewPrefix, "", 1000)
-	if err != nil {
+	if err := s.readHistoryCleanupEligibleVolume(ctx, &view); err != nil {
 		return historyCleanupRetentionView{}, err
 	}
-	var latest historyCleanupPreview
-	now := time.Now().UTC()
-	for _, entry := range previews {
-		candidate, _, err := inventory.Read[historyCleanupPreview](ctx, s.store, entry.Key)
+	for _, worker := range historyCleanupRetentionWorkerKinds() {
+		if !retentionCleanupKind(worker) {
+			continue
+		}
+		status, err := readSourceScanStatus(ctx, s.store, worker)
 		if err != nil {
 			continue
 		}
-		if candidate.Complete && candidate.ExpiresAt.After(now) && candidate.CreatedAt.After(latest.CreatedAt) {
-			latest = candidate
-		}
-	}
-	if latest.Counts != nil {
-		view.KnownEligibleVolume = latest.Counts
-	}
-	for _, worker := range []string{"diagnostic_retention_events", "diagnostic_retention_work_history", "diagnostic_retention_transfer_history", "diagnostic_retention_storage_snapshots"} {
-		status, err := readSourceScanStatus(ctx, s.store, worker)
-		if err == nil && !status.NextScanAt.IsZero() && (view.NextRun.IsZero() || status.NextScanAt.Before(view.NextRun)) {
+		view.Workers[worker] = historyCleanupWorkerSummary{LastSuccessAt: status.LastSuccessAt,
+			LastSuccessfulRound: status.LastSuccessfulRound, PendingRetries: status.PendingRetries, Deleted: status.Counts["deleted"]}
+		if !status.NextScanAt.IsZero() && (view.NextRun.IsZero() || status.NextScanAt.Before(view.NextRun)) {
 			view.NextRun = status.NextScanAt
 		}
 	}
+	if status, err := readSourceScanStatus(ctx, s.store, "history_receipts"); err == nil {
+		view.ReceiptBackfill.InitialRoundVerified = !status.LastSuccessAt.IsZero() && status.PendingRetries == 0
+		view.ReceiptBackfill.PendingRetries = status.PendingRetries
+	}
 	return view, nil
-}
-
-func (s *Service) readHistoryCleanupOperations(ctx context.Context) ([]historyCleanupOperation, error) {
-	entries, _, err := storage.Scan(ctx, s.store, historyCleanupOperationPrefix, "", 1000)
-	if err != nil {
-		return nil, err
-	}
-	operations := make([]historyCleanupOperation, 0, len(entries))
-	now := time.Now().UTC()
-	for _, entry := range entries {
-		operation, _, err := inventory.Read[historyCleanupOperation](ctx, s.store, entry.Key)
-		if errors.Is(err, storage.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		if operation.Status == "completed" && !operation.ExpiresAt.IsZero() && !operation.ExpiresAt.After(now) {
-			continue
-		}
-		operations = append(operations, operation)
-	}
-	sort.Slice(operations, func(i, j int) bool { return operations[i].CreatedAt.After(operations[j].CreatedAt) })
-	if len(operations) > historyCleanupMaxResults {
-		operations = operations[:historyCleanupMaxResults]
-	}
-	return operations, nil
 }

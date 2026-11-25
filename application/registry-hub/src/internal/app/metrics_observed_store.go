@@ -23,6 +23,9 @@ func (s *observedStore) ReplayUsage() (int64, int64, int) {
 }
 
 func (s *observedStore) Get(ctx context.Context, key string) (storage.Object, error) {
+	if err := consumeHistoryCleanupStorageRequest(ctx); err != nil {
+		return storage.Object{}, err
+	}
 	started := time.Now()
 	callCtx := attributedStorageContext(ctx, "get", key)
 	ioCtx := storage.WithIOObserver(callCtx, s.ObserveIO)
@@ -36,6 +39,9 @@ func (s *observedStore) Get(ctx context.Context, key string) (storage.Object, er
 }
 
 func (s *observedStore) Head(ctx context.Context, key string) (storage.Entry, error) {
+	if err := consumeHistoryCleanupStorageRequest(ctx); err != nil {
+		return storage.Entry{}, err
+	}
 	started := time.Now()
 	callCtx := attributedStorageContext(ctx, "head", key)
 	entry, err := s.Store.Head(storage.WithIOObserver(callCtx, s.ObserveIO), key)
@@ -45,6 +51,9 @@ func (s *observedStore) Head(ctx context.Context, key string) (storage.Entry, er
 }
 
 func (s *observedStore) Put(ctx context.Context, key string, body io.Reader, size int64, options storage.PutOptions) (storage.Entry, error) {
+	if err := consumeHistoryCleanupStorageRequest(ctx); err != nil {
+		return storage.Entry{}, err
+	}
 	started := time.Now()
 	callCtx := attributedStorageContext(ctx, "put", key)
 	source := &storage.CountingReader{Reader: body}
@@ -59,6 +68,9 @@ func (s *observedStore) Put(ctx context.Context, key string, body io.Reader, siz
 }
 
 func (s *observedStore) PutVerified(ctx context.Context, key string, body io.Reader, size int64, options storage.VerifiedPutOptions) (storage.Entry, error) {
+	if err := consumeHistoryCleanupStorageRequest(ctx); err != nil {
+		return storage.Entry{}, err
+	}
 	source, ok := s.Store.(storage.VerifiedPutter)
 	if !ok {
 		return storage.Entry{}, errors.ErrUnsupported
@@ -83,6 +95,9 @@ func (s *observedStore) PutVerified(ctx context.Context, key string, body io.Rea
 }
 
 func (s *observedStore) Delete(ctx context.Context, key string) error {
+	if err := consumeHistoryCleanupStorageRequest(ctx); err != nil {
+		return err
+	}
 	started := time.Now()
 	callCtx := attributedStorageContext(ctx, "delete", key)
 	err := s.Store.Delete(callCtx, key)
@@ -92,6 +107,9 @@ func (s *observedStore) Delete(ctx context.Context, key string) error {
 }
 
 func (s *observedStore) DeleteIfMatch(ctx context.Context, key, version string) error {
+	if err := consumeHistoryCleanupStorageRequest(ctx); err != nil {
+		return err
+	}
 	started := time.Now()
 	callCtx := attributedStorageContext(ctx, "delete_if_match", key)
 	err := s.Store.DeleteIfMatch(storage.WithIOObserver(callCtx, s.ObserveIO), key, version)
@@ -101,6 +119,9 @@ func (s *observedStore) DeleteIfMatch(ctx context.Context, key, version string) 
 }
 
 func (s *observedStore) List(ctx context.Context, prefix, token string, limit int) ([]storage.Entry, string, error) {
+	if err := consumeHistoryCleanupStorageRequest(ctx); err != nil {
+		return nil, "", err
+	}
 	started := time.Now()
 	callCtx := attributedStorageContext(ctx, "list", prefix)
 	entries, next, err := s.Store.List(storage.WithIOObserver(callCtx, s.ObserveIO), prefix, token, limit)

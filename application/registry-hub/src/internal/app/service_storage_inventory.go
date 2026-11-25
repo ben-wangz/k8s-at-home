@@ -14,6 +14,8 @@ import (
 )
 
 const storageInventoryRescanInterval = 15 * time.Minute
+const storageInventoryPreviousRetention = 7 * 24 * time.Hour
+const storageInventoryLatestRetention = 14 * 24 * time.Hour
 
 func (s *Service) registryInspectionStore(ctx context.Context) (storage.Store, error) {
 	switch s.cfg.RegistryInspection.Backend {
@@ -137,6 +139,12 @@ func (s *Service) advanceStorageCollection(ctx context.Context, state *storageCo
 				}
 			}
 			state.Snapshot.Pages++
+			encoded, err := json.Marshal(state.PendingRows)
+			if err != nil {
+				return err
+			}
+			state.Snapshot.DetailRows += len(state.PendingRows)
+			state.Snapshot.DetailBytes += int64(len(encoded))
 		}
 		state.SourceOffset = state.PendingOffset
 		applyStorageOutputSummary(state)
@@ -184,56 +192,4 @@ func (s *Service) advanceStorageCollection(ctx context.Context, state *storageCo
 		return nil
 	}
 	return s.prepareStoragePage(ctx, state, store, domain)
-}
-
-func (s *Service) publishStorageCollection(ctx context.Context, state *storageCollection) error {
-	if state.UsageMerge.Phase == "" && state.OutputUsage.Objects > 0 {
-		state.Usage[storageUsageKey(state.OutputUsage)] = state.OutputUsage
-		if err := s.flushStorageUsage(ctx, state); err != nil {
-			return err
-		}
-		state.OutputUsage = storageUsage{}
-		return nil
-	}
-	if state.Snapshot.UsageVersion > 0 && state.UsageMerge.Phase != "done" {
-		return s.advanceStorageUsageMergeUnit(ctx, state)
-	}
-	if state.Snapshot.CompletedAt.IsZero() {
-		if storageSummaryOnly(state) && !state.OutputCostComplete {
-			return s.collectStorageOutputCost(ctx, state)
-		}
-		state.Snapshot.CompletedAt = time.Now().UTC()
-		state.Snapshot.ExpiresAt = state.Snapshot.CompletedAt.Add(time.Hour)
-		bytes, sessions, err := s.downloadManager().Usage(ctx)
-		if err == nil {
-			state.Snapshot.DownloadReservedBytes = &bytes
-			state.Snapshot.DownloadReservations = &sessions
-			state.Snapshot.ReservationObservedAt = time.Now().UTC()
-		} else {
-			state.Snapshot.Reasons = appendUniqueReason(state.Snapshot.Reasons, "reservation_"+diagnosticReason(err))
-		}
-		for _, usage := range state.Usage {
-			state.Snapshot.Usage = append(state.Snapshot.Usage, usage)
-		}
-		sortStorageUsage(state.Snapshot.Usage, true)
-		return nil
-	}
-	key := storageInventoryPrefix + "snapshots/" + state.Snapshot.SnapshotID + "/manifest.json"
-	if err := s.inventory.Immutable(ctx, key, state.Snapshot); err != nil {
-		return err
-	}
-	if err := inventory.Update(ctx, s.store, storageInventoryPrefix+"current.json", func(value *storageSnapshot) error {
-		if value.StartedAt.After(state.Snapshot.StartedAt) {
-			return storage.ErrConditionFailed
-		}
-		*value = state.Snapshot
-		return nil
-	}); err != nil {
-		return err
-	}
-	if s.metrics != nil && s.metrics.storageCollection != nil {
-		s.metrics.storageCollection.WithLabelValues("publication", "all").Observe(time.Since(state.Snapshot.StartedAt).Seconds())
-	}
-	*state = storageCollection{NextScanAt: time.Now().Add(storageInventoryRescanInterval), LastCompletedAt: state.Snapshot.CompletedAt}
-	return nil
 }
